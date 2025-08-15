@@ -1,0 +1,14 @@
+[package]
+name = "mollie-shared"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+cranelift = ["dep:cranelift"]
+
+[dependencies]
+cranelift = { workspace = true, optional = true }
+serde = { version = "1.0.219", features = ["derive"] }
+
+[lints]
+workspace = true

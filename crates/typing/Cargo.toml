@@ -1,0 +1,15 @@
+[package]
+name = "mollie-typing"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+serde = ["dep:serde"]
+
+[dependencies]
+cranelift = { workspace = true }
+mollie-shared = { workspace = true, features = ["cranelift"] }
+serde = { workspace = true, optional = true }
+
+[lints]
+workspace = true
