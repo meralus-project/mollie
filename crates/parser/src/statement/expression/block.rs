@@ -62,6 +62,9 @@ impl Parse for BlockExpr {
         let final_statement = final_statement.map(Box::new);
         let end = parser.consume(&Token::BraceClose)?;
 
-        Ok(start.between(&end).wrap(Self { stmts: statements, final_stmt: final_statement }))
+        Ok(start.between(&end).wrap(Self {
+            stmts: statements,
+            final_stmt: final_statement,
+        }))
     }
 }

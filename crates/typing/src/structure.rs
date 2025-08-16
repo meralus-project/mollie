@@ -1,6 +1,6 @@
 use std::fmt::{self, Write};
 
-use cranelift::{jit::JITModule, module::Module, prelude::InstBuilder};
+use cranelift::prelude::{FunctionBuilder, InstBuilder, Value, isa::TargetIsa};
 use mollie_shared::{
     cranelift::stack_alloc,
     pretty_fmt::{PrettyFmt, indent_down, indent_up},
@@ -34,20 +34,14 @@ impl Struct {
         }
     }
 
-    pub fn instance<T: IntoIterator<Item = cranelift::prelude::Value>>(
-        &self,
-        module: &JITModule,
-        fn_builder: &mut cranelift::prelude::FunctionBuilder,
-        values: T,
-    ) -> cranelift::prelude::Value {
-        let size_t = module.isa().pointer_type();
+    pub fn instance<T: IntoIterator<Item = Value>>(&self, isa: &dyn TargetIsa, fn_builder: &mut FunctionBuilder, values: T) -> Value {
         let slot = stack_alloc(fn_builder, self.size);
 
         for (field, value) in self.fields.iter().zip(values) {
             fn_builder.ins().stack_store(value, slot, field.offset);
         }
 
-        fn_builder.ins().stack_addr(size_t, slot, 0)
+        fn_builder.ins().stack_addr(isa.pointer_type(), slot, 0)
     }
 }
 
@@ -62,7 +56,7 @@ pub struct Field {
 pub struct StructType {
     pub generics: Vec<String>,
     pub properties: Vec<(String, Type)>,
-    #[cfg_attr(feature = "serde", serde(skip_deserializing, skip_serializing))]
+    #[cfg_attr(feature = "serde", serde(skip))]
     pub structure: Struct,
 }
 

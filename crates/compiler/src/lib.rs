@@ -11,7 +11,7 @@ use indexmap::IndexMap;
 use mollie_lexer::{Lexer, Token};
 use mollie_parser::{Expr, Parser, Stmt, parse_statements_until};
 use mollie_shared::{Positioned, Span};
-use mollie_typing::{ArrayOfType, ArrayType, ComplexType, FatPtr, PrimitiveType, Trait, TraitFunc, Type, TypeVariant};
+use mollie_typing::{ArrayType, ComplexType, FatPtr, PrimitiveType, Trait, TraitFunc, Type, TypeVariant};
 
 pub use self::error::{CompileError, CompileResult, TypeError, TypeResult};
 
@@ -23,16 +23,12 @@ mod ty;
 pub struct Variable {
     pub id: usize,
     pub ty: Type,
-    // pub value: Option<Value>,
 }
 
 type VTable = IndexMap<Option<usize>, (ir::Value, IndexMap<String, (Type, (ir::SigRef, ir::FuncRef))>)>;
 
 pub struct JitCompiler {
     module: JITModule,
-    // ctx: codegen::Context,
-    // fn_builder: Option<FunctionBuilder<'a>>,
-    // fn_builder_ctx: FunctionBuilderContext,
     data_desc: DataDescription,
 }
 
@@ -51,7 +47,6 @@ impl JitCompiler {
         let mut builder = JITBuilder::with_isa(isa, default_libcall_names());
 
         builder.symbol("println", do_println as *const u8);
-        // builder.symbol("println_i32", do_println_i32 as *const u8);
 
         builder
     }
@@ -239,33 +234,11 @@ impl Compiler {
         None
     }
 
-    // pub fn vtable_func<T: Into<String>>(&mut self, ty: TypeVariant, name: T,
-    // function_ty: Type, value: Value) {     let name = name.into();
-
-    //     match self.vtables.entry(ty) {
-    //         Entry::Occupied(mut entry) => match entry.get_mut().entry(None) {
-    //             Entry::Occupied(mut entry) => {
-    //                 entry.get_mut().insert(name, (function_ty, value));
-    //             }
-    //             Entry::Vacant(entry) => {
-    //                 entry.insert(IndexMap::from_iter([(name, (function_ty,
-    // value))]));             }
-    //         },
-    //         Entry::Vacant(entry) => {
-    //             entry.insert(IndexMap::from_iter([(None,
-    // IndexMap::from_iter([(name, (function_ty, value))]))]));         }
-    //     }
-    // }
-
     pub fn var<T: Into<String>, V: Into<Type>>(&mut self, name: T, ty: V) -> usize {
         let id = self.current_frame().len();
         let name = name.into();
 
-        self.current_frame_mut().insert(name, Variable {
-            id,
-            ty: ty.into(),
-            // value: None,
-        });
+        self.current_frame_mut().insert(name, Variable { id, ty: ty.into() });
 
         id
     }
@@ -275,17 +248,6 @@ impl Compiler {
 
         self.current_frame_mut().shift_remove(name);
     }
-
-    // pub fn var_value<T: Into<String>>(&mut self, name: T, ty: TypeVariant, value:
-    // Value) {     let id = self.current_frame().len();
-    //     let name = name.into();
-
-    //     self.current_frame_mut().insert(name, Variable {
-    //         id,
-    //         ty: ty.into(),
-    //         // value: Some(value),
-    //     });
-    // }
 
     /// # Errors
     ///
@@ -304,15 +266,11 @@ impl Compiler {
     /// # Errors
     ///
     /// Returns `CompileError` if program compilation fails.
-    /// 
+    ///
     /// # Panics
-    /// 
+    ///
     /// TODO
     pub fn compile_program(&mut self, (statements, returned): (Vec<Positioned<Stmt>>, Option<Positioned<Stmt>>)) -> CompileResult {
-        // let mut chunk = Chunk::default();
-
-        
-
         let mut ctx = self.jit.module.make_context();
         let mut fn_builder_ctx = FunctionBuilderContext::new();
 
@@ -373,18 +331,10 @@ impl Compiler {
             self.compile(&mut fn_builder, statement)?;
         }
 
-        // chunk.halt();
-
         fn_builder.ins().return_(&[]);
 
         println!("{}", fn_builder.func);
 
-        // Next, declare the function to jit. Functions must be declared
-        // before they can be called, or defined.
-        //
-        // TODO: This may be an area where the API should be streamlined; should
-        // we have a version of `declare_function` that automatically declares
-        // the function?
         let id = self.jit.module.declare_function("main", Linkage::Export, &ctx.func.signature).unwrap();
 
         self.jit.module.define_function(id, &mut ctx).unwrap();
@@ -484,7 +434,6 @@ impl Compiler {
                     |ty| {
                         self.vtables
                             .get_index_of(&TypeVariant::complex(ComplexType::Array(ArrayType {
-                                arr: ArrayOfType::new(self.jit.module.isa().pointer_type()),
                                 element: ty.element.clone(),
                                 size: None,
                             })))
@@ -492,7 +441,6 @@ impl Compiler {
                             .or_else(|| {
                                 self.vtables
                                     .get_index_of(&TypeVariant::complex(ComplexType::Array(ArrayType {
-                                        arr: ArrayOfType::new(self.jit.module.isa().pointer_type()),
                                         element: TypeVariant::Generic(0).into(),
                                         size: None,
                                     })))
@@ -524,13 +472,11 @@ impl Compiler {
                     |ty| {
                         self.vtables
                             .get_index_of(&TypeVariant::complex(ComplexType::Array(ArrayType {
-                                arr: ArrayOfType::new(self.jit.module.isa().pointer_type()),
                                 element: ty.element.clone(),
                                 size: None,
                             })))
                             .or_else(|| {
                                 self.vtables.get_index_of(&TypeVariant::complex(ComplexType::Array(ArrayType {
-                                    arr: ArrayOfType::new(self.jit.module.isa().pointer_type()),
                                     element: TypeVariant::Generic(0).into(),
                                     size: None,
                                 })))
@@ -547,14 +493,6 @@ impl Compiler {
         )
     }
 
-    pub fn implements_trait(&self, ty: &TypeVariant, trait_index: usize) -> bool {
-        self.vtables.get(ty).is_some_and(|vtables| vtables.contains_key(&Some(trait_index)))
-    }
-
-    pub fn get_vtable_method_index<T: AsRef<str>>(&self, ty: &TypeVariant, name: T) -> Option<(usize, Option<usize>, usize)> {
-        self.find_vtable_function_index(ty, name.as_ref())
-    }
-
     pub fn get_local_index<T: AsRef<str>>(&self, name: T) -> Option<usize> {
         for frame in self.frames.iter().rev() {
             if let Some(index) = frame.get_index_of(name.as_ref()) {
@@ -564,62 +502,6 @@ impl Compiler {
 
         None
     }
-
-    // pub fn extend_vm(&self, vm: &mut Vm) {
-    //     vm.types = self.types.values().cloned().collect();
-    //     vm.vtables = self
-    //         .vtables
-    //         .iter()
-    //         .map(|vtable| {
-    //             (
-    //                 vtable.0.clone(),
-    //                 vtable
-    //                     .1
-    //                     .iter()
-    //                     .map(|(index, functions)| (*index,
-    // functions.values().map(|v| v.1.clone()).collect()))
-    // .collect(),             )
-    //         })
-    //         .collect();
-
-    //     vm.frames = self
-    //         .frames
-    //         .iter()
-    //         .map(|variable| StackFrame {
-    //             locals: variable.values().filter_map(|variable|
-    // variable.value.clone()).collect(),         })
-    //         .collect();
-    // }
-
-    // pub fn as_vm(&self) -> Vm {
-    //     Vm {
-    //         state: Box::new(()),
-    //         types: self.types.values().cloned().collect(),
-    //         impls: self.impls.clone(),
-    //         vtables: self
-    //             .vtables
-    //             .iter()
-    //             .map(|vtable| {
-    //                 (
-    //                     vtable.0.clone(),
-    //                     vtable
-    //                         .1
-    //                         .iter()
-    //                         .map(|(index, functions)| (*index,
-    // functions.values().map(|v| v.1.clone()).collect()))
-    // .collect(),                 )
-    //             })
-    //             .collect(),
-    //         frames: self
-    //             .frames
-    //             .iter()
-    //             .map(|variable| StackFrame {
-    //                 locals: variable.values().filter_map(|variable|
-    // variable.value.clone()).collect(),             })
-    //             .collect(),
-    //         stack: SmallVec::new(),
-    //     }
-    // }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -667,189 +549,10 @@ mod tests {
 
     use crate::Compiler;
 
-    //     const BASIC_UI2: &str = "declare Button inherits Container {
-    //     title: string,
-    //     waat_size_prop: integer,
-    //     children: component,
-
-    //     Rectangle from <self as Element> {
-
-    //     }
-    // }
-
-    // Rectangle {
-    //     width: 100px,
-    //     height: 20%,
-    //     corner_radius: all(12px),
-    //     background: 0x00FF00,
-    //     foreground: rgb(255, 0, 0),
-    //     some_flag: true,
-    //     string_value: \"okak!\",
-
-    //     Button {
-    //         title: \"xz\",
-    //         waat_size_prop: 2,
-
-    //         Rectangle {
-    //             width: 100px,
-    //             height: 20%,
-    //             corner_radius: all(12px),
-    //             background: 0x00FF00,
-    //             foreground: rgb(255, 0, 0),
-    //             some_flag: true,
-    //             string_value: \"okak!\",
-    //         }
-    //     }
-    // }";
-
-    // const BASIC_UI: &str = include_str!("../tests/main.mol");
-
-    // #[allow(dead_code)]
-    // #[derive(Debug)]
-    // struct Color {
-    //     red: u8,
-    //     green: u8,
-    //     blue: u8,
-    // }
-
-    // impl FromValue for Color {
-    //     fn from_value(value: &Value) -> Option<Self> {
-    //         let object = value.as_object()?;
-    //         let object_ref = object.borrow();
-    //         let structure = object_ref.as_struct()?;
-
-    //         let red = structure.get_property("red")?;
-    //         let green = structure.get_property("green")?;
-    //         let blue = structure.get_property("blue")?;
-
-    //         Some(Self { red, green, blue })
-    //     }
-    // }
-
-    // #[allow(dead_code)]
-    // fn get_value_method<T: AsRef<str>>(value: &Value, trait_index: usize, name:
-    // T, compiler: &Compiler, vm: &Vm) -> Option<Value> {     let ty =
-    // value.get_type()?;
-
-    //     if compiler.implements_trait(&ty.variant, trait_index) {
-    //         compiler
-    //             .get_vtable_method_index(&ty.variant, name)
-    //             .map(|(vtable, vtable2, method)|
-    // vm.vtables[vtable][&vtable2][method].clone())     } else {
-    //         None
-    //     }
-    // }
-
     fn add_builtins(compiler: &mut Compiler) {
-        // compiler.vtable_func(
-        //     string(),
-        //     "length",
-        //     function(true, [string()], integer()).into(),
-        //     Value::object(ObjectValue::native_func(|_, args| {
-        //         let Value::Object(object) = &args[0] else { unreachable!() };
-        //         let ObjectValue::String(string) = &*object.borrow() else {
-        // unreachable!() };
-
-        //         Some(Value::Integer(string.len() as i64))
-        //     })),
-        // );
-
-        // compiler.vtable_func(
-        //     array_of(TypeVariant::Generic(0), None),
-        //     "size",
-        //     function(true, [array_of(TypeVariant::Generic(0), None)],
-        // integer()).into(),     Value::object(ObjectValue::native_func(|_,
-        // args| {         let Value::Object(object) = &args[0] else {
-        // unreachable!("{}", args[0]) };         let ObjectValue::Array(array)
-        // = &*object.borrow() else { unreachable!() };
-
-        //         Some(Value::Integer(array.len() as i64))
-        //     })),
-        // );
-
         compiler.var("println", TypeVariant::function(false, [TypeVariant::any()], ()));
         compiler.var("get_size", TypeVariant::function(false, [TypeVariant::any()], TypeVariant::usize()));
-
-        // compiler.var_value(
-        //     "println_type",
-        //     function(false, [any()], void()),
-        //     Value::object(ObjectValue::native_func(|_, args|
-        // println_type(args))), );
     }
-
-    // #[allow(dead_code)]
-    // fn add_customs<'a>(compiler: &'a mut Compiler) -> usize {
-    //     let color_ty = TypeVariant::structure([("red", 0u8), ("green", 0u8),
-    // ("blue", 0u8)]);
-
-    //     compiler.add_type("Color", color_ty.clone());
-    //     compiler.add_type(
-    //         "Thickness",
-    //         structure([("left", uint32()), ("top", uint32()), ("right",
-    // uint32()), ("bottom", uint32())]),     );
-
-    //     compiler.add_type(
-    //         "Rectangle",
-    //         component(
-    //             [
-    //                 ("width", false, uint32().into()),
-    //                 ("height", false, uint32().into()),
-    //                 ("corner_radius", false, compiler.get_type("Thickness")),
-    //                 ("background", false, compiler.get_type("Color")),
-    //                 ("foreground", false, compiler.get_type("Color")),
-    //                 ("some_flag", false, boolean().into()),
-    //                 ("string_value", false, string().into()),
-    //                 ("test_array", false, array_of(boolean(), Some(3)).into()),
-    //             ],
-    //             ComponentChildren::MaybeSingle,
-    //         ),
-    //     );
-
-    //     let context_ty = structure::<String, TypeVariant, _>([]);
-
-    //     compiler.add_type("DrawContext", context_ty.clone());
-    //     compiler.vtable_func(
-    //         context_ty.clone(),
-    //         "draw_rect",
-    //         function(true, [context_ty.clone(), float(), float(), float(),
-    // float(), color_ty], void()).into(),
-    //         Value::object(ObjectValue::native_func(|_, args| {
-    //             let x = args[1].as_float()?;
-    //             let y = args[2].as_float()?;
-    //             let w = args[3].as_float()?;
-    //             let h = args[4].as_float()?;
-    //             let color = args[5].to::<Color>()?;
-
-    //             println!("{x}x{y} {w}x{h} {color:#?}");
-
-    //             None
-    //         })),
-    //     );
-
-    //     let drawable = compiler.add_trait("Drawable").method("draw",
-    // [context_ty], void()).build();
-
-    //     compiler.var_value(
-    //         "all",
-    //         function(false, [uint32()], compiler.get_type("Thickness")),
-    //         Value::object(ObjectValue::native_func(|vm, args| Some(all(vm,
-    // args)))),     );
-
-    //     compiler.var_value(
-    //         "rgb",
-    //         function(false, [uint8(), uint8(), uint8()],
-    // compiler.get_type("Color")),
-    //         Value::object(ObjectValue::native_func(|vm, args| Some(rgb(vm,
-    // args)))),     );
-
-    //     compiler.var_value(
-    //         "hex",
-    //         function(false, [uint32()], compiler.get_type("Color")),
-    //         Value::object(ObjectValue::native_func(|vm, args| Some(hex(vm,
-    // args)))),     );
-
-    //     drawable
-    // }
 
     #[test]
     fn hmm_test() {
@@ -960,105 +663,4 @@ mod tests {
             )
             .unwrap();
     }
-
-    // #[test]
-    // #[allow(clippy::too_many_lines)]
-    // fn chaotic_test() {
-    //     let mut compiler = Compiler::default();
-
-    //     add_builtins(&mut compiler);
-
-    //     compiler.compile_program_text(include_str!("../tests/std.mol")).
-    // unwrap();
-
-    //     match compiler.compile_program_text(include_str!("../tests/main.mol"
-    // )) {         Ok(chunk) => {
-    //             println!("{chunk}");
-
-    //             let mut vm = compiler.as_vm();
-
-    //             let value = vm.execute(&chunk);
-
-    //             println!("/*** LOCALS START ***/");
-
-    //             for frame in &vm.frames {
-    //                 for value in &frame.locals {
-    //                     println!("{value}");
-    //                 }
-    //             }
-
-    //             println!("/*** LOCALS END ***/");
-
-    //             println!("/*** STACK START ***/");
-
-    //             for value in &vm.stack {
-    //                 println!("{value}");
-    //             }
-
-    //             println!("/*** STACK END ***/");
-
-    //             if let Some(value) = value {
-    //                 println!("/*** RETURNED VALUE ***/");
-    //                 println!("{value}");
-    //             }
-    //         }
-    //         Err(error) => println!("{error}"),
-    //     }
-    // }
-
-    // fn println_type(mut args: Vec<Value>) -> Option<Value> {
-    //     let value = args.remove(0);
-
-    //     println!("{}", value.get_type()?);
-
-    //     None
-    // }
-
-    // fn println(mut args: Vec<Value>) -> Option<Value> {
-    //     let value = args.remove(0);
-
-    //     println!("{value}");
-
-    //     None
-    // }
-
-    // fn rgb(vm: &Vm, mut args: Vec<Value>) -> Value {
-    //     let ty = vm.types[0].clone();
-    //     let red = args.remove(0);
-    //     let green = args.remove(0);
-    //     let blue = args.remove(0);
-
-    //     Value::object(ObjectValue::Struct(Struct {
-    //         ty,
-    //         values: vec![red, green, blue],
-    //     }))
-    // }
-
-    // fn all(vm: &Vm, mut args: Vec<Value>) -> Value {
-    //     let ty = vm.types[1].clone();
-    //     let value = args.remove(0);
-
-    //     Value::object(ObjectValue::Struct(Struct {
-    //         ty,
-    //         values: vec![value.clone(), value.clone(), value.clone(), value],
-    //     }))
-    // }
-
-    // fn hex(vm: &Vm, mut args: Vec<Value>) -> Value {
-    //     let ty = vm.types[0].clone();
-    //     let Value::Integer(color) = args.remove(0) else { unreachable!() };
-    //     let color = color.cast_unsigned();
-    //     let red = (color & 0xFF) as u8;
-    //     let green = ((color >> 8) & 0xFF) as u8;
-    //     let blue = ((color >> 16) & 0xFF) as u8;
-
-    //     Value::object(ObjectValue::Struct(Struct {
-    //         ty,
-    //         values: vec![
-    //             Value::Integer(i64::from(red)),
-    //             Value::Integer(i64::from(green)),
-    //             Value::Integer(i64::from(blue)),
-    //         ],
-    //     }))
-    // }
 }

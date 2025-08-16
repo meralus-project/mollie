@@ -114,7 +114,7 @@ impl Compile<ValueOrFunc> for Positioned<NodeExpr> {
 
                 if let Some(array) = ty.variant.as_array() {
                     let size = children.len();
-                    let ptr = array.arr.instance(&compiler.jit.module, fn_builder, children);
+                    let ptr = array.instance(compiler.jit.module.isa(), fn_builder, children);
                     let size = fn_builder.ins().iconst(compiler.jit.module.isa().pointer_type(), size.cast_signed() as i64);
 
                     values.push(FatPtr::new(compiler.jit.module.isa(), fn_builder, ptr, size));
@@ -125,7 +125,7 @@ impl Compile<ValueOrFunc> for Positioned<NodeExpr> {
 
             compiler.generics = Vec::new();
 
-            Ok(ValueOrFunc::Value(component.structure.instance(&compiler.jit.module, fn_builder, values)))
+            Ok(ValueOrFunc::Value(component.structure.instance(compiler.jit.module.isa(), fn_builder, values)))
         } else if let Some(structure) = ty.variant.as_struct() {
             let mut values = Vec::new();
 
@@ -159,7 +159,7 @@ impl Compile<ValueOrFunc> for Positioned<NodeExpr> {
 
             compiler.generics = Vec::new();
 
-            Ok(ValueOrFunc::Value(structure.structure.instance(&compiler.jit.module, fn_builder, values)))
+            Ok(ValueOrFunc::Value(structure.structure.instance(compiler.jit.module.isa(), fn_builder, values)))
         } else {
             unimplemented!()
         }

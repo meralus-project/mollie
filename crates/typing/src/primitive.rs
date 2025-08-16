@@ -49,4 +49,3 @@ impl fmt::Display for PrimitiveType {
         }
     }
 }
-

@@ -1,7 +1,6 @@
-use cranelift::{module::Module, prelude::types};
 use mollie_parser::{PrimitiveType, Type};
 use mollie_shared::Span;
-use mollie_typing::{ArrayOfType, ArrayType, ComplexType, TypeVariant};
+use mollie_typing::{ArrayType, ComplexType, TypeVariant};
 
 use crate::{Compiler, GetPositionedType, GetType, TypeError, TypeResult};
 
@@ -31,17 +30,6 @@ impl GetType for Type {
                 let element = ty.get_type(compiler)?;
 
                 TypeVariant::complex(ComplexType::Array(ArrayType {
-                    arr: ArrayOfType::new(match &element.variant {
-                        TypeVariant::Primitive(primitive_type) => match primitive_type {
-                            mollie_typing::PrimitiveType::I64 | mollie_typing::PrimitiveType::U64 => types::I64,
-                            mollie_typing::PrimitiveType::I32 | mollie_typing::PrimitiveType::U32 => types::I32,
-                            mollie_typing::PrimitiveType::I16 | mollie_typing::PrimitiveType::U16 => types::I16,
-                            mollie_typing::PrimitiveType::I8 | mollie_typing::PrimitiveType::U8 | mollie_typing::PrimitiveType::Boolean => types::I8,
-                            mollie_typing::PrimitiveType::Float => types::F32,
-                            _ => compiler.jit.module.isa().pointer_type(),
-                        },
-                        _ => compiler.jit.module.isa().pointer_type(),
-                    }),
                     element,
                     size: size.map(|v| v.value),
                 }))

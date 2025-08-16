@@ -20,7 +20,7 @@ use mollie_shared::{MaybePositioned, Span, SpanType, cranelift::stack_alloc, pre
 use serde::{Deserialize, Serialize};
 
 pub use self::{
-    array::{ArrayOfType, ArrayType},
+    array::ArrayType,
     component::{ComponentChildren, ComponentType},
     enumeration::{EnumType, EnumVariant},
     function::FunctionType,
@@ -46,11 +46,7 @@ pub struct Trait {
 }
 
 pub fn array_of<T: Into<Type>>(element: T, size: Option<usize>) -> TypeVariant {
-    TypeVariant::complex(ComplexType::Array(ArrayType {
-        element: element.into(),
-        size,
-        arr: ArrayOfType::default(),
-    }))
+    TypeVariant::complex(ComplexType::Array(ArrayType { element: element.into(), size }))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

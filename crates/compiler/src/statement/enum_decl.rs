@@ -17,8 +17,8 @@ impl Compile for Positioned<EnumDecl> {
         //         let mut props = Vec::with_capacity(properties.value.len());
 
         //         for property in properties.value {
-        //             props.push((property.value.name.value.0, property.value.ty.get_type(compiler)?));
-        //         }
+        //             props.push((property.value.name.value.0,
+        // property.value.ty.get_type(compiler)?));         }
 
         //         Some(props)
         //     } else {
@@ -35,8 +35,8 @@ impl Compile for Positioned<EnumDecl> {
         // let ty = Type {
         //     applied_generics: Vec::new(),
         //     variant: TypeVariant::complex(ComplexType::EnumType(EnumType {
-        //         generics: self.value.name.value.generics.into_iter().map(|g| g.value.0).collect(),
-        //         variants,
+        //         generics: self.value.name.value.generics.into_iter().map(|g|
+        // g.value.0).collect(),         variants,
         //     })),
         //     declared_at: Some(self.span),
         // };
@@ -46,7 +46,6 @@ impl Compile for Positioned<EnumDecl> {
         // // compiler.var(self.value.name.value.0, ty.variant);
 
         // Ok(false)
-                unimplemented!()
-
+        unimplemented!()
     }
 }

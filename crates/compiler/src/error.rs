@@ -11,9 +11,7 @@ pub type TypeResult<T = Type> = Result<T, TypeError>;
 pub enum CompileError {
     Type(TypeError),
     Parse(ParseError),
-    VariableNotFound {
-        name: String,
-    }
+    VariableNotFound { name: String },
 }
 
 impl fmt::Display for CompileError {
@@ -103,7 +101,8 @@ impl fmt::Display for TypeError {
                 f,
                 "there's no function called `{function}` in `{ty}`{}",
                 ty_name.as_ref().map_or_else(String::new, |ty_name| format!(" called `{ty_name}`"))
-            ),            Self::InvalidArguments { got, expected } => write!(f, "expected `{expected}` arguments for function, received `{got}`"),
+            ),
+            Self::InvalidArguments { got, expected } => write!(f, "expected `{expected}` arguments for function, received `{got}`"),
             Self::InvalidChildren { got, expected, ty_name } => match (expected, got) {
                 (ComponentChildren::None, _) => write!(f, "component called `{ty_name}` cannot have children"),
                 (ComponentChildren::Single, ComponentChildren::None) => write!(f, "component called `{ty_name}` must have one child"),

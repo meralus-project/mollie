@@ -1,4 +1,7 @@
-use cranelift::{codegen::ir::Endianness, prelude::{types, FunctionBuilder, InstBuilder, MemFlags}};
+use cranelift::{
+    codegen::ir::Endianness,
+    prelude::{FunctionBuilder, InstBuilder, MemFlags, types},
+};
 use mollie_parser::{IsExpr, IsPattern};
 use mollie_shared::{Positioned, Span};
 use mollie_typing::TypeVariant;

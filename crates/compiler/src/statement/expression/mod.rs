@@ -21,7 +21,7 @@ mod while_expr;
 
 impl Compile<ValueOrFunc> for Positioned<Expr> {
     fn compile(self, compiler: &mut Compiler, fn_builder: &mut FunctionBuilder) -> CompileResult<ValueOrFunc> {
-        use Expr::{Array, Is, Binary, Block, EnumPath, FunctionCall, Ident, IfElse, Index, Literal, Node, This, TypeIndex, While};
+        use Expr::{Array, Binary, Block, EnumPath, FunctionCall, Ident, IfElse, Index, Is, Literal, Node, This, TypeIndex, While};
 
         match self.value {
             Literal(value) => compiler.compile(fn_builder, self.span.wrap(value)).map(ValueOrFunc::Value),
@@ -55,7 +55,7 @@ impl Compile<ValueOrFunc> for Positioned<Expr> {
 
 impl GetType for Expr {
     fn get_type(&self, compiler: &mut Compiler, span: Span) -> TypeResult {
-        use Expr::{Array, Is, Binary, Block, EnumPath, FunctionCall, Ident, IfElse, Index, Literal, Node, This, TypeIndex, While};
+        use Expr::{Array, Binary, Block, EnumPath, FunctionCall, Ident, IfElse, Index, Is, Literal, Node, This, TypeIndex, While};
 
         match self {
             Literal(value) => value.get_type(compiler, span),

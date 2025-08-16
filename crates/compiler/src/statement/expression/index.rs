@@ -121,8 +121,9 @@ impl Compile<ValueOrFunc> for Positioned<IndexExpr> {
                         }
                         .into());
                     }
-                } else if let Some((_, _)) = ty.variant.as_trait_instance() {
-                    // let function = compiler.traits[trait_index].functions.iter().position(|f| f.name == index.0).unwrap();
+                } else if let Some((..)) = ty.variant.as_trait_instance() {
+                    // let function = compiler.traits[trait_index].functions.iter().position(|f|
+                    // f.name == index.0).unwrap();
 
                     compiler.compile(fn_builder, *self.value.target)?;
                     // chunk.get_type_function2(Some(trait_index), function);
@@ -172,8 +173,11 @@ impl Compile<ValueOrFunc> for Positioned<IndexExpr> {
                     }
 
                     if let (ValueOrFunc::Value(array), ValueOrFunc::Value(index)) = (array, index) {
-                        let size = v.arr.ty.bytes();
-                        let size = fn_builder.ins().iconst(compiler.jit.module.isa().pointer_type(), i64::from(size));
+                        let element_type = v.element.variant.as_ir_type(compiler.jit.module.isa());
+                        let size = fn_builder
+                            .ins()
+                            .iconst(compiler.jit.module.isa().pointer_type(), i64::from(element_type.bytes()));
+
                         let offset = fn_builder.ins().imul(size, index);
                         let ptr = FatPtr::get_ptr(compiler.jit.module.isa(), fn_builder, array);
                         let ptr = fn_builder.ins().iadd(ptr, offset);
@@ -185,7 +189,7 @@ impl Compile<ValueOrFunc> for Positioned<IndexExpr> {
                                 return Ok(ValueOrFunc::Nothing);
                             }
                         } else {
-                            return Ok(ValueOrFunc::Value(fn_builder.ins().load(v.arr.ty, MemFlags::trusted(), ptr, 0)));
+                            return Ok(ValueOrFunc::Value(fn_builder.ins().load(element_type, MemFlags::trusted(), ptr, 0)));
                         }
                     }
                 }

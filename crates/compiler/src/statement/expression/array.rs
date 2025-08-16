@@ -4,7 +4,7 @@ use cranelift::{
 };
 use mollie_parser::ArrayExpr;
 use mollie_shared::{Positioned, Span};
-use mollie_typing::{ArrayOfType, ArrayType, ComplexType, FatPtr, Type, TypeVariant};
+use mollie_typing::{ArrayType, ComplexType, FatPtr, Type, TypeVariant};
 
 use crate::{Compile, CompileResult, Compiler, GetPositionedType, GetType, TypeResult, ValueOrFunc};
 
@@ -22,7 +22,7 @@ impl Compile<ValueOrFunc> for Positioned<ArrayExpr> {
                 }
             }
 
-            let ptr = arr.arr.instance(&compiler.jit.module, fn_builder, elements);
+            let ptr = arr.instance(compiler.jit.module.isa(), fn_builder, elements);
             let size = fn_builder.ins().iconst(compiler.jit.module.isa().pointer_type(), size.cast_signed() as i64);
 
             Ok(ValueOrFunc::Value(FatPtr::new(compiler.jit.module.isa(), fn_builder, ptr, size)))
@@ -39,11 +39,7 @@ impl GetType for ArrayExpr {
 
         Ok(Type {
             applied_generics: vec![element.clone()],
-            variant: TypeVariant::complex(ComplexType::Array(ArrayType {
-                size: Some(size),
-                arr: ArrayOfType::new(element.variant.as_ir_type(compiler.jit.module.isa())),
-                element,
-            })),
+            variant: TypeVariant::complex(ComplexType::Array(ArrayType { size: Some(size), element })),
             declared_at: Some(span),
         })
     }
