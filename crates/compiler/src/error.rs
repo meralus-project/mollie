@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, num::TryFromIntError};
 
 use mollie_parser::ParseError;
 use mollie_shared::MaybePositioned;
@@ -12,23 +12,31 @@ pub enum CompileError {
     Type(TypeError),
     Parse(ParseError),
     VariableNotFound { name: String },
+    IntCast(TryFromIntError),
 }
 
 impl fmt::Display for CompileError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Type(value) => value.fmt(f),
-            Self::Parse(value) => value.fmt(f),
+            Self::Type(error) => error.fmt(f),
+            Self::Parse(error) => error.fmt(f),
             Self::VariableNotFound { name } => write!(f, "there's no variable called {name}"),
+            Self::IntCast(error) => error.fmt(f),
         }
     }
 }
 
 impl std::error::Error for CompileError {}
 
+impl From<TryFromIntError> for CompileError {
+    fn from(value: TryFromIntError) -> Self {
+        Self::IntCast(value)
+    }
+}
+
 impl From<TypeError> for CompileError {
-    fn from(value: TypeError) -> Self {
-        Self::Type(value)
+    fn from(error: TypeError) -> Self {
+        Self::Type(error)
     }
 }
 

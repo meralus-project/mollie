@@ -2,58 +2,64 @@ use cranelift::prelude::FunctionBuilder;
 use indexmap::IndexMap;
 use mollie_parser::EnumPathExpr;
 use mollie_shared::{Positioned, Span};
-use mollie_typing::{Type, TypeKind, TypeVariant};
+use mollie_typing::{FatPtr, Type, TypeKind, TypeVariant};
 
-use crate::{Compile, CompileResult, Compiler, GetPositionedType, GetType, TypeError, TypeResult, ValueOrFunc};
+use crate::{Compile, CompileError, CompileResult, Compiler, GetPositionedType, GetType, TypeError, TypeResult, ValueOrFunc};
 
 impl Compile<ValueOrFunc> for Positioned<EnumPathExpr> {
-    fn compile(self, _: &mut Compiler, _: &mut FunctionBuilder) -> CompileResult<ValueOrFunc> {
-        // let ty = self.get_type(compiler)?;
+    fn compile(mut self, compiler: &mut Compiler, fn_builder: &mut FunctionBuilder) -> CompileResult<ValueOrFunc> {
+        let ty = self.get_type(compiler)?;
 
-        // if let Some(enumeration) = ty.variant.as_enum() {
-        //     let variant = enumeration.variants.iter().position(|v| v.0 ==
-        // self.value.index.value.name.value.0).unwrap();
+        if let Some(enumeration) = ty.variant.as_enum() {
+            let variant = enumeration.variants.iter().position(|v| v.0 == self.value.index.value.name.value.0).unwrap();
 
-        //     if let Some(properties) = &enumeration.variants[variant].1.properties {
-        //         compiler.generics = ty.applied_generics;
+            if let Some(properties) = &enumeration.variants[variant].1.properties {
+                compiler.generics = ty.applied_generics;
 
-        //         for (name, _) in properties {
-        //             let property = self
-        //                 .value
-        //                 .properties
-        //                 .as_ref()
-        //                 .unwrap()
-        //                 .value
-        //                 .iter()
-        //                 .position(|prop| &prop.value.name.value.0 == name)
-        //                 .map(|index|
-        // self.value.properties.as_mut().unwrap().value.remove(index));
+                let mut values = Vec::new();
 
-        //             let property = property.unwrap();
+                for (name, _) in properties {
+                    let property = self
+                        .value
+                        .properties
+                        .as_ref()
+                        .unwrap()
+                        .value
+                        .iter()
+                        .position(|prop| &prop.value.name.value.0 == name)
+                        .map(|index| self.value.properties.as_mut().unwrap().value.remove(index));
 
-        //             compiler.compile(fn_builder, property.value.value)?;
-        //         }
+                    let property = property.unwrap();
 
-        //         compiler.generics = Vec::new();
+                    if let ValueOrFunc::Value(value) = compiler.compile(fn_builder, property.value.value)? {
+                        values.push(value);
+                    }
+                }
 
-        //         let ty =
-        // compiler.types.get_index_of(&self.value.target.value.0).
-        // ok_or(CompileError::VariableNotFound {             name:
-        // self.value.target.value.0,         })?;
+                compiler.generics = Vec::new();
 
-        //         chunk.instantiate_variant(ty, variant);
-        //     } else {
-        //         let constant = chunk.constant(Value::object(ObjectValue::Enum(Enum {
-        //             ty,
-        //             variant,
-        //             values: Vec::new(),
-        //         })));
+                let ty = compiler.types.get_index_of(&self.value.target.value.0).ok_or(CompileError::VariableNotFound {
+                    name: self.value.target.value.0,
+                })?;
 
-        //         chunk.load_const(constant);
-        //     }
-        // }
+            //                
+            // ValueOrFunc::Value(enumeration.instance(compiler.jit.module.
+            // isa(), fn_builder, values))
+            } else {
+                // let constant =
+                // chunk.constant(Value::object(ObjectValue::Enum(Enum {
+                //     ty,
+                //     variant,
+                //     values: Vec::new(),
+                // })));
 
-        unimplemented!()
+                // chunk.load_const(constant);
+            }
+
+            Ok(ValueOrFunc::Nothing)
+        } else {
+            Ok(ValueOrFunc::Nothing)
+        }
     }
 }
 

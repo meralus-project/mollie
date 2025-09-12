@@ -27,7 +27,7 @@ impl Compile<ValueOrFunc> for Positioned<Ident> {
         } else if let Some(v) = compiler.variables.get(&self.value.0) {
             Ok(ValueOrFunc::Value(fn_builder.use_var(*v)))
         } else {
-            unimplemented!()
+            unimplemented!("there's no anything for {}", self.value.0)
         }
     }
 }

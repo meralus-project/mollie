@@ -132,7 +132,7 @@ impl GetType for ImplFunction {
 }
 
 impl Compile for Positioned<Impl> {
-    #[allow(clippy::too_many_lines, clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+    #[allow(clippy::too_many_lines)]
     fn compile(self, compiler: &mut Compiler, fn_builder: &mut FunctionBuilder) -> CompileResult {
         for (index, name) in self.value.generics.iter().enumerate() {
             compiler.add_type(&name.value.0, TypeVariant::Generic(index));
@@ -261,12 +261,24 @@ impl Compile for Positioned<Impl> {
         }
 
         let size_t = compiler.jit.module.isa().pointer_type();
-        let slot = stack_alloc(fn_builder, size_t.bytes() * functions.len() as u32);
+        let slot = stack_alloc(fn_builder, size_t.bytes() * (u32::try_from(functions.len())? + 1));
+
+        let type_idx = fn_builder
+            .ins()
+            .iconst(size_t, i64::try_from(compiler.impls.get_index_of(&ty.variant).unwrap())?);
+
+        fn_builder.ins().stack_store(type_idx, slot, 0);
+
+        println!("storing {type_idx} at 0 vtable offset");
 
         for (i, (_, (_, func_ref))) in functions.values().enumerate() {
             let value = fn_builder.ins().func_addr(size_t, *func_ref);
 
-            fn_builder.ins().stack_store(value, slot, size_t.bytes().cast_signed() * i as i32);
+            println!("storing {value} at {} vtable offset", size_t.bytes().cast_signed() * (i32::try_from(i)? + 1));
+
+            fn_builder
+                .ins()
+                .stack_store(value, slot, size_t.bytes().cast_signed() * (i32::try_from(i)? + 1));
         }
 
         let ptr = fn_builder.ins().stack_addr(size_t, slot, 0);

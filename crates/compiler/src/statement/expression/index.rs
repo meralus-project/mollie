@@ -4,7 +4,7 @@ use cranelift::{
 };
 use mollie_parser::{IndexExpr, IndexTarget};
 use mollie_shared::{Positioned, Span};
-use mollie_typing::{ComplexType, FatPtr, FunctionType, PrimitiveType, Type, TypeKind, TypeVariant};
+use mollie_typing::{ComplexType, FatPtr, FunctionType, PrimitiveType, Type, TypeKind, TypeVariant, VTablePtr};
 
 use crate::{Compile, CompileResult, Compiler, GetPositionedType, GetType, TypeError, TypeResult, ValueOrFunc};
 
@@ -17,6 +17,10 @@ impl Compile<ValueOrFunc> for Positioned<IndexExpr> {
 
         match self.value.index.value {
             IndexTarget::Named(index) => {
+                if index.0 == "x" {
+                    println!("{ty}.x");
+                }
+
                 if let Some((vtable, trait_index, function)) = compiler.find_vtable_function_index(&ty.variant, &index.0) {
                     if compiler.vtables[vtable][&trait_index].1[function]
                         .0
@@ -124,6 +128,7 @@ impl Compile<ValueOrFunc> for Positioned<IndexExpr> {
                 } else if let Some((..)) = ty.variant.as_trait_instance() {
                     // let function = compiler.traits[trait_index].functions.iter().position(|f|
                     // f.name == index.0).unwrap();
+                    println!("What");
 
                     compiler.compile(fn_builder, *self.value.target)?;
                     // chunk.get_type_function2(Some(trait_index), function);
@@ -134,23 +139,26 @@ impl Compile<ValueOrFunc> for Positioned<IndexExpr> {
                     if let ValueOrFunc::Value(fat_ptr) = compiler.compile(fn_builder, *self.value.target)? {
                         let value = FatPtr::get_ptr(compiler.jit.module.isa(), fn_builder, fat_ptr);
 
-                        let size = compiler.jit.module.isa().pointer_type().bytes();
-                        let size = i64::from(size);
-                        let index = func.cast_signed() as i64;
-                        let offset = size * index;
+                        // let size = compiler.jit.module.isa().pointer_type().bytes();
+                        // let size = i64::from(size);
+                        // let index = func.cast_signed() as i64;
+                        // let offset = size * index;
 
                         let vtable_ptr = FatPtr::get_metadata(compiler.jit.module.isa(), fn_builder, fat_ptr);
-                        let vtable = fn_builder
-                            .ins()
-                            .load(compiler.jit.module.isa().pointer_type(), MemFlags::trusted(), vtable_ptr, 0);
+                        let vtable_func = VTablePtr::get_func_ptr(compiler.jit.module.isa(), fn_builder, vtable_ptr, func.try_into()?);
+                        // let vtable = fn_builder
+                        //     .ins()
+                        //     .load(compiler.jit.module.isa().pointer_type(), MemFlags::trusted(),
+                        // vtable_ptr, size as i32);
 
-                        let vtable_func = if offset > 0 {
-                            let offset = fn_builder.ins().iconst(compiler.jit.module.isa().pointer_type(), offset);
+                        // let vtable_func = if offset > 0 {
+                        //     let offset =
+                        // fn_builder.ins().iconst(compiler.jit.module.isa().pointer_type(), offset);
 
-                            fn_builder.ins().iadd(vtable, offset)
-                        } else {
-                            vtable
-                        };
+                        //     fn_builder.ins().iadd(vtable, offset)
+                        // } else {
+                        //     vtable
+                        // };
 
                         compiler.this.replace(ValueOrFunc::Value(value));
 

@@ -244,6 +244,10 @@ impl TypeVariant {
         Self::Primitive(PrimitiveType::Void)
     }
 
+    pub fn one_of<T: IntoIterator<Item = R>, R: Into<Type>>(types: T) -> Self {
+        Self::complex(ComplexType::OneOf(types.into_iter().map(Into::into).collect()))
+    }
+
     pub fn function<T: IntoIterator<Item = Self>, R: Into<Type>>(have_self: bool, args: T, returns: R) -> Self {
         Self::complex(ComplexType::Function(FunctionType {
             is_native: true,
@@ -537,6 +541,44 @@ impl From<TypeVariant> for Type {
     }
 }
 
+pub trait SizedType {
+    fn bytes(&self, isa: &dyn TargetIsa) -> usize;
+}
+
+impl SizedType for PrimitiveType {
+    fn bytes(&self, isa: &dyn TargetIsa) -> usize {
+        use PrimitiveType::{Any, Boolean, Component, Float, I8, I16, I32, I64, ISize, Null, String, U8, U16, U32, U64, USize, Void};
+
+        match self {
+            Any | Void | Null => 0,
+            ISize | USize | String | Component => isa.pointer_bytes().into(),
+            I64 | U64 => 8,
+            I32 | U32 | Float => 4,
+            I16 | U16 => 2,
+            I8 | U8 | Boolean => 1,
+        }
+    }
+}
+
+impl SizedType for ComplexType {
+    fn bytes(&self, isa: &dyn TargetIsa) -> usize {
+        match self {
+            Self::OneOf(items) => items.iter().map(|ty| ty.variant.bytes(isa)).max().unwrap_or_default(),
+            _ => isa.pointer_bytes().into(),
+        }
+    }
+}
+
+impl SizedType for TypeVariant {
+    fn bytes(&self, isa: &dyn TargetIsa) -> usize {
+        match self {
+            Self::Primitive(ty) => ty.bytes(isa),
+            Self::Complex(ty) => ty.bytes(isa),
+            _ => isa.pointer_bytes().into(),
+        }
+    }
+}
+
 pub trait TypeVariantOf {
     fn type_variant_of() -> TypeVariant;
 }
@@ -662,5 +704,29 @@ impl FatPtr {
         let ptr_type = isa.pointer_type();
 
         fn_builder.ins().load(ptr_type, MemFlags::trusted(), fat_ptr, ptr_type.bytes().cast_signed())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct VTablePtr;
+
+impl VTablePtr {
+    pub fn get_type_idx(isa: &dyn TargetIsa, fn_builder: &mut FunctionBuilder, vtable_ptr: ir::Value) -> ir::Value {
+        let ptr_type = isa.pointer_type();
+
+        fn_builder.ins().load(ptr_type, MemFlags::trusted(), vtable_ptr, 0)
+    }
+
+    pub fn get_func_ptr(isa: &dyn TargetIsa, fn_builder: &mut FunctionBuilder, vtable_ptr: ir::Value, func_idx: u32) -> ir::Value {
+        let ptr_type = isa.pointer_type();
+        let vtable_ptr = fn_builder.ins().load(ptr_type, MemFlags::trusted(), vtable_ptr, ptr_type.bytes().cast_signed());
+
+        if ptr_type.bytes() * func_idx > 0 {
+            let offset = fn_builder.ins().iconst(ptr_type, i64::from(ptr_type.bytes() * func_idx));
+
+            fn_builder.ins().iadd(vtable_ptr, offset)
+        } else {
+            vtable_ptr
+        }
     }
 }

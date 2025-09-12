@@ -1,7 +1,8 @@
+use core::{slice, str};
 use std::{fmt, sync::Arc};
 
 use cranelift::{
-    codegen::ir,
+    codegen::{Context, ir},
     jit::{JITBuilder, JITModule},
     module::{DataDescription, FuncId, Linkage, Module, default_libcall_names},
     native,
@@ -11,7 +12,7 @@ use indexmap::IndexMap;
 use mollie_lexer::{Lexer, Token};
 use mollie_parser::{Expr, Parser, Stmt, parse_statements_until};
 use mollie_shared::{Positioned, Span};
-use mollie_typing::{ArrayType, ComplexType, FatPtr, PrimitiveType, Trait, TraitFunc, Type, TypeVariant};
+use mollie_typing::{ArrayType, ComplexType, FatPtr, PrimitiveType, Trait, TraitFunc, Type, TypeVariant, VTablePtr};
 
 pub use self::error::{CompileError, CompileResult, TypeError, TypeResult};
 
@@ -25,11 +26,11 @@ pub struct Variable {
     pub ty: Type,
 }
 
-type VTable = IndexMap<Option<usize>, (ir::Value, IndexMap<String, (Type, (ir::SigRef, ir::FuncRef))>)>;
+pub type VTable = IndexMap<Option<usize>, (ir::Value, IndexMap<String, (Type, (ir::SigRef, ir::FuncRef))>)>;
 
 pub struct JitCompiler {
-    module: JITModule,
-    data_desc: DataDescription,
+    pub module: JITModule,
+    pub data_desc: DataDescription,
 }
 
 impl fmt::Debug for JitCompiler {
@@ -38,24 +39,25 @@ impl fmt::Debug for JitCompiler {
     }
 }
 
-fn do_println(value: i64) {
-    println!("{value}");
-}
-
 impl JitCompiler {
-    fn jit_builder(isa: Arc<dyn TargetIsa>) -> JITBuilder {
+    fn jit_builder(symbols: Vec<(&'static str, *const u8)>, isa: Arc<dyn TargetIsa>) -> JITBuilder {
         let mut builder = JITBuilder::with_isa(isa, default_libcall_names());
 
         builder.symbol("println", do_println as *const u8);
+        builder.symbol("println_str", do_println_str as *const u8);
+
+        for (name, ptr) in symbols {
+            builder.symbol(name, ptr);
+        }
 
         builder
     }
 
-    fn new(flags: settings::Flags) -> Self {
+    fn new(symbols: Vec<(&'static str, *const u8)>, flags: settings::Flags) -> Self {
         let isa = native::builder().unwrap();
         let isa = isa.finish(flags).unwrap();
 
-        let module = JITModule::new(Self::jit_builder(isa));
+        let module = JITModule::new(Self::jit_builder(symbols, isa));
 
         Self {
             module,
@@ -77,6 +79,7 @@ pub struct Compiler {
     pub this: Option<ValueOrFunc>,
     pub infer: Option<Type>,
     pub infer_ir: Option<ir::Type>,
+    pub infer_val: Option<ValueOrFunc>,
     pub values: IndexMap<String, ValueOrFunc>,
     pub variables: IndexMap<String, cranelift::prelude::Variable>,
     pub globals: IndexMap<String, FuncId>,
@@ -86,28 +89,7 @@ pub struct Compiler {
 
 impl Default for Compiler {
     fn default() -> Self {
-        let mut flag_builder = settings::builder();
-
-        flag_builder.set("use_colocated_libcalls", "false").unwrap();
-        flag_builder.set("opt_level", "speed").unwrap();
-        flag_builder.set("is_pic", "false").unwrap();
-
-        Self {
-            traits: IndexMap::new(),
-            types: IndexMap::new(),
-            impls: IndexMap::new(),
-            vtables: IndexMap::new(),
-            frames: vec![IndexMap::new()],
-            generics: Vec::new(),
-            assign: None,
-            this: None,
-            infer: None,
-            infer_ir: None,
-            jit: JitCompiler::new(settings::Flags::new(flag_builder)),
-            values: IndexMap::new(),
-            globals: IndexMap::new(),
-            variables: IndexMap::new(),
-        }
+        Self::with_symbols(Vec::new())
     }
 }
 
@@ -165,7 +147,190 @@ impl<'a> TraitBuilder<'a> {
     }
 }
 
+pub struct FuncCompilerBuilder<'a> {
+    pub compiler: &'a mut Compiler,
+    pub ctx: Context,
+    pub fn_builder_ctx: FunctionBuilderContext,
+}
+
+impl FuncCompilerBuilder<'_> {
+    pub fn provide(&mut self) -> FuncCompiler<'_, '_> {
+        let mut ctx = &mut self.ctx;
+        let mut fn_builder_ctx = &mut self.fn_builder_ctx;
+
+        let println_id = {
+            let mut do_println_sig = self.compiler.jit.module.make_signature();
+
+            do_println_sig.params.push(AbiParam::new(types::I64));
+
+            self.compiler.jit.module.declare_function("println", Linkage::Import, &do_println_sig).unwrap()
+        };
+
+        let println_str_id = {
+            let mut do_println_sig = self.compiler.jit.module.make_signature();
+
+            do_println_sig.params.push(AbiParam::new(types::I64));
+
+            self.compiler.jit.module.declare_function("println_str", Linkage::Import, &do_println_sig).unwrap()
+        };
+
+        let get_type_idx_id = {
+            let mut get_type_idx_sig = self.compiler.jit.module.make_signature();
+
+            get_type_idx_sig.params.push(AbiParam::new(self.compiler.jit.module.isa().pointer_type()));
+            get_type_idx_sig.returns.push(AbiParam::new(self.compiler.jit.module.isa().pointer_type()));
+
+            let func = self.compiler.jit.module.declare_function("get_type_idx", Linkage::Local, &get_type_idx_sig).unwrap();
+
+            ctx.func.signature = get_type_idx_sig;
+
+            let mut fn_builder_ctx = FunctionBuilderContext::new();
+            let mut fn_builder = FunctionBuilder::new(&mut ctx.func, &mut fn_builder_ctx);
+
+            let entry_block = fn_builder.create_block();
+
+            fn_builder.append_block_params_for_function_params(entry_block);
+            fn_builder.switch_to_block(entry_block);
+            fn_builder.seal_block(entry_block);
+
+            let fat_ptr = fn_builder.block_params(entry_block)[0];
+            let vtable_ptr = FatPtr::get_metadata(self.compiler.jit.module.isa(), &mut fn_builder, fat_ptr);
+            let type_idx = VTablePtr::get_type_idx(self.compiler.jit.module.isa(), &mut fn_builder, vtable_ptr);
+
+            fn_builder.ins().return_(&[type_idx]);
+
+            self.compiler.jit.module.define_function(func, &mut ctx).unwrap();
+            self.compiler.jit.module.clear_context(&mut ctx);
+
+            func
+        };
+
+        let get_size_id = {
+            let mut get_size_sig = self.compiler.jit.module.make_signature();
+
+            get_size_sig.params.push(AbiParam::new(self.compiler.jit.module.isa().pointer_type()));
+            get_size_sig.returns.push(AbiParam::new(self.compiler.jit.module.isa().pointer_type()));
+
+            let func = self.compiler.jit.module.declare_function("get_size", Linkage::Local, &get_size_sig).unwrap();
+
+            ctx.func.signature = get_size_sig;
+
+            let mut fn_builder_ctx = FunctionBuilderContext::new();
+            let mut fn_builder = FunctionBuilder::new(&mut ctx.func, &mut fn_builder_ctx);
+
+            let entry_block = fn_builder.create_block();
+
+            fn_builder.append_block_params_for_function_params(entry_block);
+            fn_builder.switch_to_block(entry_block);
+            fn_builder.seal_block(entry_block);
+
+            let fat_ptr = fn_builder.block_params(entry_block)[0];
+            let size = FatPtr::get_metadata(self.compiler.jit.module.isa(), &mut fn_builder, fat_ptr);
+
+            fn_builder.ins().return_(&[size]);
+
+            self.compiler.jit.module.define_function(func, &mut ctx).unwrap();
+            self.compiler.jit.module.clear_context(&mut ctx);
+
+            func
+        };
+
+        self.compiler.globals.insert("println".to_owned(), println_id);
+        self.compiler.globals.insert("println_str".to_owned(), println_str_id);
+        self.compiler.globals.insert("get_type_idx".to_owned(), get_type_idx_id);
+        self.compiler.globals.insert("get_size".to_owned(), get_size_id);
+
+        let mut fn_builder = FunctionBuilder::new(&mut ctx.func, fn_builder_ctx);
+
+        let entry_block = fn_builder.create_block();
+
+        fn_builder.append_block_params_for_function_params(entry_block);
+        fn_builder.switch_to_block(entry_block);
+        fn_builder.seal_block(entry_block);
+
+        FuncCompiler {
+            compiler: self.compiler,
+            fn_builder,
+        }
+    }
+}
+
+pub struct FuncCompiler<'a, 'b> {
+    pub compiler: &'a mut Compiler,
+    pub fn_builder: FunctionBuilder<'b>,
+}
+
+impl FuncCompiler<'_, '_> {
+    /// # Errors
+    ///
+    /// Returns `CompileError` if program parsing or compilation fails.
+    pub fn compile_program_text<T: AsRef<str>>(&mut self, text: T) -> CompileResult<FuncId> {
+        let mut parser = Parser::new(Lexer::lex(text.as_ref()));
+
+        let program = match parse_statements_until(&mut parser, &Token::EOF) {
+            Ok(statements) => statements,
+            Err(error) => return Err(CompileError::Parse(error)),
+        };
+
+        self.compile_program(program)
+    }
+
+    /// # Errors
+    ///
+    /// Returns `CompileError` if program compilation fails.
+    ///
+    /// # Panics
+    ///
+    /// TODO
+    pub fn compile_program(&mut self, (statements, returned): (Vec<Positioned<Stmt>>, Option<Positioned<Stmt>>)) -> CompileResult<FuncId> {
+        for statement in statements {
+            self.compiler.compile(&mut self.fn_builder, statement)?;
+        }
+
+        if let Some(statement) = returned {
+            self.compiler.compile(&mut self.fn_builder, statement)?;
+        }
+
+        self.fn_builder.ins().return_(&[]);
+
+        println!("{}", self.fn_builder.func);
+
+        Ok(self
+            .compiler
+            .jit
+            .module
+            .declare_function("main", Linkage::Export, &self.fn_builder.func.signature)
+            .unwrap())
+    }
+}
+
 impl Compiler {
+    pub fn with_symbols(symbols: Vec<(&'static str, *const u8)>) -> Self {
+        let mut flag_builder = settings::builder();
+
+        flag_builder.set("use_colocated_libcalls", "false").unwrap();
+        flag_builder.set("opt_level", "speed").unwrap();
+        flag_builder.set("is_pic", "false").unwrap();
+
+        Self {
+            traits: IndexMap::new(),
+            types: IndexMap::new(),
+            impls: IndexMap::new(),
+            vtables: IndexMap::new(),
+            frames: vec![IndexMap::new()],
+            generics: Vec::new(),
+            assign: None,
+            this: None,
+            infer: None,
+            infer_ir: None,
+            infer_val: None,
+            jit: JitCompiler::new(symbols, settings::Flags::new(flag_builder)),
+            values: IndexMap::new(),
+            globals: IndexMap::new(),
+            variables: IndexMap::new(),
+        }
+    }
+
     pub fn get<T: AsRef<str>>(&self, name: T) -> Option<ValueOrFunc> {
         self.values.get(name.as_ref()).copied()
     }
@@ -249,103 +414,15 @@ impl Compiler {
         self.current_frame_mut().shift_remove(name);
     }
 
-    /// # Errors
-    ///
-    /// Returns `CompileError` if program parsing or compilation fails.
-    pub fn compile_program_text<T: AsRef<str>>(&mut self, text: T) -> CompileResult {
-        let mut parser = Parser::new(Lexer::lex(text.as_ref()));
-
-        let program = match parse_statements_until(&mut parser, &Token::EOF) {
-            Ok(statements) => statements,
-            Err(error) => return Err(CompileError::Parse(error)),
-        };
-
-        self.compile_program(program)
-    }
-
-    /// # Errors
-    ///
-    /// Returns `CompileError` if program compilation fails.
-    ///
-    /// # Panics
-    ///
-    /// TODO
-    pub fn compile_program(&mut self, (statements, returned): (Vec<Positioned<Stmt>>, Option<Positioned<Stmt>>)) -> CompileResult {
+    pub fn start_compiling(&mut self) -> FuncCompilerBuilder<'_> {
         let mut ctx = self.jit.module.make_context();
         let mut fn_builder_ctx = FunctionBuilderContext::new();
 
-        let println_id = {
-            let mut do_println_sig = self.jit.module.make_signature();
-
-            do_println_sig.params.push(AbiParam::new(types::I64));
-
-            self.jit.module.declare_function("println", Linkage::Import, &do_println_sig).unwrap()
-        };
-
-        let get_size_id = {
-            let mut get_size_sig = self.jit.module.make_signature();
-
-            get_size_sig.params.push(AbiParam::new(self.jit.module.isa().pointer_type()));
-            get_size_sig.returns.push(AbiParam::new(self.jit.module.isa().pointer_type()));
-
-            let func = self.jit.module.declare_function("get_size", Linkage::Local, &get_size_sig).unwrap();
-
-            ctx.func.signature = get_size_sig;
-
-            let mut fn_builder_ctx = FunctionBuilderContext::new();
-            let mut fn_builder = FunctionBuilder::new(&mut ctx.func, &mut fn_builder_ctx);
-
-            let entry_block = fn_builder.create_block();
-
-            fn_builder.append_block_params_for_function_params(entry_block);
-            fn_builder.switch_to_block(entry_block);
-            fn_builder.seal_block(entry_block);
-
-            let fat_ptr = fn_builder.block_params(entry_block)[0];
-            let size = FatPtr::get_metadata(self.jit.module.isa(), &mut fn_builder, fat_ptr);
-
-            fn_builder.ins().return_(&[size]);
-
-            self.jit.module.define_function(func, &mut ctx).unwrap();
-            self.jit.module.clear_context(&mut ctx);
-
-            func
-        };
-
-        self.globals.insert("println".to_owned(), println_id);
-        self.globals.insert("get_size".to_owned(), get_size_id);
-
-        let mut fn_builder = FunctionBuilder::new(&mut ctx.func, &mut fn_builder_ctx);
-
-        let entry_block = fn_builder.create_block();
-
-        fn_builder.append_block_params_for_function_params(entry_block);
-        fn_builder.switch_to_block(entry_block);
-        fn_builder.seal_block(entry_block);
-
-        for statement in statements {
-            self.compile(&mut fn_builder, statement)?;
+        FuncCompilerBuilder {
+            compiler: self,
+            ctx,
+            fn_builder_ctx,
         }
-
-        if let Some(statement) = returned {
-            self.compile(&mut fn_builder, statement)?;
-        }
-
-        fn_builder.ins().return_(&[]);
-
-        println!("{}", fn_builder.func);
-
-        let id = self.jit.module.declare_function("main", Linkage::Export, &ctx.func.signature).unwrap();
-
-        self.jit.module.define_function(id, &mut ctx).unwrap();
-        self.jit.module.clear_context(&mut ctx);
-        self.jit.module.finalize_definitions().unwrap();
-
-        let code = self.jit.module.get_finalized_function(id);
-
-        unsafe { std::mem::transmute::<*const u8, fn()>(code)() };
-
-        Ok(())
     }
 
     /// # Errors
@@ -543,14 +620,38 @@ impl<T: GetType> GetPositionedType for Positioned<T> {
     }
 }
 
+fn do_println(value: i64) {
+    println!("{value}");
+}
+
+#[repr(C)]
+struct MolliePtr<T> {
+    ptr: *const u8,
+    metadata: T,
+}
+
+fn do_println_str(value: *const MolliePtr<usize>) {
+    let MolliePtr { ptr, metadata } = unsafe { value.read() };
+
+    if let Ok(text) = str::from_utf8(unsafe { slice::from_raw_parts(ptr, metadata) }) {
+        println!("{text}");
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use cranelift::module::Module;
     use mollie_typing::TypeVariant;
 
     use crate::Compiler;
 
     fn add_builtins(compiler: &mut Compiler) {
-        compiler.var("println", TypeVariant::function(false, [TypeVariant::any()], ()));
+        compiler.var(
+            "println",
+            TypeVariant::function(false, [TypeVariant::one_of([TypeVariant::int64(), TypeVariant::usize()])], ()),
+        );
+        compiler.var("println_str", TypeVariant::function(false, [TypeVariant::string()], ()));
+        compiler.var("get_type_idx", TypeVariant::function(false, [TypeVariant::any()], TypeVariant::usize()));
         compiler.var("get_size", TypeVariant::function(false, [TypeVariant::any()], TypeVariant::usize()));
     }
 
@@ -560,9 +661,12 @@ mod tests {
 
         add_builtins(&mut compiler);
 
-        compiler
+        let mut provider = compiler.start_compiling();
+        let mut compiler = provider.provide();
+
+        let main_id = compiler
             .compile_program_text(
-                "
+                r#"
         trait Placeable {
             fn place(self);
         }
@@ -574,6 +678,8 @@ mod tests {
 
         impl trait Placeable for PlaceableComponent {
             fn place(self) {
+                self.x = 4;
+                
                 println(11int64);
             }
         }
@@ -592,15 +698,26 @@ mod tests {
             }
         };
 
+        
+
         contained.children[0].place();
 
+        println_str("check");
+
+        if contained.children[0] is PlaceableComponent compik {
+            println_str("accessing compik");
+            println(compik.x);
+            println_str("okie");
+        }
+
+        println_str("ok");
+        
         const typed_num = 32uint8;
         let num = 1984;
-        const str = \"hello!\";
+        const str = "Hello, World!";
         const array = [4891int64, 2int64];
 
         num = 320;
-
         declare InnerComponent {
             value: int8
         }
@@ -643,11 +760,13 @@ mod tests {
             y: 24
         };
 
+        println_str("before");
         println(placeable.x);
         println(placeable.y);
 
         placeable.place();
 
+        println_str("after");
         println(placeable.x);
         println(placeable.y);
 
@@ -657,10 +776,26 @@ mod tests {
         println(get_size(str));
         println(get_size(array));
         println(array[0]);
-        println(get_size(comp.children))
+        println(get_size(comp.children));
+        println_str(str);
         
-        ",
+        enum Gender {
+            Male,
+            Female,
+        }
+
+        const my_gender = Gender::Male;
+
+        "#,
             )
             .unwrap();
+
+        provider.compiler.jit.module.define_function(main_id, &mut provider.ctx).unwrap();
+        provider.compiler.jit.module.clear_context(&mut provider.ctx);
+        provider.compiler.jit.module.finalize_definitions().unwrap();
+
+        let code = provider.compiler.jit.module.get_finalized_function(main_id);
+
+        unsafe { std::mem::transmute::<*const u8, fn()>(code)() };
     }
 }
