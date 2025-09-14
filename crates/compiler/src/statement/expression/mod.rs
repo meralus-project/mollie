@@ -48,7 +48,7 @@ impl Compile<ValueOrFunc> for Positioned<Expr> {
             This => compiler
                 .variables
                 .get("self")
-                .map_or_else(|| unimplemented!(), |v| Ok(ValueOrFunc::Value(fn_builder.use_var(*v)))),
+                .map_or_else(|| unimplemented!(), |v| Ok(ValueOrFunc::Value(*v))),
         }
     }
 }

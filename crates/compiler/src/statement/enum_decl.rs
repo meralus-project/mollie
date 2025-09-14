@@ -1,7 +1,7 @@
-use cranelift::prelude::FunctionBuilder;
+use cranelift::{module::Module, prelude::FunctionBuilder};
 use mollie_parser::EnumDecl;
 use mollie_shared::Positioned;
-use mollie_typing::{ComplexType, EnumType, EnumVariant, Type, TypeVariant};
+use mollie_typing::{ComplexType, EnumType, EnumVariant, Struct, Type, TypeVariant};
 
 use crate::{Compile, CompileResult, Compiler, GetPositionedType};
 
@@ -26,7 +26,11 @@ impl Compile for Positioned<EnumDecl> {
                 None
             };
 
-            variants.push((variant.value.name.value.0, EnumVariant { properties }));
+            let structure = properties
+                .as_ref()
+                .map(|properties| Struct::new(properties.iter().map(|property| property.1.variant.as_ir_type(compiler.jit.module.isa()))));
+
+            variants.push((variant.value.name.value.0, EnumVariant { properties, structure }));
         }
 
         for name in &self.value.name.value.generics {

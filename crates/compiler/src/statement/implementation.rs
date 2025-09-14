@@ -1,7 +1,7 @@
 use std::mem;
 
 use cranelift::{
-    codegen::ir::{FuncRef, SigRef},
+    codegen::ir::{FuncRef, SigRef, UserFuncName},
     module::{Linkage, Module},
     prelude::{AbiParam, FunctionBuilder, FunctionBuilderContext, InstBuilder},
 };
@@ -33,6 +33,8 @@ impl Compile<(SigRef, FuncRef)> for Positioned<ImplFunction> {
         if let Some(returns) = self.value.returns {
             let ty = returns.get_type(compiler)?;
 
+            println!("returns {ty}");
+
             signature.returns.push(AbiParam::new(ty.variant.as_ir_type(compiler.jit.module.isa())));
         }
 
@@ -42,6 +44,8 @@ impl Compile<(SigRef, FuncRef)> for Positioned<ImplFunction> {
             .module
             .declare_function(&self.value.name.value.0, Linkage::Local, &signature)
             .unwrap();
+
+        compiler.func_names.insert(func, self.value.name.value.0);
 
         ctx.func.signature = signature.clone();
 
@@ -58,29 +62,33 @@ impl Compile<(SigRef, FuncRef)> for Positioned<ImplFunction> {
             let value = fn_builder.block_params(entry_block)[0];
             let ty = fn_builder.func.signature.params[0].value_type;
 
-            let var = fn_builder.declare_var(ty);
+            // let var = fn_builder.declare_var(ty);
 
-            fn_builder.def_var(var, value);
+            // fn_builder.def_var(var, value);
 
-            compiler.variables.insert(String::from("self"), var);
+            compiler.variables.insert(String::from("self"), value);
         }
 
         for (index, arg) in self.value.args.iter().enumerate() {
             let value = fn_builder.block_params(entry_block)[index + usize::from(self.value.this.is_some())];
             let ty = fn_builder.func.signature.params[index + usize::from(self.value.this.is_some())].value_type;
 
-            let var = fn_builder.declare_var(ty);
+            // let var = fn_builder.declare_var(ty);
 
-            fn_builder.def_var(var, value);
+            // fn_builder.def_var(var, value);
 
-            compiler.variables.insert(arg.value.name.value.0.clone(), var);
+            compiler.variables.insert(arg.value.name.value.0.clone(), value);
         }
 
         if let ValueOrFunc::Value(v) = compiler.compile(&mut fn_builder, self.value.body)? {
+            println!("returning smth");
             fn_builder.ins().return_(&[v]);
         } else {
+            println!("returning nothing");
             fn_builder.ins().return_(&[]);
         }
+
+        println!("{}", fn_builder.func);
 
         compiler.jit.module.define_function(func, &mut ctx).unwrap();
         compiler.jit.module.clear_context(&mut ctx);
@@ -263,9 +271,10 @@ impl Compile for Positioned<Impl> {
         let size_t = compiler.jit.module.isa().pointer_type();
         let slot = stack_alloc(fn_builder, size_t.bytes() * (u32::try_from(functions.len())? + 1));
 
-        let type_idx = fn_builder
-            .ins()
-            .iconst(size_t, i64::try_from(compiler.impls.get_index_of(&ty.variant).unwrap())?);
+        let type_idx = fn_builder.ins().iconst(
+            size_t,
+            i64::try_from(compiler.vtables.get_index_of(&ty.variant).unwrap_or_else(|| compiler.vtables.len()))?,
+        );
 
         fn_builder.ins().stack_store(type_idx, slot, 0);
 

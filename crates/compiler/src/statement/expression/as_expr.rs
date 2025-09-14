@@ -26,7 +26,7 @@ impl Compile<ValueOrFunc> for Positioned<IsPattern> {
                         )
                     } else {
                         let mut name_ty = ty.value.name.get_type(compiler)?;
-                        let idx = compiler.impls.get_index_of(&name_ty.variant).unwrap().try_into()?;
+                        let idx = compiler.vtables.get_index_of(&name_ty.variant).unwrap().try_into()?;
 
                         for generic in ty.value.generics {
                             name_ty.applied_generics.push(generic.get_type(compiler)?);
@@ -35,10 +35,9 @@ impl Compile<ValueOrFunc> for Positioned<IsPattern> {
                         (name_ty, idx)
                     };
 
-                    let var = fn_builder.declare_var(name_ty.variant.as_ir_type(compiler.jit.module.isa()));
+                    // let var = fn_builder.declare_var(name_ty.variant.as_ir_type(compiler.jit.module.isa()));
 
                     compiler.var(&name.value.0, name_ty);
-                    compiler.variables.insert(name.value.0, var);
 
                     let size_t = compiler.jit.module.isa().pointer_type();
                     let vtable_ptr = FatPtr::get_metadata(compiler.jit.module.isa(), fn_builder, fat_ptr);
@@ -46,7 +45,8 @@ impl Compile<ValueOrFunc> for Positioned<IsPattern> {
                     let target_type_idx = fn_builder.ins().iconst(size_t, idx);
                     let ptr = FatPtr::get_ptr(compiler.jit.module.isa(), fn_builder, fat_ptr);
 
-                    fn_builder.def_var(var, ptr);
+                    compiler.variables.insert(name.value.0, ptr);
+                    // fn_builder.def_var(var, ptr);
 
                     Ok(ValueOrFunc::Value(fn_builder.ins().icmp(IntCC::Equal, type_idx, target_type_idx)))
                 }
@@ -78,56 +78,52 @@ impl Compile<ValueOrFunc> for Positioned<IsPattern> {
                         .get_index_of(&target.value.0)
                         .ok_or(CompileError::VariableNotFound { name: target.value.0 })?;
 
-                    // chunk.copy();
-                    // chunk.is_instance_of(ty_index, variant);
+                    let size_t = compiler.jit.module.isa().pointer_type();
+                    let variant_idx = FatPtr::get_metadata(compiler.jit.module.isa(), fn_builder, fat_ptr);
+                    let target_variant_idx = fn_builder.ins().iconst(size_t, i64::try_from(variant)?);
+
+                    let result = fn_builder.ins().icmp(IntCC::Equal, variant_idx, target_variant_idx);
 
                     if let Some(values) = values {
-                        // for value in values.value {
-                        //     let property = ty.variant.as_enum().unwrap().variants[variant]
-                        //         .1
-                        //         .properties
-                        //         .as_ref()
-                        //         .unwrap()
-                        //         .iter()
-                        //         .position(|property| property.0 == value.value.name.value.0)
-                        //         .unwrap();
+                        for value in values.value {
+                            let property = ty.variant.as_enum().unwrap().variants[variant]
+                                .1
+                                .properties
+                                .as_ref()
+                                .unwrap()
+                                .iter()
+                                .position(|property| property.0 == value.value.name.value.0)
+                                .unwrap();
 
-                        //     chunk.get_property(property);
+                            // chunk.get_property(property);
 
-                        //     if let Some(val) = value.value.value {
-                        //         val.compile(compiler, fn_builder)?;
-                        //     } else {
-                        //         let id = compiler.var(
-                        //             value.value.name.value.0,
-                        //             
-                        // ty.variant.as_enum().unwrap().variants[variant].1.properties.as_ref().
-                        // unwrap()[property]                 .1
-                        //                 .clone()
-                        //                 .resolve_type(&ty.applied_generics),
-                        //         );
+                            if let Some(val) = value.value.value {
+                                val.compile(compiler, fn_builder)?;
+                            } else {
+                                let name_ty = ty.variant.as_enum().unwrap().variants[variant].1.properties.as_ref().unwrap()[property]
+                                    .1
+                                    .clone()
+                                    .resolve_type(&ty.applied_generics);
 
-                        //         chunk.set_local(id);
+                                // let var = fn_builder.declare_var(name_ty.variant.as_ir_type(compiler.jit.module.isa()));
 
-                        //         let constant = chunk.constant(mollie_vm::Value::Boolean(true));
+                                compiler.var(&value.value.name.value.0, name_ty);
 
-                        //         chunk.load_const(constant);
-                        //     }
-                        // }
+                                let variant_ptr = FatPtr::get_ptr(compiler.jit.module.isa(), fn_builder, fat_ptr);
+                                let ptr = fn_builder.ins().load(
+                                    ty.variant.as_enum().unwrap().variants[variant].1.structure.as_ref().unwrap().fields[property].ty,
+                                    MemFlags::trusted(),
+                                    variant_ptr,
+                                    ty.variant.as_enum().unwrap().variants[variant].1.structure.as_ref().unwrap().fields[property].offset,
+                                );
 
-                        // chunk[start] = Inst::JumpIfFalse(chunk.len() - start + 1);
-
-                        // chunk.jump(4);
-                        // chunk.pop();
-                        // chunk.pop();
-
-                        // let constant = chunk.constant(mollie_vm::Value::Boolean(false));
-
-                        // chunk.load_const(constant);
-
-                        Ok(ValueOrFunc::Nothing)
-                    } else {
-                        Ok(ValueOrFunc::Nothing)
+                                compiler.variables.insert(value.value.name.value.0, ptr);
+                                // fn_builder.def_var(var, ptr);
+                            }
+                        }
                     }
+
+                    Ok(ValueOrFunc::Value(result))
                 }
             }
         } else {

@@ -98,18 +98,21 @@ impl Compile<ValueOrFunc> for Positioned<IndexExpr> {
                         .into());
                     }
                 } else if let Some(structure) = ty.variant.as_struct() {
-                    let v = compiler.compile(fn_builder, *self.value.target)?;
+                    let target = compiler.compile(fn_builder, *self.value.target)?;
 
                     if let Some(pos) = structure.properties.iter().position(|(name, ..)| name == &index.0) {
                         if let Some(assign) = assign {
-                            let value = compiler.compile(fn_builder, assign)?;
+                            let assign_value = compiler.compile(fn_builder, assign)?;
 
-                            if let (ValueOrFunc::Value(v), ValueOrFunc::Value(value)) = (v, value) {
-                                fn_builder.ins().store(MemFlags::trusted(), v, value, structure.structure.fields[pos].offset);
+                            if let (ValueOrFunc::Value(to_be_assigned), ValueOrFunc::Value(assign_value)) = (target, assign_value) {
+                                println!("assign {}", structure.properties[pos].0);
+                                println!("assign {}", structure.structure.fields[pos].offset);
+
+                                fn_builder.ins().store(MemFlags::trusted(), assign_value, to_be_assigned, structure.structure.fields[pos].offset);
 
                                 return Ok(ValueOrFunc::Nothing);
                             }
-                        } else if let ValueOrFunc::Value(v) = v {
+                        } else if let ValueOrFunc::Value(v) = target {
                             return Ok(ValueOrFunc::Value(fn_builder.ins().load(
                                 structure.structure.fields[pos].ty,
                                 MemFlags::trusted(),

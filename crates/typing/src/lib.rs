@@ -407,8 +407,8 @@ impl TypeVariant {
                 PrimitiveType::Void => unimplemented!(),
                 PrimitiveType::Null => unimplemented!(),
             },
-            Self::Trait(_) | Self::Complex(_) => isa.pointer_type(),
-            Self::Generic(_) => unimplemented!(),
+            Self::Generic(_) | Self::Trait(_) | Self::Complex(_) => isa.pointer_type(),
+            // Self::Generic(_) => unimplemented!(),
         }
     }
 }

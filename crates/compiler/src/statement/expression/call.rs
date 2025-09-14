@@ -1,4 +1,4 @@
-use cranelift::prelude::{FunctionBuilder, InstBuilder};
+use cranelift::{codegen::ir::SourceLoc, prelude::{FunctionBuilder, InstBuilder}};
 use mollie_parser::FuncCallExpr;
 use mollie_shared::{Positioned, Span};
 use mollie_typing::TypeKind;
@@ -89,6 +89,8 @@ impl Compile<ValueOrFunc> for Positioned<FuncCallExpr> {
 
             if let ValueOrFunc::Func(func) = v {
                 let result = fn_builder.ins().call(func, &args);
+
+                fn_builder.func.stencil.srclocs[result].expand(SourceLoc::new(self.span.line as u32));
 
                 Ok(fn_builder
                     .inst_results(result)

@@ -1,4 +1,8 @@
-use cranelift::prelude::{FunctionBuilder, InstBuilder};
+use cranelift::{
+    codegen::ir::BlockArg,
+    module::Module,
+    prelude::{FunctionBuilder, InstBuilder},
+};
 use mollie_parser::IfElseExpr;
 use mollie_shared::{Positioned, Span};
 use mollie_typing::TypeVariant;
@@ -21,7 +25,15 @@ impl Compile<ValueOrFunc> for Positioned<IfElseExpr> {
             let then_block = fn_builder.create_block();
             let after_block = fn_builder.create_block();
 
-            if let Some(otherwise) = self.value.else_block {
+            let returning_param = if let Some(final_stmt) = &self.value.block.value.final_stmt {
+                let ty = final_stmt.get_type(compiler)?;
+
+                Some(fn_builder.append_block_param(after_block, ty.variant.as_ir_type(compiler.jit.module.isa())))
+            } else {
+                None
+            };
+
+            let returned = if let Some(otherwise) = self.value.else_block {
                 let else_block = fn_builder.create_block();
 
                 fn_builder.ins().brif(cond_result, then_block, &[], else_block, &[]);
@@ -29,31 +41,40 @@ impl Compile<ValueOrFunc> for Positioned<IfElseExpr> {
                 fn_builder.switch_to_block(then_block);
                 fn_builder.seal_block(then_block);
 
-                self.value.block.compile(compiler, fn_builder)?;
+                let returned = self.value.block.compile(compiler, fn_builder)?;
 
-                fn_builder.ins().jump(after_block, &[]);
+                if let ValueOrFunc::Value(returned) = returned {
+                    fn_builder.ins().jump(after_block, &[BlockArg::Value(returned)]);
+                } else {
+                    fn_builder.ins().jump(after_block, &[]);
+                }
 
                 fn_builder.switch_to_block(else_block);
                 fn_builder.seal_block(else_block);
-                fn_builder.ins().jump(after_block, &[]);
 
-                otherwise.compile(compiler, fn_builder)?;
+                otherwise.compile(compiler, fn_builder)?
             } else {
                 fn_builder.ins().brif(cond_result, then_block, &[], after_block, &[]);
 
                 fn_builder.switch_to_block(then_block);
                 fn_builder.seal_block(then_block);
 
-                self.value.block.compile(compiler, fn_builder)?;
+                self.value.block.compile(compiler, fn_builder)?
+            };
 
+            if let ValueOrFunc::Value(returned) = returned {
+                fn_builder.ins().jump(after_block, &[BlockArg::Value(returned)]);
+            } else {
                 fn_builder.ins().jump(after_block, &[]);
             }
 
             fn_builder.switch_to_block(after_block);
             fn_builder.seal_block(after_block);
-        }
 
-        Ok(ValueOrFunc::Nothing)
+            returning_param.map_or(Ok(ValueOrFunc::Nothing), |returning_param| Ok(ValueOrFunc::Value(returning_param)))
+        } else {
+            Ok(ValueOrFunc::Nothing)
+        }
     }
 }
 

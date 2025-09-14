@@ -1,14 +1,19 @@
-use cranelift::prelude::FunctionBuilder;
+use cranelift::{
+    module::Module,
+    prelude::{FunctionBuilder, InstBuilder},
+};
 use indexmap::IndexMap;
 use mollie_parser::EnumPathExpr;
 use mollie_shared::{Positioned, Span};
 use mollie_typing::{FatPtr, Type, TypeKind, TypeVariant};
 
-use crate::{Compile, CompileError, CompileResult, Compiler, GetPositionedType, GetType, TypeError, TypeResult, ValueOrFunc};
+use crate::{Compile, CompileResult, Compiler, GetPositionedType, GetType, TypeError, TypeResult, ValueOrFunc};
 
 impl Compile<ValueOrFunc> for Positioned<EnumPathExpr> {
     fn compile(mut self, compiler: &mut Compiler, fn_builder: &mut FunctionBuilder) -> CompileResult<ValueOrFunc> {
         let ty = self.get_type(compiler)?;
+
+        println!("{ty:#?}");
 
         if let Some(enumeration) = ty.variant.as_enum() {
             let variant = enumeration.variants.iter().position(|v| v.0 == self.value.index.value.name.value.0).unwrap();
@@ -38,25 +43,23 @@ impl Compile<ValueOrFunc> for Positioned<EnumPathExpr> {
 
                 compiler.generics = Vec::new();
 
-                let ty = compiler.types.get_index_of(&self.value.target.value.0).ok_or(CompileError::VariableNotFound {
-                    name: self.value.target.value.0,
-                })?;
+                // let ty = compiler.types.get_index_of(&self.value.target.value.0).ok_or(CompileError::VariableNotFound {
+                //     name: self.value.target.value.0,
+                // })?;
 
-            //                
-            // ValueOrFunc::Value(enumeration.instance(compiler.jit.module.
-            // isa(), fn_builder, values))
+                Ok(if let Some(structure) = &enumeration.variants[variant].1.structure {
+                    let ptr = structure.instance(compiler.jit.module.isa(), fn_builder, values);
+                    let metadata = fn_builder.ins().iconst(compiler.jit.module.isa().pointer_type(), i64::try_from(variant)?);
+
+                    ValueOrFunc::Value(FatPtr::new(compiler.jit.module.isa(), fn_builder, ptr, metadata))
+                } else {
+                    ValueOrFunc::Nothing
+                })
             } else {
-                // let constant =
-                // chunk.constant(Value::object(ObjectValue::Enum(Enum {
-                //     ty,
-                //     variant,
-                //     values: Vec::new(),
-                // })));
-
-                // chunk.load_const(constant);
+                Ok(ValueOrFunc::Value(
+                    fn_builder.ins().iconst(compiler.jit.module.isa().pointer_type(), i64::try_from(variant)?),
+                ))
             }
-
-            Ok(ValueOrFunc::Nothing)
         } else {
             Ok(ValueOrFunc::Nothing)
         }

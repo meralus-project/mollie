@@ -18,6 +18,12 @@ fn add_builtins(func_compiler: &mut FuncCompiler, context: &mut DrawContext) {
         .var("println_str", TypeVariant::function(false, [TypeVariant::string()], ()));
     func_compiler
         .compiler
+        .var("println_bool", TypeVariant::function(false, [TypeVariant::boolean()], ()));
+    func_compiler
+        .compiler
+        .var("println_addr", TypeVariant::function(false, [TypeVariant::any()], ()));
+    func_compiler
+        .compiler
         .var("get_type_idx", TypeVariant::function(false, [TypeVariant::any()], TypeVariant::usize()));
     func_compiler
         .compiler
@@ -25,19 +31,19 @@ fn add_builtins(func_compiler: &mut FuncCompiler, context: &mut DrawContext) {
 
     let draw_ctx_ty = TypeVariant::structure::<String, Type, _>([]);
 
-    let var = func_compiler
-        .fn_builder
-        .declare_var(draw_ctx_ty.as_ir_type(func_compiler.compiler.jit.module.isa()));
+    // let var = func_compiler
+    //     .fn_builder
+    //     .declare_var(draw_ctx_ty.as_ir_type(func_compiler.compiler.jit.module.isa()));
 
     func_compiler.compiler.var("context", draw_ctx_ty.clone());
-    func_compiler.compiler.variables.insert("context".to_string(), var);
 
     let value = func_compiler.fn_builder.ins().iconst(
         func_compiler.compiler.jit.module.isa().pointer_type(),
         std::ptr::from_mut::<DrawContext>(context).addr().cast_signed() as i64,
     );
 
-    func_compiler.fn_builder.def_var(var, value);
+    func_compiler.compiler.variables.insert("context".to_string(), value);
+    // func_compiler.fn_builder.def_var(var, value);
 
     let draw_rect = {
         let mut sig = func_compiler.compiler.jit.module.make_signature();
@@ -172,6 +178,7 @@ let num = 1984;
 const str = "Hello, World!";
 const array = [4891int64, 2int64];
 
+
 num = 320;
 declare InnerComponent {
     value: int8
@@ -235,6 +242,101 @@ println(get_size(comp.children));
 println_str(str);
 
 context.draw_rect(0.0, 0.0, 24.0, 24.0, 65280uint32);
+
+enum Option<T> {
+    Some { value: T },
+    None
+}
+
+trait Iterable<T> {
+    fn iter(self) -> T;
+}
+
+trait Iterator<T> {
+    fn next(self) -> Option<T>;
+}
+
+impl<T> T[] {
+    fn size(self) -> uint_size {
+        get_size(self)
+    }
+}
+
+println_str("array size?");
+println(array.size());
+println_str("oh wow?");
+
+struct ArrayIter<T> {
+    value: T[],
+    index: uint_size
+}
+
+impl<T> trait Iterator<T> for ArrayIter<T> {
+    fn next(self) -> Option<T> {
+        println_str("next");
+        println(7941int64);
+        println_addr(self);
+        println_addr(self.value);
+        println(get_size(self.value));
+
+        if self.index == get_size(self.value) {
+            Option::None<T>
+        } else {
+            const returned = self.value[self.index];
+
+            self.index = self.index + 1uint_size;
+
+            Option::Some<T> {
+                value: returned
+            }
+        }
+    }
+}
+
+impl<T> trait Iterable<ArrayIter<T>> for T[] {
+    fn iter(self) -> ArrayIter<T> {
+        const val = ArrayIter {
+            value: self,
+            index: 0
+        };
+
+        println_str("func_checking[start]");
+        println_addr(val.value);
+        println_addr(val);
+        println_addr(val.value);
+        println_str("func_checking[end]");
+
+        val
+    }
+}
+
+println_str("address of array");
+println_addr(array);
+println_addr(array.iter().value);
+println(2424int64);
+
+const iterator = array.iter();
+
+println_addr(iterator.value);
+println_str("checking[mid]");
+println_addr(iterator.value);
+println_str("checking[end]");
+println_addr(iterator.value);
+println_addr(iterator.value);
+println(get_size(iterator.value));
+println_addr(iterator);
+println_str("address of iterator in main fn");
+println_addr(iterator);
+println_str("address of array in iterator in main fn");
+println_addr(iterator.value);
+
+if iterator.next() is Option::Some { value } {
+    println(value);
+}
+
+if iterator.next() is Option::Some { value } {
+    println(value);
+}
 "#;
 
 fn main() {

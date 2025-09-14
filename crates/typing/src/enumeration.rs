@@ -4,12 +4,14 @@ use mollie_shared::pretty_fmt::PrettyFmt;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use crate::Type;
+use crate::{Struct, Type};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 pub struct EnumVariant {
     pub properties: Option<Vec<(String, Type)>>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub structure: Option<Struct>
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

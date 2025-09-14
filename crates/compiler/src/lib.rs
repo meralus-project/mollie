@@ -44,6 +44,8 @@ impl JitCompiler {
         let mut builder = JITBuilder::with_isa(isa, default_libcall_names());
 
         builder.symbol("println", do_println as *const u8);
+        builder.symbol("println_bool", do_println_bool as *const u8);
+        builder.symbol("println_addr", do_println_addr as *const u8);
         builder.symbol("println_str", do_println_str as *const u8);
 
         for (name, ptr) in symbols {
@@ -81,8 +83,10 @@ pub struct Compiler {
     pub infer_ir: Option<ir::Type>,
     pub infer_val: Option<ValueOrFunc>,
     pub values: IndexMap<String, ValueOrFunc>,
-    pub variables: IndexMap<String, cranelift::prelude::Variable>,
+    // pub variables: IndexMap<String, cranelift::prelude::Variable>,
+    pub variables: IndexMap<String, cranelift::prelude::Value>,
     pub globals: IndexMap<String, FuncId>,
+    pub func_names: IndexMap<FuncId, String>,
 
     pub jit: JitCompiler,
 }
@@ -171,7 +175,35 @@ impl FuncCompilerBuilder<'_> {
 
             do_println_sig.params.push(AbiParam::new(types::I64));
 
-            self.compiler.jit.module.declare_function("println_str", Linkage::Import, &do_println_sig).unwrap()
+            self.compiler
+                .jit
+                .module
+                .declare_function("println_str", Linkage::Import, &do_println_sig)
+                .unwrap()
+        };
+
+        let println_bool_id = {
+            let mut do_println_sig = self.compiler.jit.module.make_signature();
+
+            do_println_sig.params.push(AbiParam::new(types::I8));
+
+            self.compiler
+                .jit
+                .module
+                .declare_function("println_bool", Linkage::Import, &do_println_sig)
+                .unwrap()
+        };
+
+        let println_addr_id = {
+            let mut do_println_sig = self.compiler.jit.module.make_signature();
+
+            do_println_sig.params.push(AbiParam::new(types::I64));
+
+            self.compiler
+                .jit
+                .module
+                .declare_function("println_addr", Linkage::Import, &do_println_sig)
+                .unwrap()
         };
 
         let get_type_idx_id = {
@@ -180,7 +212,12 @@ impl FuncCompilerBuilder<'_> {
             get_type_idx_sig.params.push(AbiParam::new(self.compiler.jit.module.isa().pointer_type()));
             get_type_idx_sig.returns.push(AbiParam::new(self.compiler.jit.module.isa().pointer_type()));
 
-            let func = self.compiler.jit.module.declare_function("get_type_idx", Linkage::Local, &get_type_idx_sig).unwrap();
+            let func = self
+                .compiler
+                .jit
+                .module
+                .declare_function("get_type_idx", Linkage::Local, &get_type_idx_sig)
+                .unwrap();
 
             ctx.func.signature = get_type_idx_sig;
 
@@ -235,8 +272,17 @@ impl FuncCompilerBuilder<'_> {
             func
         };
 
+        self.compiler.func_names.insert(println_id, "println".to_owned());
+        self.compiler.func_names.insert(println_str_id, "println_str".to_owned());
+        self.compiler.func_names.insert(println_bool_id, "println_bool".to_owned());
+        self.compiler.func_names.insert(println_addr_id, "println_addr".to_owned());
+        self.compiler.func_names.insert(get_type_idx_id, "get_type_idx".to_owned());
+        self.compiler.func_names.insert(get_size_id, "get_size".to_owned());
+
         self.compiler.globals.insert("println".to_owned(), println_id);
         self.compiler.globals.insert("println_str".to_owned(), println_str_id);
+        self.compiler.globals.insert("println_bool".to_owned(), println_bool_id);
+        self.compiler.globals.insert("println_addr".to_owned(), println_addr_id);
         self.compiler.globals.insert("get_type_idx".to_owned(), get_type_idx_id);
         self.compiler.globals.insert("get_size".to_owned(), get_size_id);
 
@@ -293,6 +339,10 @@ impl FuncCompiler<'_, '_> {
 
         self.fn_builder.ins().return_(&[]);
 
+        for func in &self.compiler.func_names {
+            println!("fn{} -> {}", func.0.as_u32(), func.1);
+        }
+
         println!("{}", self.fn_builder.func);
 
         Ok(self
@@ -328,6 +378,7 @@ impl Compiler {
             values: IndexMap::new(),
             globals: IndexMap::new(),
             variables: IndexMap::new(),
+            func_names: IndexMap::new(),
         }
     }
 
@@ -624,6 +675,14 @@ fn do_println(value: i64) {
     println!("{value}");
 }
 
+fn do_println_bool(value: i8) {
+    println!("{}", value == 1);
+}
+
+fn do_println_addr(value: *mut std::ffi::c_void) {
+    println!("{}", value.addr());
+}
+
 #[repr(C)]
 struct MolliePtr<T> {
     ptr: *const u8,
@@ -651,6 +710,7 @@ mod tests {
             TypeVariant::function(false, [TypeVariant::one_of([TypeVariant::int64(), TypeVariant::usize()])], ()),
         );
         compiler.var("println_str", TypeVariant::function(false, [TypeVariant::string()], ()));
+        compiler.var("println_bool", TypeVariant::function(false, [TypeVariant::boolean()], ()));
         compiler.var("get_type_idx", TypeVariant::function(false, [TypeVariant::any()], TypeVariant::usize()));
         compiler.var("get_size", TypeVariant::function(false, [TypeVariant::any()], TypeVariant::usize()));
     }

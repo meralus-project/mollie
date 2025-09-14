@@ -9,8 +9,8 @@ impl Compile<ValueOrFunc> for Positioned<Ident> {
         if let Some(value) = compiler.assign.take() {
             let value = compiler.compile(fn_builder, value)?;
 
-            if let (Some(v), ValueOrFunc::Value(value)) = (compiler.variables.get(&self.value.0), value) {
-                fn_builder.def_var(*v, value);
+            if let (Some(v), ValueOrFunc::Value(value)) = (compiler.variables.get_mut(&self.value.0), value) {
+                *v = value;
 
                 Ok(ValueOrFunc::Nothing)
             } else {
@@ -25,7 +25,7 @@ impl Compile<ValueOrFunc> for Positioned<Ident> {
 
             Ok(ValueOrFunc::Func(func))
         } else if let Some(v) = compiler.variables.get(&self.value.0) {
-            Ok(ValueOrFunc::Value(fn_builder.use_var(*v)))
+            Ok(ValueOrFunc::Value(*v))
         } else {
             unimplemented!("there's no anything for {}", self.value.0)
         }
