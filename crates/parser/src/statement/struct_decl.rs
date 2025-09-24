@@ -1,13 +1,14 @@
 use mollie_lexer::Token;
 use mollie_shared::Positioned;
 
-use crate::{Ident, NameWithGenerics, Parse, ParseResult, Parser, Type};
+use crate::{Expr, Ident, NameWithGenerics, Parse, ParseResult, Parser, Type};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct Property {
     pub name: Positioned<Ident>,
     pub nullable: Option<Positioned<bool>>,
     pub ty: Positioned<Type>,
+    pub default_value: Option<Positioned<Expr>>,
 }
 
 impl Parse for Property {
@@ -22,11 +23,18 @@ impl Parse for Property {
 
         let ty = Type::parse(parser)?;
 
-        Ok(name.span.between(ty.span).wrap(Self { name, nullable, ty }))
+        let default_value = if parser.try_consume(&Token::Eq) { Some(Expr::parse(parser)?) } else { None };
+
+        Ok(name.span.between(ty.span).wrap(Self {
+            name,
+            nullable,
+            ty,
+            default_value,
+        }))
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct StructDecl {
     pub name: Positioned<NameWithGenerics>,
     pub properties: Positioned<Vec<Positioned<Property>>>,

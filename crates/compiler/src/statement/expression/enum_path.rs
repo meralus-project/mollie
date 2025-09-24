@@ -43,9 +43,9 @@ impl Compile<ValueOrFunc> for Positioned<EnumPathExpr> {
 
                 compiler.generics = Vec::new();
 
-                // let ty = compiler.types.get_index_of(&self.value.target.value.0).ok_or(CompileError::VariableNotFound {
-                //     name: self.value.target.value.0,
-                // })?;
+                // let ty = compiler.types.get_index_of(&self.value.target.value.0).
+                // ok_or(CompileError::VariableNotFound {     name: self.value.
+                // target.value.0, })?;
 
                 Ok(if let Some(structure) = &enumeration.variants[variant].1.structure {
                     let ptr = structure.instance(compiler.jit.module.isa(), fn_builder, values);
@@ -56,9 +56,10 @@ impl Compile<ValueOrFunc> for Positioned<EnumPathExpr> {
                     ValueOrFunc::Nothing
                 })
             } else {
-                Ok(ValueOrFunc::Value(
-                    fn_builder.ins().iconst(compiler.jit.module.isa().pointer_type(), i64::try_from(variant)?),
-                ))
+                let zero = fn_builder.ins().iconst(compiler.jit.module.isa().pointer_type(), 0);
+                let metadata = fn_builder.ins().iconst(compiler.jit.module.isa().pointer_type(), i64::try_from(variant)?);
+
+                Ok(ValueOrFunc::Value(FatPtr::new(compiler.jit.module.isa(), fn_builder, zero, metadata)))
             }
         } else {
             Ok(ValueOrFunc::Nothing)

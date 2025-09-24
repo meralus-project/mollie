@@ -15,6 +15,8 @@ impl Compile<ValueOrFunc> for Positioned<IndexExpr> {
 
         let assign = compiler.assign.take();
 
+        println!("indexing {self:#?}");
+
         match self.value.index.value {
             IndexTarget::Named(index) => {
                 if index.0 == "x" {
@@ -30,9 +32,24 @@ impl Compile<ValueOrFunc> for Positioned<IndexExpr> {
                     {
                         let v = compiler.compile(fn_builder, *self.value.target)?;
 
-                        compiler.this.replace(v);
+                        let prev = compiler.this.replace(v);
 
-                        return Ok(ValueOrFunc::Func(compiler.vtables[vtable][&trait_index].1[function].1.1));
+                        let name = format!("{ty}>{}", index.0);
+
+                        println!("{name}: {prev:?} => {v:?}");
+
+                        if let Some(val) = compiler.values.get(&name).copied() {
+                            return Ok(val);
+                        }
+
+                        let func = compiler
+                            .jit
+                            .module
+                            .declare_func_in_func(compiler.vtables[vtable][&trait_index].1[function].1.2, fn_builder.func);
+
+                        compiler.values.insert(name, ValueOrFunc::Func(func));
+
+                        return Ok(ValueOrFunc::Func(func));
                     }
 
                     return Err(TypeError::FunctionNotFound {
@@ -108,7 +125,9 @@ impl Compile<ValueOrFunc> for Positioned<IndexExpr> {
                                 println!("assign {}", structure.properties[pos].0);
                                 println!("assign {}", structure.structure.fields[pos].offset);
 
-                                fn_builder.ins().store(MemFlags::trusted(), assign_value, to_be_assigned, structure.structure.fields[pos].offset);
+                                fn_builder
+                                    .ins()
+                                    .store(MemFlags::trusted(), assign_value, to_be_assigned, structure.structure.fields[pos].offset);
 
                                 return Ok(ValueOrFunc::Nothing);
                             }
@@ -163,9 +182,12 @@ impl Compile<ValueOrFunc> for Positioned<IndexExpr> {
                         //     vtable
                         // };
 
+                        compiler.this_ty.replace(ty);
                         compiler.this.replace(ValueOrFunc::Value(value));
 
-                        return Ok(ValueOrFunc::ExtFunc(compiler.traits[trait_index].functions[func].signature, vtable_func));
+                        let sigref = fn_builder.import_signature(compiler.traits[trait_index].functions[func].signature.clone());
+
+                        return Ok(ValueOrFunc::ExtFunc(sigref, vtable_func));
                     }
                 }
             }
@@ -228,7 +250,9 @@ impl GetType for IndexExpr {
                         declared_at: ty.declared_at,
                     });
                 }
+
                 match target.variant {
+                    TypeVariant::This => todo!(),
                     TypeVariant::Generic(_) => todo!(),
                     TypeVariant::Primitive(_) => unimplemented!("primitive types doesn't have properties"),
                     TypeVariant::Trait(t) => {
@@ -347,6 +371,7 @@ impl GetType for IndexExpr {
                 }
 
                 match target.variant {
+                    TypeVariant::This => todo!(),
                     TypeVariant::Generic(_) => todo!(),
                     TypeVariant::Primitive(_) => unimplemented!("primitive types doesn't have properties"),
                     TypeVariant::Trait(_) => unimplemented!(),

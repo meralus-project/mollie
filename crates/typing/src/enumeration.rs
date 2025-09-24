@@ -11,7 +11,7 @@ use crate::{Struct, Type};
 pub struct EnumVariant {
     pub properties: Option<Vec<(String, Type)>>,
     #[cfg_attr(feature = "serde", serde(skip))]
-    pub structure: Option<Struct>
+    pub structure: Option<Struct>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

@@ -1,7 +1,6 @@
 use cranelift::{
-    codegen::ir::Endianness,
     module::Module,
-    prelude::{FunctionBuilder, InstBuilder, IntCC, MemFlags, types},
+    prelude::{FunctionBuilder, InstBuilder, IntCC, MemFlags},
 };
 use mollie_parser::{IsExpr, IsPattern};
 use mollie_shared::{Positioned, Span};
@@ -10,6 +9,7 @@ use mollie_typing::{ComplexType, FatPtr, Type, TypeVariant, VTablePtr};
 use crate::{Compile, CompileError, CompileResult, Compiler, GetPositionedType, GetType, TypeResult, ValueOrFunc};
 
 impl Compile<ValueOrFunc> for Positioned<IsPattern> {
+    #[allow(clippy::too_many_lines)]
     fn compile(self, compiler: &mut Compiler, fn_builder: &mut FunctionBuilder) -> CompileResult<ValueOrFunc> {
         if let Some(ValueOrFunc::Value(fat_ptr)) = compiler.infer_val.take() {
             match self.value {
@@ -35,7 +35,7 @@ impl Compile<ValueOrFunc> for Positioned<IsPattern> {
                         (name_ty, idx)
                     };
 
-                    // let var = fn_builder.declare_var(name_ty.variant.as_ir_type(compiler.jit.module.isa()));
+                    let var = fn_builder.declare_var(name_ty.variant.as_ir_type(compiler.jit.module.isa()));
 
                     compiler.var(&name.value.0, name_ty);
 
@@ -45,8 +45,8 @@ impl Compile<ValueOrFunc> for Positioned<IsPattern> {
                     let target_type_idx = fn_builder.ins().iconst(size_t, idx);
                     let ptr = FatPtr::get_ptr(compiler.jit.module.isa(), fn_builder, fat_ptr);
 
-                    compiler.variables.insert(name.value.0, ptr);
-                    // fn_builder.def_var(var, ptr);
+                    compiler.variables.insert(name.value.0, var);
+                    fn_builder.def_var(var, ptr);
 
                     Ok(ValueOrFunc::Value(fn_builder.ins().icmp(IntCC::Equal, type_idx, target_type_idx)))
                 }
@@ -73,7 +73,7 @@ impl Compile<ValueOrFunc> for Positioned<IsPattern> {
                         .position(|variant| variant.0 == index.value.name.value.0)
                         .unwrap();
 
-                    let ty_index = compiler
+                    let _ty_index = compiler
                         .types
                         .get_index_of(&target.value.0)
                         .ok_or(CompileError::VariableNotFound { name: target.value.0 })?;
@@ -83,6 +83,14 @@ impl Compile<ValueOrFunc> for Positioned<IsPattern> {
                     let target_variant_idx = fn_builder.ins().iconst(size_t, i64::try_from(variant)?);
 
                     let result = fn_builder.ins().icmp(IntCC::Equal, variant_idx, target_variant_idx);
+
+                    let declaration_block = fn_builder.create_block();
+                    let after_block = fn_builder.create_block();
+
+                    fn_builder.ins().brif(result, declaration_block, &[], after_block, &[]);
+
+                    fn_builder.switch_to_block(declaration_block);
+                    fn_builder.seal_block(declaration_block);
 
                     if let Some(values) = values {
                         for value in values.value {
@@ -105,9 +113,12 @@ impl Compile<ValueOrFunc> for Positioned<IsPattern> {
                                     .clone()
                                     .resolve_type(&ty.applied_generics);
 
-                                // let var = fn_builder.declare_var(name_ty.variant.as_ir_type(compiler.jit.module.isa()));
+                                println!("ddd {name_ty:#?}");
+                                println!("{:#?}", ty.variant.as_enum().unwrap().variants[variant].1.structure.as_ref());
 
-                                compiler.var(&value.value.name.value.0, name_ty);
+                                let var = fn_builder.declare_var(name_ty.variant.as_ir_type(compiler.jit.module.isa()));
+
+                                compiler.var(&value.value.name.value.0, name_ty.clone());
 
                                 let variant_ptr = FatPtr::get_ptr(compiler.jit.module.isa(), fn_builder, fat_ptr);
                                 let ptr = fn_builder.ins().load(
@@ -117,11 +128,24 @@ impl Compile<ValueOrFunc> for Positioned<IsPattern> {
                                     ty.variant.as_enum().unwrap().variants[variant].1.structure.as_ref().unwrap().fields[property].offset,
                                 );
 
-                                compiler.variables.insert(value.value.name.value.0, ptr);
-                                // fn_builder.def_var(var, ptr);
+                                println!(
+                                    "{} == {}",
+                                    name_ty.variant.as_ir_type(compiler.jit.module.isa()),
+                                    fn_builder.func.dfg.value_type(ptr)
+                                );
+
+                                compiler.variables.insert(value.value.name.value.0, var);
+                                println!("trying def");
+                                fn_builder.def_var(var, ptr);
+                                println!("tried");
                             }
                         }
                     }
+
+                    fn_builder.ins().jump(after_block, &[]);
+
+                    fn_builder.switch_to_block(after_block);
+                    fn_builder.seal_block(after_block);
 
                     Ok(ValueOrFunc::Value(result))
                 }
@@ -143,17 +167,13 @@ impl Compile<ValueOrFunc> for Positioned<IsExpr> {
         compiler.infer.replace(ty);
         compiler.infer_val.replace(value);
 
-        self.value.pattern.compile(compiler, fn_builder)?;
+        let value = self.value.pattern.compile(compiler, fn_builder)?;
 
         compiler.infer.take();
         compiler.infer_val.take();
 
         if let ValueOrFunc::Value(value) = value {
-            Ok(ValueOrFunc::Value(fn_builder.ins().bitcast(
-                types::I64,
-                MemFlags::new().with_endianness(Endianness::Little),
-                value,
-            )))
+            Ok(ValueOrFunc::Value(value))
         } else {
             unimplemented!()
         }

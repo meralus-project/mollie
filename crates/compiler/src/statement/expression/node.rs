@@ -10,7 +10,7 @@ use mollie_typing::{FatPtr, Type, TypeKind, TypeVariant};
 use crate::{Compile, CompileResult, Compiler, GetPositionedType, GetType, TypeError, TypeResult, ValueOrFunc};
 
 impl Compile<ValueOrFunc> for Positioned<NodeExpr> {
-    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
     fn compile(mut self, compiler: &mut Compiler, fn_builder: &mut FunctionBuilder) -> CompileResult<ValueOrFunc> {
         let ty = self.get_type(compiler)?;
 
@@ -38,6 +38,8 @@ impl Compile<ValueOrFunc> for Positioned<NodeExpr> {
                 }
 
                 if !got.variant.same_as(&expected.variant, &compiler.generics) {
+                    println!("unxpected");
+
                     return Err(TypeError::Unexpected {
                         got: Box::new(got.kind()),
                         expected: Box::new(expected.kind()),
@@ -80,6 +82,12 @@ impl Compile<ValueOrFunc> for Positioned<NodeExpr> {
                     if let ValueOrFunc::Value(v) = result {
                         values.push(v);
                     }
+                } else if let Some(field) = component.properties.iter().position(|(name, ..)| name == property_name)
+                    && let Some(v) = component
+                        .structure
+                        .default_for(&mut compiler.jit.module, &mut compiler.jit.data_desc, fn_builder, field)
+                {
+                    values.push(v);
                 }
             }
 
@@ -150,6 +158,12 @@ impl Compile<ValueOrFunc> for Positioned<NodeExpr> {
                     if let ValueOrFunc::Value(v) = result {
                         values.push(v);
                     }
+                } else if let Some(field) = structure.properties.iter().position(|(property_name, _)| property_name == name)
+                    && let Some(v) = structure
+                        .structure
+                        .default_for(&mut compiler.jit.module, &mut compiler.jit.data_desc, fn_builder, field)
+                {
+                    values.push(v);
                 }
             }
 
@@ -215,6 +229,8 @@ impl GetType for NodeExpr {
                 {
                     resolved_generics.insert(position, got);
                 } else if !got.variant.same_as(&expected.variant, &applied_generics) {
+                    println!("unxpected 2: {got:#?}\n{expected:#?}\n{applied_generics:#?}");
+
                     return Err(TypeError::Unexpected {
                         got: Box::new(got.kind()),
                         expected: Box::new(expected.kind()),
@@ -250,6 +266,8 @@ impl GetType for NodeExpr {
                 declared_at: ty.declared_at,
             })
         } else {
+            println!("unxpected 3");
+
             Err(TypeError::Unexpected {
                 got: Box::new(ty.kind()),
                 expected: Box::new(TypeKind::Struct.into()),

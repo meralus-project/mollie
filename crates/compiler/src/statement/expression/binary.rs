@@ -1,7 +1,7 @@
-use cranelift::prelude::{FunctionBuilder, InstBuilder, IntCC};
+use cranelift::prelude::{FloatCC, FunctionBuilder, InstBuilder, IntCC};
 use mollie_parser::BinaryExpr;
 use mollie_shared::{Operator, Positioned, Span};
-use mollie_typing::TypeVariant;
+use mollie_typing::{PrimitiveType, TypeVariant};
 
 use crate::{Compile, CompileResult, Compiler, GetPositionedType, GetType, TypeResult, ValueOrFunc};
 
@@ -49,6 +49,20 @@ impl Compile<ValueOrFunc> for Positioned<BinaryExpr> {
                         Operator::NotEqual => fn_builder.ins().icmp(IntCC::NotEqual, lhs, rhs),
                         Operator::LessThan => fn_builder.ins().icmp(IntCC::SignedLessThan, lhs, rhs),
                         Operator::GreaterThan => fn_builder.ins().icmp(IntCC::SignedGreaterThan, lhs, rhs),
+                        _ => unreachable!(),
+                    }))
+                } else if matches!(lhs_ty.variant, TypeVariant::Primitive(PrimitiveType::Float))
+                    && matches!(rhs_ty.variant, TypeVariant::Primitive(PrimitiveType::Float))
+                {
+                    Ok(ValueOrFunc::Value(match self.value.operator.value {
+                        Operator::Add => fn_builder.ins().fadd(lhs, rhs),
+                        Operator::Sub => fn_builder.ins().fsub(lhs, rhs),
+                        Operator::Mul => fn_builder.ins().fmul(lhs, rhs),
+                        Operator::Div => fn_builder.ins().fdiv(lhs, rhs),
+                        Operator::Equal => fn_builder.ins().fcmp(FloatCC::Equal, lhs, rhs),
+                        Operator::NotEqual => fn_builder.ins().fcmp(FloatCC::NotEqual, lhs, rhs),
+                        Operator::LessThan => fn_builder.ins().fcmp(FloatCC::LessThan, lhs, rhs),
+                        Operator::GreaterThan => fn_builder.ins().fcmp(FloatCC::GreaterThan, lhs, rhs),
                         _ => unreachable!(),
                     }))
                 } else {

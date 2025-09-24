@@ -1,6 +1,11 @@
 use std::fmt::{self, Write};
 
-use cranelift::prelude::{FunctionBuilder, InstBuilder, Value, isa::TargetIsa};
+use cranelift::{
+    jit::JITModule,
+    module::{DataDescription, Module},
+    prelude::{FunctionBuilder, InstBuilder, Value, isa::TargetIsa, types},
+};
+use mollie_const::ConstantValue;
 use mollie_shared::{
     cranelift::stack_alloc,
     pretty_fmt::{PrettyFmt, indent_down, indent_up},
@@ -8,7 +13,7 @@ use mollie_shared::{
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use crate::Type;
+use crate::{FatPtr, Type};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub struct Struct {
@@ -17,20 +22,74 @@ pub struct Struct {
 }
 
 impl Struct {
-    pub fn new<T: IntoIterator<Item = cranelift::prelude::Type>>(fields: T) -> Self {
-        let fields = fields.into_iter().collect::<Vec<_>>();
-        let size = size_of_struct(&fields);
+    pub fn new<T: IntoIterator<Item = (cranelift::prelude::Type, Option<ConstantValue>)>>(fields_iter: T) -> Self {
+        let mut fields = Vec::new();
+        let mut offset = 0;
+        let mut size = 0;
+        let mut self_align = 0;
+
+        for (ty, default_value) in fields_iter {
+            size += ty.bytes();
+
+            let align = ty.bytes();
+            let padding = (align - size % align) % align;
+
+            size += padding;
+
+            fields.push(Field { ty, offset, default_value });
+
+            offset += ty.bytes().cast_signed();
+
+            let align = ty.bytes().cast_signed();
+            let padding = (align - offset % align) % align;
+
+            offset += padding;
+            self_align = self_align.max(ty.bytes());
+        }
 
         Self {
-            fields: fields
-                .iter()
-                .enumerate()
-                .map(|(i, ty)| Field {
-                    ty: *ty,
-                    offset: offset_of_field(i, &fields),
-                })
-                .collect(),
-            size,
+            fields,
+            size: size + (self_align - size % self_align) % self_align,
+        }
+    }
+
+    #[allow(clippy::missing_panics_doc)]
+    pub fn default_for(&self, module: &mut JITModule, data_desc: &mut DataDescription, fn_builder: &mut FunctionBuilder, field: usize) -> Option<Value> {
+        if let Some(default) = &self.fields[field].default_value {
+            Some(match default {
+                &ConstantValue::I8(value) => fn_builder.ins().iconst(types::I8, i64::from(value)),
+                &ConstantValue::U8(value) => fn_builder.ins().iconst(types::I8, i64::from(value)),
+                &ConstantValue::I16(value) => fn_builder.ins().iconst(types::I16, i64::from(value)),
+                &ConstantValue::U16(value) => fn_builder.ins().iconst(types::I16, i64::from(value)),
+                &ConstantValue::I32(value) => fn_builder.ins().iconst(types::I32, i64::from(value)),
+                &ConstantValue::U32(value) => fn_builder.ins().iconst(types::I32, i64::from(value)),
+                &ConstantValue::I64(value) => fn_builder.ins().iconst(types::I64, value),
+                &ConstantValue::U64(value) => fn_builder.ins().iconst(types::I64, i64::try_from(value).ok()?),
+                &ConstantValue::ISize(value) => fn_builder.ins().iconst(module.isa().pointer_type(), i64::try_from(value).ok()?),
+                &ConstantValue::USize(value) => fn_builder.ins().iconst(module.isa().pointer_type(), i64::try_from(value).ok()?),
+                &ConstantValue::Float(value) => fn_builder.ins().f32const(value),
+                &ConstantValue::Boolean(value) => fn_builder.ins().iconst(types::I8, i64::from(value)),
+                ConstantValue::String(value) => {
+                    let len = value.len();
+
+                    data_desc.define(value.clone().into_bytes().into_boxed_slice());
+
+                    let id = module.declare_anonymous_data(true, false).unwrap();
+
+                    module.define_data(id, data_desc).unwrap();
+                    data_desc.clear();
+                    module.finalize_definitions().unwrap();
+
+                    let data_id = module.declare_data_in_func(id, fn_builder.func);
+
+                    let ptr = fn_builder.ins().symbol_value(module.isa().pointer_type(), data_id);
+                    let size = fn_builder.ins().iconst(module.isa().pointer_type(), len.cast_signed() as i64);
+
+                    FatPtr::new(module.isa(), fn_builder, ptr, size)
+                }
+            })
+        } else {
+            None
         }
     }
 
@@ -49,6 +108,7 @@ impl Struct {
 pub struct Field {
     pub ty: cranelift::prelude::Type,
     pub offset: i32,
+    pub default_value: Option<ConstantValue>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -76,6 +136,7 @@ impl fmt::Display for StructType {
     }
 }
 
+#[allow(dead_code)]
 fn size_of_struct(fields: &[cranelift::prelude::Type]) -> u32 {
     let mut size = 0;
 
@@ -90,7 +151,7 @@ fn size_of_struct(fields: &[cranelift::prelude::Type]) -> u32 {
     }
 
     // Add padding to the end of the struct to make the struct itself aligned
-    let self_align = alignment_of_struct(fields);
+    let self_align = alignment_of_struct(fields.iter());
     let end_padding = (self_align - size % self_align) % self_align;
 
     size += end_padding;
@@ -98,20 +159,18 @@ fn size_of_struct(fields: &[cranelift::prelude::Type]) -> u32 {
     size
 }
 
-fn alignment_of_struct(fields: &[cranelift::prelude::Type]) -> u32 {
+#[allow(dead_code)]
+fn alignment_of_struct<'a, T: Iterator<Item = &'a cranelift::prelude::Type>>(fields: T) -> u32 {
     let mut alignment = 0;
 
-    // Since we don't have nested structs, the allignment of a struct is simply its
-    // largest field.
-    for &field in fields {
-        let field_alignment = field.bytes();
-
-        alignment = alignment.max(field_alignment);
+    for field in fields {
+        alignment = alignment.max(field.bytes());
     }
 
     alignment
 }
 
+#[allow(dead_code)]
 fn offset_of_field(field: usize, fields: &[cranelift::prelude::Type]) -> i32 {
     let mut offset = 0;
 

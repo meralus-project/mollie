@@ -35,7 +35,8 @@ pub struct TraitFunc {
     pub this: bool,
     pub args: Vec<Type>,
     pub returns: Type,
-    pub signature: ir::SigRef,
+    pub signature: ir::Signature,
+    pub signature_ref: ir::SigRef,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -100,6 +101,7 @@ pub enum TypeVariant {
     Complex(Arc<ComplexType>),
     Trait(usize),
     Generic(usize),
+    This,
 }
 
 impl TypeVariant {
@@ -109,7 +111,7 @@ impl TypeVariant {
 
     pub fn kind(&self) -> TypeKind {
         match self {
-            Self::Primitive(PrimitiveType::Any) => TypeKind::Any,
+            Self::Primitive(PrimitiveType::Any) | Self::This => TypeKind::Any,
             Self::Primitive(PrimitiveType::Float) => TypeKind::Float,
             Self::Primitive(PrimitiveType::Boolean) => TypeKind::Boolean,
             Self::Primitive(PrimitiveType::String) => TypeKind::String,
@@ -127,7 +129,7 @@ impl TypeVariant {
                 ComplexType::OneOf(types) => TypeKind::OneOf(types.iter().map(|t| t.kind().value).collect()),
             },
             Self::Generic(_) => TypeKind::Generic,
-            Self::Trait(_) => unimplemented!(),
+            Self::Trait(_) => TypeKind::Trait,
         }
     }
 
@@ -171,6 +173,7 @@ impl fmt::Display for TypeVariant {
             Self::Complex(complex) => complex.fmt(f),
             Self::Generic(_) => f.write_str("<generic>"),
             Self::Trait(_) => f.write_str("<trait>"),
+            Self::This => f.write_str("<self>"),
         }
     }
 }
@@ -298,25 +301,29 @@ impl TypeVariant {
         } else {
             match (me, expected) {
                 (Self::Primitive(a), Self::Primitive(b)) => a == b,
-                (Self::Generic(a), Self::Generic(b)) => a == b,
-                (me, Self::Complex(b)) => {
+                (Self::Generic(a), Self::Generic(b)) | (Self::Trait(a), Self::Trait(b)) => a == b,
+                (a, Self::Complex(b)) => {
+                    println!("da");
+
                     if let ComplexType::OneOf(types) = b.as_ref() {
-                        if let Some(ComplexType::OneOf(a_types)) = me.as_complex()
+                        if let Some(ComplexType::OneOf(a_types)) = a.as_complex()
                             && a_types == types
                         {
                             true
                         } else {
                             for ty in types {
-                                if me.same_as(&ty.variant, applied_generics) {
+                                if a.same_as(&ty.variant, applied_generics) {
                                     return true;
                                 }
                             }
 
                             false
                         }
-                    } else if let Self::Complex(a) = me {
+                    } else if let Self::Complex(a) = a {
                         match (a.as_ref(), b.as_ref()) {
                             (ComplexType::Array(got), ComplexType::Array(expected)) => {
+                                println!("alo ");
+
                                 got.element.variant.same_as(&expected.element.variant, applied_generics)
                                     && expected.size.is_none_or(|size| got.size.is_some_and(|got| got == size))
                             }
@@ -326,7 +333,11 @@ impl TypeVariant {
                         false
                     }
                 }
-                _ => false,
+                v => {
+                    println!("net: {v:#?}");
+
+                    false
+                }
             }
         }
     }
@@ -407,7 +418,7 @@ impl TypeVariant {
                 PrimitiveType::Void => unimplemented!(),
                 PrimitiveType::Null => unimplemented!(),
             },
-            Self::Generic(_) | Self::Trait(_) | Self::Complex(_) => isa.pointer_type(),
+            Self::This | Self::Generic(_) | Self::Trait(_) | Self::Complex(_) => isa.pointer_type(),
             // Self::Generic(_) => unimplemented!(),
         }
     }
@@ -719,14 +730,9 @@ impl VTablePtr {
 
     pub fn get_func_ptr(isa: &dyn TargetIsa, fn_builder: &mut FunctionBuilder, vtable_ptr: ir::Value, func_idx: u32) -> ir::Value {
         let ptr_type = isa.pointer_type();
-        let vtable_ptr = fn_builder.ins().load(ptr_type, MemFlags::trusted(), vtable_ptr, ptr_type.bytes().cast_signed());
 
-        if ptr_type.bytes() * func_idx > 0 {
-            let offset = fn_builder.ins().iconst(ptr_type, i64::from(ptr_type.bytes() * func_idx));
-
-            fn_builder.ins().iadd(vtable_ptr, offset)
-        } else {
-            vtable_ptr
-        }
+        fn_builder
+            .ins()
+            .load(ptr_type, MemFlags::trusted(), vtable_ptr, (ptr_type.bytes() * (func_idx + 1)).cast_signed())
     }
 }

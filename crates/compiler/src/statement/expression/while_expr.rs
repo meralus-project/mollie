@@ -1,4 +1,4 @@
-use cranelift::prelude::FunctionBuilder;
+use cranelift::prelude::{FunctionBuilder, InstBuilder};
 use mollie_parser::WhileExpr;
 use mollie_shared::{Positioned, Span};
 use mollie_typing::TypeVariant;
@@ -17,29 +17,36 @@ impl Compile<ValueOrFunc> for Positioned<WhileExpr> {
             .into());
         }
 
-        // let loop_start = chunk.len();
-
-        // chunk.push_frame();
         compiler.push_frame();
 
-        self.value.condition.compile(compiler, fn_builder)?;
+        let condition_block = fn_builder.create_block();
+        let inner_block = fn_builder.create_block();
+        let after_block = fn_builder.create_block();
 
-        // let start = chunk.len();
+        fn_builder.ins().jump(condition_block, &[]);
+        fn_builder.switch_to_block(condition_block);
 
-        // chunk.jump_if_false(0);
+        if let ValueOrFunc::Value(value) = self.value.condition.compile(compiler, fn_builder)? {
+            fn_builder.ins().brif(value, inner_block, &[], after_block, &[]);
+        }
 
-        self.value.block.compile(compiler, fn_builder)?;
+        fn_builder.switch_to_block(inner_block);
+        fn_builder.seal_block(inner_block);
+
+        let value = self.value.block.compile(compiler, fn_builder)?;
+
+        fn_builder.ins().jump(condition_block, &[]);
+
+        fn_builder.switch_to_block(after_block);
+
+        fn_builder.seal_block(condition_block);
+        fn_builder.seal_block(after_block);
 
         compiler.pop_frame();
-        // chunk.pop_frame();
 
-        // chunk.jump(-((chunk.len() - loop_start) as isize));
+        println!("{value:#?}");
 
-        // chunk[start] = Inst::JumpIfFalse(chunk.len() - start);
-
-        // chunk.pop_frame();
-
-        unimplemented!()
+        Ok(value)
     }
 }
 

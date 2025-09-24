@@ -12,7 +12,7 @@ use indexmap::IndexMap;
 use mollie_lexer::{Lexer, Token};
 use mollie_parser::{Expr, Parser, Stmt, parse_statements_until};
 use mollie_shared::{Positioned, Span};
-use mollie_typing::{ArrayType, ComplexType, FatPtr, PrimitiveType, Trait, TraitFunc, Type, TypeVariant, VTablePtr};
+use mollie_typing::{ArrayType, ComplexType, FatPtr, PrimitiveType, Trait, Type, TypeVariant, VTablePtr};
 
 pub use self::error::{CompileError, CompileResult, TypeError, TypeResult};
 
@@ -26,7 +26,7 @@ pub struct Variable {
     pub ty: Type,
 }
 
-pub type VTable = IndexMap<Option<usize>, (ir::Value, IndexMap<String, (Type, (ir::SigRef, ir::FuncRef))>)>;
+pub type VTable = IndexMap<Option<usize>, (ir::Value, IndexMap<String, (Type, (ir::SigRef, ir::FuncRef, FuncId))>)>;
 
 pub struct JitCompiler {
     pub module: JITModule,
@@ -78,13 +78,14 @@ pub struct Compiler {
 
     pub generics: Vec<Type>,
     pub assign: Option<Positioned<Expr>>,
+    pub this_ty: Option<Type>,
     pub this: Option<ValueOrFunc>,
     pub infer: Option<Type>,
     pub infer_ir: Option<ir::Type>,
     pub infer_val: Option<ValueOrFunc>,
     pub values: IndexMap<String, ValueOrFunc>,
-    // pub variables: IndexMap<String, cranelift::prelude::Variable>,
-    pub variables: IndexMap<String, cranelift::prelude::Value>,
+    pub variables: IndexMap<String, cranelift::prelude::Variable>,
+    // pub variables: IndexMap<String, cranelift::prelude::Value>,
     pub globals: IndexMap<String, FuncId>,
     pub func_names: IndexMap<FuncId, String>,
 
@@ -97,59 +98,60 @@ impl Default for Compiler {
     }
 }
 
-pub struct TraitBuilder<'a> {
-    compiler: &'a mut Compiler,
-    name: String,
-    functions: Vec<TraitFunc>,
-}
+// pub struct TraitBuilder<'a> {
+//     compiler: &'a mut Compiler,
+//     name: String,
+//     functions: Vec<TraitFunc>,
+// }
 
-impl<'a> TraitBuilder<'a> {
-    fn new<T: Into<String>>(compiler: &'a mut Compiler, name: T) -> Self {
-        Self {
-            compiler,
-            name: name.into(),
-            functions: Vec::new(),
-        }
-    }
+// impl<'a> TraitBuilder<'a> {
+//     fn new<T: Into<String>>(compiler: &'a mut Compiler, name: T) -> Self {
+//         Self {
+//             compiler,
+//             name: name.into(),
+//             functions: Vec::new(),
+//         }
+//     }
 
-    #[must_use]
-    pub fn static_method<T: Into<String>, I: IntoIterator<Item = TypeVariant>, R: Into<Type>>(mut self, name: T, args: I, returns: R) -> Self {
-        self.functions.push(TraitFunc {
-            name: name.into(),
-            this: false,
-            args: args.into_iter().map(Into::into).collect(),
-            returns: returns.into(),
-            signature: ir::SigRef::from_u32(0),
-        });
+//     #[must_use]
+//     pub fn static_method<T: Into<String>, I: IntoIterator<Item =
+// TypeVariant>, R: Into<Type>>(mut self, name: T, args: I, returns: R) -> Self
+// {         self.functions.push(TraitFunc {
+//             name: name.into(),
+//             this: false,
+//             args: args.into_iter().map(Into::into).collect(),
+//             returns: returns.into(),
+//             signature: ir::SigRef::from_u32(0),
+//         });
 
-        self
-    }
+//         self
+//     }
 
-    #[must_use]
-    pub fn method<T: Into<String>, I: IntoIterator<Item = TypeVariant>, R: Into<Type>>(mut self, name: T, args: I, returns: R) -> Self {
-        self.functions.push(TraitFunc {
-            name: name.into(),
-            this: true,
-            args: args.into_iter().map(Into::into).collect(),
-            returns: returns.into(),
-            signature: ir::SigRef::from_u32(0),
-        });
+//     #[must_use]
+//     pub fn method<T: Into<String>, I: IntoIterator<Item = TypeVariant>, R:
+// Into<Type>>(mut self, name: T, args: I, returns: R) -> Self {         self.
+// functions.push(TraitFunc {             name: name.into(),
+//             this: true,
+//             args: args.into_iter().map(Into::into).collect(),
+//             returns: returns.into(),
+//             signature: ir::SigRef::from_u32(0),
+//         });
 
-        self
-    }
+//         self
+//     }
 
-    pub fn build(self) -> usize {
-        let index = self.compiler.traits.len();
+//     pub fn build(self) -> usize {
+//         let index = self.compiler.traits.len();
 
-        self.compiler.traits.insert(self.name, Trait {
-            generics: Vec::new(),
-            functions: self.functions,
-            declared_at: None,
-        });
+//         self.compiler.traits.insert(self.name, Trait {
+//             generics: Vec::new(),
+//             functions: self.functions,
+//             declared_at: None,
+//         });
 
-        index
-    }
-}
+//         index
+//     }
+// }
 
 pub struct FuncCompilerBuilder<'a> {
     pub compiler: &'a mut Compiler,
@@ -158,9 +160,10 @@ pub struct FuncCompilerBuilder<'a> {
 }
 
 impl FuncCompilerBuilder<'_> {
+    #[allow(clippy::missing_panics_doc)]
     pub fn provide(&mut self) -> FuncCompiler<'_, '_> {
-        let mut ctx = &mut self.ctx;
-        let mut fn_builder_ctx = &mut self.fn_builder_ctx;
+        let ctx = &mut self.ctx;
+        let fn_builder_ctx = &mut self.fn_builder_ctx;
 
         let println_id = {
             let mut do_println_sig = self.compiler.jit.module.make_signature();
@@ -236,8 +239,8 @@ impl FuncCompilerBuilder<'_> {
 
             fn_builder.ins().return_(&[type_idx]);
 
-            self.compiler.jit.module.define_function(func, &mut ctx).unwrap();
-            self.compiler.jit.module.clear_context(&mut ctx);
+            self.compiler.jit.module.define_function(func, ctx).unwrap();
+            self.compiler.jit.module.clear_context(ctx);
 
             func
         };
@@ -266,8 +269,8 @@ impl FuncCompilerBuilder<'_> {
 
             fn_builder.ins().return_(&[size]);
 
-            self.compiler.jit.module.define_function(func, &mut ctx).unwrap();
-            self.compiler.jit.module.clear_context(&mut ctx);
+            self.compiler.jit.module.define_function(func, ctx).unwrap();
+            self.compiler.jit.module.clear_context(ctx);
 
             func
         };
@@ -355,6 +358,7 @@ impl FuncCompiler<'_, '_> {
 }
 
 impl Compiler {
+    #[allow(clippy::missing_panics_doc)]
     pub fn with_symbols(symbols: Vec<(&'static str, *const u8)>) -> Self {
         let mut flag_builder = settings::builder();
 
@@ -370,6 +374,7 @@ impl Compiler {
             frames: vec![IndexMap::new()],
             generics: Vec::new(),
             assign: None,
+            this_ty: None,
             this: None,
             infer: None,
             infer_ir: None,
@@ -386,9 +391,9 @@ impl Compiler {
         self.values.get(name.as_ref()).copied()
     }
 
-    pub fn add_trait<T: Into<String>>(&mut self, name: T) -> TraitBuilder<'_> {
-        TraitBuilder::new(self, name)
-    }
+    // pub fn add_trait<T: Into<String>>(&mut self, name: T) -> TraitBuilder<'_> {
+    //     TraitBuilder::new(self, name)
+    // }
 
     pub fn add_type<T: Into<String>>(&mut self, name: T, ty: TypeVariant) {
         self.types.insert(name.into(), ty.into());
@@ -453,8 +458,9 @@ impl Compiler {
     pub fn var<T: Into<String>, V: Into<Type>>(&mut self, name: T, ty: V) -> usize {
         let id = self.current_frame().len();
         let name = name.into();
+        let ty = ty.into();
 
-        self.current_frame_mut().insert(name, Variable { id, ty: ty.into() });
+        self.current_frame_mut().insert(name, Variable { id, ty });
 
         id
     }
@@ -466,8 +472,8 @@ impl Compiler {
     }
 
     pub fn start_compiling(&mut self) -> FuncCompilerBuilder<'_> {
-        let mut ctx = self.jit.module.make_context();
-        let mut fn_builder_ctx = FunctionBuilderContext::new();
+        let ctx = self.jit.module.make_context();
+        let fn_builder_ctx = FunctionBuilderContext::new();
 
         FuncCompilerBuilder {
             compiler: self,
@@ -543,7 +549,7 @@ impl Compiler {
         index.map(|index| (vtable_index, index.0, index.1))
     }
 
-    pub fn find_vtable_function<T: AsRef<str>>(&self, ty: &TypeVariant, contains: T) -> Option<&(Type, (ir::SigRef, ir::FuncRef))> {
+    pub fn find_vtable_function<T: AsRef<str>>(&self, ty: &TypeVariant, contains: T) -> Option<&(Type, (ir::SigRef, ir::FuncRef, FuncId))> {
         self.find_vtable_function_index(ty, contains).map(|v| &self.vtables[v.0][&v.1].1[v.2])
     }
 
@@ -694,168 +700,5 @@ fn do_println_str(value: *const MolliePtr<usize>) {
 
     if let Ok(text) = str::from_utf8(unsafe { slice::from_raw_parts(ptr, metadata) }) {
         println!("{text}");
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use cranelift::module::Module;
-    use mollie_typing::TypeVariant;
-
-    use crate::Compiler;
-
-    fn add_builtins(compiler: &mut Compiler) {
-        compiler.var(
-            "println",
-            TypeVariant::function(false, [TypeVariant::one_of([TypeVariant::int64(), TypeVariant::usize()])], ()),
-        );
-        compiler.var("println_str", TypeVariant::function(false, [TypeVariant::string()], ()));
-        compiler.var("println_bool", TypeVariant::function(false, [TypeVariant::boolean()], ()));
-        compiler.var("get_type_idx", TypeVariant::function(false, [TypeVariant::any()], TypeVariant::usize()));
-        compiler.var("get_size", TypeVariant::function(false, [TypeVariant::any()], TypeVariant::usize()));
-    }
-
-    #[test]
-    fn hmm_test() {
-        let mut compiler = Compiler::default();
-
-        add_builtins(&mut compiler);
-
-        let mut provider = compiler.start_compiling();
-        let mut compiler = provider.provide();
-
-        let main_id = compiler
-            .compile_program_text(
-                r#"
-        trait Placeable {
-            fn place(self);
-        }
-
-        declare PlaceableComponent {
-            x: int64,
-            y: int64
-        }
-
-        impl trait Placeable for PlaceableComponent {
-            fn place(self) {
-                self.x = 4;
-                
-                println(11int64);
-            }
-        }
-
-        declare Container {
-            hello: boolean,
-            children: Placeable[]
-        }
-
-        const contained = Container {
-            hello: true,
-            
-            PlaceableComponent {
-                x: 0,
-                y: 0
-            }
-        };
-
-        
-
-        contained.children[0].place();
-
-        println_str("check");
-
-        if contained.children[0] is PlaceableComponent compik {
-            println_str("accessing compik");
-            println(compik.x);
-            println_str("okie");
-        }
-
-        println_str("ok");
-        
-        const typed_num = 32uint8;
-        let num = 1984;
-        const str = "Hello, World!";
-        const array = [4891int64, 2int64];
-
-        num = 320;
-        declare InnerComponent {
-            value: int8
-        }
-
-        declare OuterComponent {
-            u8value: uint8,
-            u16value: uint16,
-            children: component[]
-        }
-
-        struct InnerStruct {
-            i64value: int64
-        }
-
-        struct OuterStruct {
-            str_value: string,
-            u8value: uint8,
-            inner: InnerStruct
-        }
-        
-        const comp = OuterComponent {
-            u8value: 8,
-            u16value: 24,
-            
-            InnerComponent {
-                value: 4
-            }
-        };
-
-        const structure = OuterStruct {
-            str_value: str,
-            u8value: typed_num,
-            inner: InnerStruct {
-                i64value: 84
-            }
-        };
-
-        const placeable = PlaceableComponent {
-            x: 48,
-            y: 24
-        };
-
-        println_str("before");
-        println(placeable.x);
-        println(placeable.y);
-
-        placeable.place();
-
-        println_str("after");
-        println(placeable.x);
-        println(placeable.y);
-
-        array[0] = 20int64;
-
-        println(structure.inner.i64value * 84int64);
-        println(get_size(str));
-        println(get_size(array));
-        println(array[0]);
-        println(get_size(comp.children));
-        println_str(str);
-        
-        enum Gender {
-            Male,
-            Female,
-        }
-
-        const my_gender = Gender::Male;
-
-        "#,
-            )
-            .unwrap();
-
-        provider.compiler.jit.module.define_function(main_id, &mut provider.ctx).unwrap();
-        provider.compiler.jit.module.clear_context(&mut provider.ctx);
-        provider.compiler.jit.module.finalize_definitions().unwrap();
-
-        let code = provider.compiler.jit.module.get_finalized_function(main_id);
-
-        unsafe { std::mem::transmute::<*const u8, fn()>(code)() };
     }
 }

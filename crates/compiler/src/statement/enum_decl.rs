@@ -26,9 +26,13 @@ impl Compile for Positioned<EnumDecl> {
                 None
             };
 
-            let structure = properties
-                .as_ref()
-                .map(|properties| Struct::new(properties.iter().map(|property| property.1.variant.as_ir_type(compiler.jit.module.isa()))));
+            let structure = properties.as_ref().map(|properties| {
+                Struct::new(
+                    properties
+                        .iter()
+                        .map(|property| (property.1.variant.as_ir_type(compiler.jit.module.isa()), None)),
+                )
+            });
 
             variants.push((variant.value.name.value.0, EnumVariant { properties, structure }));
         }

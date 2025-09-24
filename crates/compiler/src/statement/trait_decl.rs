@@ -6,7 +6,7 @@ use mollie_parser::TraitDecl;
 use mollie_shared::Positioned;
 use mollie_typing::{Trait, TraitFunc, Type, TypeVariant};
 
-use crate::{Compile, CompileResult, Compiler, GetPositionedType, TypeResult};
+use crate::{Compile, CompileResult, Compiler, GetPositionedType};
 
 impl Compile for Positioned<TraitDecl> {
     fn compile(self, compiler: &mut Compiler, fn_builder: &mut FunctionBuilder) -> CompileResult {
@@ -20,12 +20,15 @@ impl Compile for Positioned<TraitDecl> {
             .value
             .into_iter()
             .map(|function| {
-                let args: Vec<Type> = function
-                    .value
-                    .args
-                    .into_iter()
-                    .map(|arg| arg.value.ty.get_type(compiler))
-                    .collect::<TypeResult<_>>()?;
+                let mut args = Vec::new();
+
+                // if function.value.this.is_some() {
+                //     args.push(TypeVariant::This.into());
+                // }
+
+                for arg in function.value.args {
+                    args.push(arg.value.ty.get_type(compiler)?);
+                }
 
                 let returns = if let Some(returns) = function.value.returns {
                     Some(returns.get_type(compiler)?)
@@ -47,10 +50,11 @@ impl Compile for Positioned<TraitDecl> {
                     signature.returns.push(AbiParam::new(returns.variant.as_ir_type(compiler.jit.module.isa())));
                 }
 
-                let signature = fn_builder.import_signature(signature);
+                let signature_ref = fn_builder.import_signature(signature.clone());
 
                 Ok(TraitFunc {
                     signature,
+                    signature_ref,
                     name: function.value.name.value.0,
                     this: function.value.this.is_some(),
                     args,

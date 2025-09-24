@@ -12,7 +12,7 @@ impl Compile<ValueOrFunc> for Positioned<TypeIndexExpr> {
         let ty = self.value.target.get_type(compiler)?;
 
         let (vtable, trait_index, function) = compiler.find_vtable_function_index(&ty.variant, &self.value.index.value.0).unwrap();
-        let (sig, func) = compiler.vtables[vtable][&trait_index].1[function].1;
+        let (sig, func, _) = compiler.vtables[vtable][&trait_index].1[function].1;
 
         Ok(ValueOrFunc::ExtFunc(
             sig,

@@ -8,8 +8,10 @@ mollie-shared = { workspace = true, features = ["cranelift"] }
 mollie-lexer = { workspace = true }
 mollie-parser = { workspace = true }
 mollie-typing = { workspace = true }
+mollie-const = { workspace = true }
 indexmap = { workspace = true }
 cranelift = { workspace = true }
+ariadne = { workspace = true }
 
 [lints]
 workspace = true

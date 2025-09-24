@@ -1,3 +1,4 @@
+use ariadne::{Label, Report, Source};
 use cranelift::{
     module::{Linkage, Module},
     prelude::{AbiParam, InstBuilder, types},
@@ -31,9 +32,11 @@ fn add_builtins(func_compiler: &mut FuncCompiler, context: &mut DrawContext) {
 
     let draw_ctx_ty = TypeVariant::structure::<String, Type, _>([]);
 
-    // let var = func_compiler
-    //     .fn_builder
-    //     .declare_var(draw_ctx_ty.as_ir_type(func_compiler.compiler.jit.module.isa()));
+    func_compiler.compiler.add_type("DrawContext", draw_ctx_ty.clone());
+
+    let var = func_compiler
+        .fn_builder
+        .declare_var(draw_ctx_ty.as_ir_type(func_compiler.compiler.jit.module.isa()));
 
     func_compiler.compiler.var("context", draw_ctx_ty.clone());
 
@@ -42,8 +45,8 @@ fn add_builtins(func_compiler: &mut FuncCompiler, context: &mut DrawContext) {
         std::ptr::from_mut::<DrawContext>(context).addr().cast_signed() as i64,
     );
 
-    func_compiler.compiler.variables.insert("context".to_string(), value);
-    // func_compiler.fn_builder.def_var(var, value);
+    func_compiler.compiler.variables.insert("context".to_string(), var);
+    func_compiler.fn_builder.def_var(var, value);
 
     let draw_rect = {
         let mut sig = func_compiler.compiler.jit.module.make_signature();
@@ -55,14 +58,14 @@ fn add_builtins(func_compiler: &mut FuncCompiler, context: &mut DrawContext) {
         sig.params.push(AbiParam::new(types::F32));
         sig.params.push(AbiParam::new(types::I32));
 
-        let func = func_compiler
+        let func_id = func_compiler
             .compiler
             .jit
             .module
             .declare_function("DrawContext_draw_rect", Linkage::Import, &sig)
             .unwrap();
         let sig = func_compiler.fn_builder.import_signature(sig);
-        let func = func_compiler.compiler.jit.module.declare_func_in_func(func, func_compiler.fn_builder.func);
+        let func = func_compiler.compiler.jit.module.declare_func_in_func(func_id, func_compiler.fn_builder.func);
 
         (
             TypeVariant::function(
@@ -78,7 +81,7 @@ fn add_builtins(func_compiler: &mut FuncCompiler, context: &mut DrawContext) {
                 (),
             )
             .into(),
-            (sig, func),
+            (sig, func, func_id),
         )
     };
 
@@ -93,7 +96,7 @@ fn add_builtins(func_compiler: &mut FuncCompiler, context: &mut DrawContext) {
 
     println!("storing {type_idx} at 0 vtable offset");
 
-    for (i, (_, (_, func_ref))) in functions.values().enumerate() {
+    for (i, (_, (_, func_ref, _))) in functions.values().enumerate() {
         let value = func_compiler.fn_builder.ins().func_addr(size_t, *func_ref);
 
         println!(
@@ -113,6 +116,8 @@ fn add_builtins(func_compiler: &mut FuncCompiler, context: &mut DrawContext) {
     func_compiler.compiler.vtables.insert(draw_ctx_ty, VTable::from_iter([(None, functions)]));
 }
 
+#[derive(Debug)]
+#[allow(dead_code)]
 enum Op {
     DrawRect { x: f32, y: f32, width: f32, height: f32, color: u32 },
 }
@@ -123,126 +128,13 @@ struct DrawContext {
 
 impl DrawContext {
     fn draw_rect(&mut self, x: f32, y: f32, width: f32, height: f32, color: u32) {
-        println!("i was called! >:3");
+        println!("i was called! >:3 {}", self.operations.len());
 
         self.operations.push(Op::DrawRect { x, y, width, height, color });
     }
 }
 
 const PROGRAM: &str = r#"
-trait Placeable {
-    fn place(self);
-}
-
-declare PlaceableComponent {
-    x: int64,
-    y: int64
-}
-
-impl trait Placeable for PlaceableComponent {
-    fn place(self) {
-        self.x = 4;
-        
-        println(11int64);
-    }
-}
-
-declare Container {
-    hello: boolean,
-    children: Placeable[]
-}
-
-const contained = Container {
-    hello: true,
-    
-    PlaceableComponent {
-        x: 0,
-        y: 0
-    }
-};
-
-contained.children[0].place();
-
-println_str("check");
-
-if contained.children[0] is PlaceableComponent compik {
-    println_str("accessing compik");
-    println(compik.x);
-    println_str("okie");
-}
-
-println_str("ok");
-
-const typed_num = 32uint8;
-let num = 1984;
-const str = "Hello, World!";
-const array = [4891int64, 2int64];
-
-
-num = 320;
-declare InnerComponent {
-    value: int8
-}
-
-declare OuterComponent {
-    u8value: uint8,
-    u16value: uint16,
-    children: component[]
-}
-
-struct InnerStruct {
-    i64value: int64
-}
-
-struct OuterStruct {
-    str_value: string,
-    u8value: uint8,
-    inner: InnerStruct
-}
-
-const comp = OuterComponent {
-    u8value: 8,
-    u16value: 24,
-    
-    InnerComponent {
-        value: 4
-    }
-};
-
-const structure = OuterStruct {
-    str_value: str,
-    u8value: typed_num,
-    inner: InnerStruct {
-        i64value: 84
-    }
-};
-
-const placeable = PlaceableComponent {
-    x: 48,
-    y: 24
-};
-
-println_str("before");
-println(placeable.x);
-println(placeable.y);
-
-placeable.place();
-
-println_str("after");
-println(placeable.x);
-println(placeable.y);
-
-array[0] = 20int64;
-
-println(structure.inner.i64value * 84int64);
-println(get_size(str));
-println(get_size(array));
-println(array[0]);
-println(get_size(comp.children));
-println_str(str);
-
-context.draw_rect(0.0, 0.0, 24.0, 24.0, 65280uint32);
-
 enum Option<T> {
     Some { value: T },
     None
@@ -262,10 +154,6 @@ impl<T> T[] {
     }
 }
 
-println_str("array size?");
-println(array.size());
-println_str("oh wow?");
-
 struct ArrayIter<T> {
     value: T[],
     index: uint_size
@@ -273,12 +161,6 @@ struct ArrayIter<T> {
 
 impl<T> trait Iterator<T> for ArrayIter<T> {
     fn next(self) -> Option<T> {
-        println_str("next");
-        println(7941int64);
-        println_addr(self);
-        println_addr(self.value);
-        println(get_size(self.value));
-
         if self.index == get_size(self.value) {
             Option::None<T>
         } else {
@@ -295,48 +177,179 @@ impl<T> trait Iterator<T> for ArrayIter<T> {
 
 impl<T> trait Iterable<ArrayIter<T>> for T[] {
     fn iter(self) -> ArrayIter<T> {
-        const val = ArrayIter {
+        ArrayIter {
             value: self,
             index: 0
-        };
-
-        println_str("func_checking[start]");
-        println_addr(val.value);
-        println_addr(val);
-        println_addr(val.value);
-        println_str("func_checking[end]");
-
-        val
+        }
     }
 }
 
-println_str("address of array");
-println_addr(array);
-println_addr(array.iter().value);
-println(2424int64);
-
-const iterator = array.iter();
-
-println_addr(iterator.value);
-println_str("checking[mid]");
-println_addr(iterator.value);
-println_str("checking[end]");
-println_addr(iterator.value);
-println_addr(iterator.value);
-println(get_size(iterator.value));
-println_addr(iterator);
-println_str("address of iterator in main fn");
-println_addr(iterator);
-println_str("address of array in iterator in main fn");
-println_addr(iterator.value);
-
-if iterator.next() is Option::Some { value } {
-    println(value);
+struct Constraints {
+    min_width: float = 0.0,
+    max_width: float = 0.0,
+    min_height: float = 0.0,
+    max_height: float = 0.0,
 }
 
-if iterator.next() is Option::Some { value } {
-    println(value);
+trait Placeable {
+    fn get_width(self) -> float;
+    fn get_height(self) -> float;
+
+    fn get_measured_width(self) -> float;
+    fn get_measured_height(self) -> float;
+
+    fn place(self, x: float, y: float);
+    fn render(self, ctx: DrawContext);
 }
+
+trait Measurable {
+    fn measure(self, constraints: Constraints) -> Placeable;
+}
+
+declare Rectangle {
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    color: uint32
+}
+
+impl trait Placeable for Rectangle {
+    fn get_width(self) -> float {
+        self.width
+    }
+
+    fn get_height(self) -> float {
+        self.height
+    }
+
+    fn get_measured_width(self) -> float {
+        self.width
+    }
+
+    fn get_measured_height(self) -> float {
+        self.height
+    }
+
+
+    fn place(self, x: float, y: float) {
+        self.x = x;
+        self.y = y;
+    }
+
+    fn render(self, ctx: DrawContext) {
+        println_str("rectangle");
+
+        ctx.draw_rect(self.x, self.y, self.width, self.height, self.color);
+    }
+}
+
+declare Container {
+    vertical: boolean,
+    width: float = 0.0,
+    height: float = 0.0,
+    children: Placeable[]
+}
+
+impl trait Placeable for Container {
+    fn get_width(self) -> float {
+        self.width
+    }
+
+    fn get_height(self) -> float {
+        self.height
+    }
+
+    fn get_measured_width(self) -> float {
+        self.width
+    }
+
+    fn get_measured_height(self) -> float {
+        self.height
+    }
+
+    fn place(self, x: float, y: float) {
+        let offset = if self.vertical == true {
+            y
+        } else {
+            x
+        };
+
+        let iterator = ArrayIter<Placeable> {
+            value: self.children,
+            index: 0
+        };
+
+        while iterator.next() is Option::Some { value } {
+            if self.vertical == true {
+                value.place(x, offset);
+            } else {
+                value.place(offset, y);
+            }
+
+            if value is Rectangle rect {
+                offset = offset + if self.vertical == true { rect.height } else { rect.width };
+            }
+        }
+    }
+
+    fn render(self, ctx: DrawContext) {
+        let iterator = ArrayIter<Placeable> {
+            value: self.children,
+            index: 0
+        };
+
+        while iterator.next() is Option::Some { value } {
+            value.render(ctx);
+        }
+    }
+}
+
+const contained = Container {
+    vertical: true,
+    
+    Rectangle {
+        x: 0.0,
+        y: 0.0,
+        width: 128.0,
+        height: 256.0,
+        color: 4278255360uint32
+    }
+    
+    Rectangle {
+        x: 24.0,
+        y: 0.0,
+        width: 256.0,
+        height: 128.0,
+        color: 4278255360uint32
+    }
+};
+
+println_str("hm?");
+
+contained.place(0.0, 0.0);
+contained.render(context);
+
+println_str("finish");
+
+struct TestDefaults {
+    try_to_do: int64 = 5int64
+}
+
+const ooo = TestDefaults {};
+
+println(ooo.try_to_do);
+
+declare TestDefaultsC {
+    try_to_do: int64 = 5int64
+}
+
+const oooc = TestDefaultsC {};
+
+println(1int64);
+println(oooc.try_to_do);
+println(2int64);
+
 "#;
 
 fn main() {
@@ -347,13 +360,28 @@ fn main() {
 
     add_builtins(&mut compiler, &mut draw_ctx);
 
-    let main_id = compiler.compile_program_text(PROGRAM).unwrap();
+    compiler.fn_builder.func.collect_debug_info();
 
-    provider.compiler.jit.module.define_function(main_id, &mut provider.ctx).unwrap();
-    provider.compiler.jit.module.clear_context(&mut provider.ctx);
-    provider.compiler.jit.module.finalize_definitions().unwrap();
+    match compiler.compile_program_text(PROGRAM) {
+        Ok(main_id) => {
+            provider.compiler.jit.module.define_function(main_id, &mut provider.ctx).unwrap();
+            provider.compiler.jit.module.clear_context(&mut provider.ctx);
+            provider.compiler.jit.module.finalize_definitions().unwrap();
 
-    let code = provider.compiler.jit.module.get_finalized_function(main_id);
+            let code = provider.compiler.jit.module.get_finalized_function(main_id);
 
-    unsafe { std::mem::transmute::<*const u8, fn()>(code)() };
+            unsafe { std::mem::transmute::<*const u8, fn()>(code)() };
+
+            println!("{:#?}", draw_ctx.operations);
+        }
+        Err(e) => match e {
+            mollie_compiler::CompileError::Parse(parse_error) => Report::build(ariadne::ReportKind::Error, ("<anonymous>", 0..PROGRAM.len()))
+                .with_message(parse_error.0)
+                .with_label(Label::new(("<anonymous>", parse_error.1.unwrap_or_default().start..parse_error.1.unwrap_or_default().end)).with_message("here"))
+                .finish()
+                .eprint(("<anonymous>", Source::from(PROGRAM)))
+                .unwrap(),
+            e => println!("{e}"),
+        },
+    }
 }

@@ -21,11 +21,12 @@ mollie-typing = { workspace = true }
 [workspace.dependencies]
 mollie-shared = { path = "./crates/shared" }
 mollie-lexer = { path = "./crates/lexer" }
+mollie-const = { path = "./crates/const" }
 mollie-parser = { path = "./crates/parser" }
 mollie-compiler = { path = "./crates/compiler" }
 mollie-typing = { path = "./crates/typing" }
 
-cranelift = { version = "0.122.0", features = [
+cranelift = { version = "0.124.1", features = [
     "jit",
     "module",
     "interpreter",
@@ -34,7 +35,7 @@ cranelift = { version = "0.122.0", features = [
     "core",
 ] }
 
-serde = { version = "1.0.219", features = ["derive", "rc"] }
+serde = { version = "1.0.226", features = ["derive", "rc"] }
 
 ariadne = "0.5.1"
 derive_more = { version = "2.0.1", features = [
@@ -42,5 +43,5 @@ derive_more = { version = "2.0.1", features = [
     "is_variant",
     "unwrap",
 ] }
-indexmap = "2.10.0"
+indexmap = "2.11.4"
 peekmore = { version = "1.3.0", features = ["smallvec"] }
