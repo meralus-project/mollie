@@ -5,7 +5,6 @@ edition = "2024"
 
 [dependencies]
 mollie-parser = { workspace = true }
-mollie-shared = { workspace = true }
 
 [lints]
 workspace = true

@@ -6,8 +6,6 @@ use crate::{Compile, CompileResult, Compiler, GetType, TypeError, TypeResult, Va
 
 impl Compile<ValueOrFunc> for Positioned<Ident> {
     fn compile(self, compiler: &mut Compiler, fn_builder: &mut FunctionBuilder) -> CompileResult<ValueOrFunc> {
-        println!("searching for {}", self.value.0);
-
         if let Some(value) = compiler.assign.take() {
             let value = compiler.compile(fn_builder, value)?;
 
@@ -23,9 +21,9 @@ impl Compile<ValueOrFunc> for Positioned<Ident> {
         } else if let Some(&func) = compiler.globals.get(&self.value.0) {
             let func = compiler.jit.module.declare_func_in_func(func, fn_builder.func);
 
-            compiler.values.insert(self.value.0, ValueOrFunc::Func(func));
+            compiler.values.insert(self.value.0, ValueOrFunc::FuncRef(func));
 
-            Ok(ValueOrFunc::Func(func))
+            Ok(ValueOrFunc::FuncRef(func))
         } else if let Some(v) = compiler.variables.get(&self.value.0) {
             Ok(ValueOrFunc::Value(fn_builder.use_var(*v)))
         } else {
@@ -37,13 +35,12 @@ impl Compile<ValueOrFunc> for Positioned<Ident> {
 impl GetType for Ident {
     fn get_type(&self, compiler: &mut Compiler, _: Span) -> TypeResult {
         compiler
-            .types
-            .get(&self.0)
-            .or_else(|| compiler.get_var(&self.0).map(|v| &v.ty))
+            .get_type(&self.0)
             .cloned()
             .ok_or_else(|| TypeError::NotFound {
                 ty: None,
                 name: self.0.clone(),
             })
+            .or_else(|_| compiler.get_local_type(&self.0))
     }
 }

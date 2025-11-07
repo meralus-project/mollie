@@ -13,6 +13,7 @@ pub enum CompileError {
     Parse(ParseError),
     VariableNotFound { name: String },
     IntCast(TryFromIntError),
+    Module(cranelift::module::ModuleError),
 }
 
 impl fmt::Display for CompileError {
@@ -22,6 +23,7 @@ impl fmt::Display for CompileError {
             Self::Parse(error) => error.fmt(f),
             Self::VariableNotFound { name } => write!(f, "there's no variable called {name}"),
             Self::IntCast(error) => error.fmt(f),
+            Self::Module(error) => error.fmt(f),
         }
     }
 }

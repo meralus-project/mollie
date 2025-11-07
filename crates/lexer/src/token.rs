@@ -25,6 +25,8 @@ pub enum Token {
     #[is_variant]
     #[unwrap]
     Boolean(bool),
+    #[display("public")]
+    Public,
     #[display("self")]
     This,
     #[display("declare")]

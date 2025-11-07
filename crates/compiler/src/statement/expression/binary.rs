@@ -87,7 +87,7 @@ impl Compile<ValueOrFunc> for Positioned<BinaryExpr> {
 
 impl GetType for BinaryExpr {
     fn get_type(&self, compiler: &mut Compiler, _: Span) -> TypeResult {
-        if matches!(self.operator.value, Operator::Equal | Operator::NotEqual) {
+        if matches!(self.operator.value, Operator::Equal | Operator::NotEqual | Operator::LessThan | Operator::GreaterThan) {
             Ok(TypeVariant::boolean().into())
         } else {
             self.lhs.get_type(compiler)

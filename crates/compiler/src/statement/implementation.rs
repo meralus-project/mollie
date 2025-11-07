@@ -1,14 +1,14 @@
 use std::mem;
 
 use cranelift::{
-    codegen::ir::{FuncRef, SigRef},
+    codegen::ir::{self, FuncRef, SigRef},
     module::{FuncId, Linkage, Module},
     prelude::{AbiParam, FunctionBuilder, FunctionBuilderContext, InstBuilder},
 };
 use indexmap::{IndexMap, map::Entry};
 use mollie_parser::{Impl, ImplFunction};
-use mollie_shared::{Positioned, Span, cranelift::stack_alloc};
-use mollie_typing::{ComplexType, FunctionType, Type, TypeKind, TypeVariant};
+use mollie_shared::{Positioned, Span};
+use mollie_typing::{ComplexType, FunctionType, PrimitiveType, Type, TypeKind, TypeVariant};
 
 use crate::{Compile, CompileResult, Compiler, GetPositionedType, GetType, TypeError, TypeResult, ValueOrFunc};
 
@@ -17,7 +17,7 @@ impl Compile<(SigRef, FuncRef, FuncId)> for Positioned<ImplFunction> {
         let values = mem::take(&mut compiler.values);
         // let args = usize::from(self.value.this.is_some()) + self.value.args.len();
         let mut signature = compiler.jit.module.make_signature();
-        let this = compiler.get_var("self").unwrap().ty.clone();
+        let this = compiler.get_var("self").unwrap().ty;
 
         if self.value.this.is_some() {
             signature.params.push(AbiParam::new(compiler.jit.module.isa().pointer_type()));
@@ -28,20 +28,25 @@ impl Compile<(SigRef, FuncRef, FuncId)> for Positioned<ImplFunction> {
 
             signature.params.push(AbiParam::new(ty.variant.as_ir_type(compiler.jit.module.isa())));
 
-            compiler.var(&arg.value.name.value.0, ty.variant);
+            compiler.var_ty(&arg.value.name.value.0, ty);
         }
 
         if let Some(returns) = self.value.returns {
             let ty = returns.get_type(compiler)?;
 
-            println!("returns {ty}");
-
-            signature.returns.push(AbiParam::new(ty.variant.as_ir_type(compiler.jit.module.isa())));
+            if let Some(structure) = ty.variant.as_struct() {
+                for field in &structure.structure.fields {
+                    signature.returns.push(AbiParam::new(field.ty));
+                }
+            } else if matches!(ty.variant, TypeVariant::Primitive(PrimitiveType::String)) {
+                signature.returns.push(AbiParam::new(ty.variant.as_ir_type(compiler.jit.module.isa())));
+                signature.returns.push(AbiParam::new(ty.variant.as_ir_type(compiler.jit.module.isa())));
+            } else {
+                signature.returns.push(AbiParam::new(ty.variant.as_ir_type(compiler.jit.module.isa())));
+            }
         }
 
         let func_name = format!("{}>{}", this, self.value.name.value.0);
-
-        println!("generate func name: {func_name}");
 
         let mut ctx = compiler.jit.module.make_context();
         let func_id = compiler.jit.module.declare_function(&func_name, Linkage::Local, &signature).unwrap();
@@ -81,18 +86,17 @@ impl Compile<(SigRef, FuncRef, FuncId)> for Positioned<ImplFunction> {
             compiler.variables.insert(arg.value.name.value.0.clone(), var);
         }
 
-        if let ValueOrFunc::Value(v) = compiler.compile(&mut fn_builder, self.value.body)? {
-            println!("returning smth");
-            fn_builder.ins().return_(&[v]);
-        } else {
-            println!("returning nothing");
-            fn_builder.ins().return_(&[]);
-        }
+        let result = compiler.compile(&mut fn_builder, self.value.body)?;
 
-        println!("{}", fn_builder.func);
+        match result {
+            ValueOrFunc::Value(value) => fn_builder.ins().return_(&[value]),
+            ValueOrFunc::Values(values) => fn_builder.ins().return_(&values),
+            _ => fn_builder.ins().return_(&[]),
+        };
 
         compiler.jit.module.define_function(func_id, &mut ctx).unwrap();
         compiler.jit.module.clear_context(&mut ctx);
+        compiler.jit.module.finalize_definitions().unwrap();
 
         for arg in self.value.args {
             compiler.remove_var(&arg.value.name.value.0);
@@ -115,19 +119,24 @@ impl Compile<(SigRef, FuncRef, FuncId)> for Positioned<ImplFunction> {
 
 impl GetType for ImplFunction {
     fn get_type(&self, compiler: &mut Compiler, span: Span) -> TypeResult {
+        let this = compiler.get_local_type("self").ok();
+
         let mut args = Vec::new();
 
         for arg in &self.args {
             args.push(arg.value.ty.get_type(compiler)?);
         }
 
-        let returns = self.returns.as_ref().map_or_else(|| Ok(().into()), |returns| returns.get_type(compiler))?;
+        let returns = self
+            .returns
+            .as_ref()
+            .map_or_else(|| Ok(TypeVariant::void().into()), |returns| returns.get_type(compiler))?;
 
         Ok(Type {
             applied_generics: Vec::new(),
             variant: TypeVariant::complex(ComplexType::Function(FunctionType {
                 is_native: false,
-                have_self: self.this.is_some(),
+                this,
                 args,
                 returns: Box::new(returns),
             })),
@@ -233,7 +242,10 @@ impl Compile for Positioned<Impl> {
                 compiler.push_frame();
 
                 if have_self {
-                    compiler.var("self", target_ty.variant.clone());
+                    // let ty = compiler.idx_of_type(&target_ty).unwrap_or_else(|| panic!("there's
+                    // no type idx in compiler for {target_ty}"));
+
+                    compiler.var_ty("self", target_ty.clone());
                 }
 
                 let ty = function.get_type(compiler)?;
@@ -266,29 +278,33 @@ impl Compile for Positioned<Impl> {
         }
 
         let size_t = compiler.jit.module.isa().pointer_type();
-        let slot = stack_alloc(fn_builder, size_t.bytes() * (u32::try_from(functions.len())? + 1));
+        let data_size = usize::try_from(size_t.bytes())? * (functions.len() + 1);
+        let mut data = vec![0; data_size];
 
-        let type_idx = fn_builder.ins().iconst(
-            size_t,
-            i64::try_from(compiler.vtables.get_index_of(&target_ty.variant).unwrap_or_else(|| compiler.vtables.len()))?,
-        );
+        data[0..usize::try_from(size_t.bytes())?].copy_from_slice(&{
+            let value = compiler.vtables.get_index_of(&target_ty.variant).unwrap_or_else(|| compiler.vtables.len());
 
-        fn_builder.ins().stack_store(type_idx, slot, 0);
+            match compiler.jit.module.isa().endianness() {
+                ir::Endianness::Little => value.to_le_bytes(),
+                ir::Endianness::Big => value.to_be_bytes(),
+            }
+        });
 
-        println!("storing {type_idx} at 0 vtable offset");
+        compiler.jit.data_desc.define(data.into_boxed_slice());
 
-        for (i, (_, (_, func_ref, _))) in functions.values().enumerate() {
-            let value = fn_builder.ins().func_addr(size_t, *func_ref);
+        for (i, (_, (_, _, func_id))) in functions.values().enumerate() {
+            let func_ref = compiler.jit.module.declare_func_in_data(*func_id, &mut compiler.jit.data_desc);
 
-            println!("storing {value} at {} vtable offset", size_t.bytes().cast_signed() * (i32::try_from(i)? + 1));
-
-            fn_builder
-                .ins()
-                .stack_store(value, slot, size_t.bytes().cast_signed() * (i32::try_from(i)? + 1));
+            compiler.jit.data_desc.write_function_addr(size_t.bytes() * (u32::try_from(i)? + 1), func_ref);
         }
 
-        let ptr = fn_builder.ins().stack_addr(size_t, slot, 0);
-        let functions = (ptr, functions);
+        let id = compiler.jit.module.declare_anonymous_data(true, false).unwrap();
+
+        compiler.jit.module.define_data(id, &compiler.jit.data_desc).unwrap();
+        compiler.jit.data_desc.clear();
+        compiler.jit.module.finalize_definitions().unwrap();
+
+        let functions = (id, functions);
 
         match compiler.vtables.entry(target_ty.variant) {
             Entry::Occupied(mut entry) => {

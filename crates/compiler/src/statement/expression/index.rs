@@ -2,9 +2,10 @@ use cranelift::{
     module::Module,
     prelude::{FunctionBuilder, InstBuilder, MemFlags},
 };
+use mollie_ir::{FatPtr, VTablePtr};
 use mollie_parser::{IndexExpr, IndexTarget};
 use mollie_shared::{Positioned, Span};
-use mollie_typing::{ComplexType, FatPtr, FunctionType, PrimitiveType, Type, TypeKind, TypeVariant, VTablePtr};
+use mollie_typing::{ComplexType, PrimitiveType, Type, TypeKind, TypeVariant};
 
 use crate::{Compile, CompileResult, Compiler, GetPositionedType, GetType, TypeError, TypeResult, ValueOrFunc};
 
@@ -15,30 +16,20 @@ impl Compile<ValueOrFunc> for Positioned<IndexExpr> {
 
         let assign = compiler.assign.take();
 
-        println!("indexing {self:#?}");
-
         match self.value.index.value {
             IndexTarget::Named(index) => {
-                if index.0 == "x" {
-                    println!("{ty}.x");
-                }
-
                 if let Some((vtable, trait_index, function)) = compiler.find_vtable_function_index(&ty.variant, &index.0) {
                     if compiler.vtables[vtable][&trait_index].1[function]
                         .0
                         .variant
                         .as_function()
-                        .is_some_and(|f| f.have_self)
+                        .is_some_and(|f| f.this.is_some())
                     {
                         let v = compiler.compile(fn_builder, *self.value.target)?;
-
-                        let prev = compiler.this.replace(v);
-
+                        let _prev = compiler.this.replace(v);
                         let name = format!("{ty}>{}", index.0);
 
-                        println!("{name}: {prev:?} => {v:?}");
-
-                        if let Some(val) = compiler.values.get(&name).copied() {
+                        if let Some(val) = compiler.values.get(&name).cloned() {
                             return Ok(val);
                         }
 
@@ -47,9 +38,9 @@ impl Compile<ValueOrFunc> for Positioned<IndexExpr> {
                             .module
                             .declare_func_in_func(compiler.vtables[vtable][&trait_index].1[function].1.2, fn_builder.func);
 
-                        compiler.values.insert(name, ValueOrFunc::Func(func));
+                        compiler.values.insert(name, ValueOrFunc::FuncRef(func));
 
-                        return Ok(ValueOrFunc::Func(func));
+                        return Ok(ValueOrFunc::FuncRef(func));
                     }
 
                     return Err(TypeError::FunctionNotFound {
@@ -71,15 +62,6 @@ impl Compile<ValueOrFunc> for Positioned<IndexExpr> {
                                 return Ok(ValueOrFunc::Nothing);
                             }
                         } else if let ValueOrFunc::Value(v) = v {
-                            return Ok(ValueOrFunc::Value(fn_builder.ins().load(
-                                component.structure.fields[pos].ty,
-                                MemFlags::trusted(),
-                                v,
-                                component.structure.fields[pos].offset,
-                            )));
-                        }
-
-                        if let ValueOrFunc::Value(v) = v {
                             return Ok(ValueOrFunc::Value(fn_builder.ins().load(
                                 component.structure.fields[pos].ty,
                                 MemFlags::trusted(),
@@ -122,9 +104,6 @@ impl Compile<ValueOrFunc> for Positioned<IndexExpr> {
                             let assign_value = compiler.compile(fn_builder, assign)?;
 
                             if let (ValueOrFunc::Value(to_be_assigned), ValueOrFunc::Value(assign_value)) = (target, assign_value) {
-                                println!("assign {}", structure.properties[pos].0);
-                                println!("assign {}", structure.structure.fields[pos].offset);
-
                                 fn_builder
                                     .ins()
                                     .store(MemFlags::trusted(), assign_value, to_be_assigned, structure.structure.fields[pos].offset);
@@ -150,8 +129,6 @@ impl Compile<ValueOrFunc> for Positioned<IndexExpr> {
                 } else if let Some((..)) = ty.variant.as_trait_instance() {
                     // let function = compiler.traits[trait_index].functions.iter().position(|f|
                     // f.name == index.0).unwrap();
-                    println!("What");
-
                     compiler.compile(fn_builder, *self.value.target)?;
                     // chunk.get_type_function2(Some(trait_index), function);
                     // compiler.compile(*self.value.target)?;
@@ -161,26 +138,8 @@ impl Compile<ValueOrFunc> for Positioned<IndexExpr> {
                     if let ValueOrFunc::Value(fat_ptr) = compiler.compile(fn_builder, *self.value.target)? {
                         let value = FatPtr::get_ptr(compiler.jit.module.isa(), fn_builder, fat_ptr);
 
-                        // let size = compiler.jit.module.isa().pointer_type().bytes();
-                        // let size = i64::from(size);
-                        // let index = func.cast_signed() as i64;
-                        // let offset = size * index;
-
                         let vtable_ptr = FatPtr::get_metadata(compiler.jit.module.isa(), fn_builder, fat_ptr);
                         let vtable_func = VTablePtr::get_func_ptr(compiler.jit.module.isa(), fn_builder, vtable_ptr, func.try_into()?);
-                        // let vtable = fn_builder
-                        //     .ins()
-                        //     .load(compiler.jit.module.isa().pointer_type(), MemFlags::trusted(),
-                        // vtable_ptr, size as i32);
-
-                        // let vtable_func = if offset > 0 {
-                        //     let offset =
-                        // fn_builder.ins().iconst(compiler.jit.module.isa().pointer_type(), offset);
-
-                        //     fn_builder.ins().iadd(vtable, offset)
-                        // } else {
-                        //     vtable
-                        // };
 
                         compiler.this_ty.replace(ty);
                         compiler.this.replace(ValueOrFunc::Value(value));
@@ -195,14 +154,13 @@ impl Compile<ValueOrFunc> for Positioned<IndexExpr> {
                 if let Some(v) = ty.variant.as_array() {
                     let array = compiler.compile(fn_builder, *self.value.target)?;
 
-                    let old = compiler.infer_ir.replace(compiler.jit.module.isa().pointer_type());
-
+                    let old = compiler.infer.replace(TypeVariant::usize().into());
                     let index = compiler.compile(fn_builder, self.value.index.span.wrap(*expression)).unwrap();
 
                     if old.is_some() {
-                        compiler.infer_ir = old;
-                    } else if compiler.infer_ir.is_some() {
-                        compiler.infer_ir.take();
+                        compiler.infer = old;
+                    } else if compiler.infer.is_some() {
+                        compiler.infer.take();
                     }
 
                     if let (ValueOrFunc::Value(array), ValueOrFunc::Value(index)) = (array, index) {
@@ -243,118 +201,18 @@ impl GetType for IndexExpr {
         let target = self.target.get_type(compiler)?;
         let mut result = match &self.index.value {
             IndexTarget::Named(property_name) => {
-                if let Some((ty, _)) = compiler.find_vtable_function(&target.variant, &property_name.0) {
-                    return Ok(Type {
+                return if let Some((ty, _)) = compiler.find_vtable_function(&target.variant, &property_name.0) {
+                    Ok(Type {
                         variant: ty.variant.clone(),
                         applied_generics: target.applied_generics,
                         declared_at: ty.declared_at,
-                    });
-                }
-
-                match target.variant {
-                    TypeVariant::This => todo!(),
-                    TypeVariant::Generic(_) => todo!(),
-                    TypeVariant::Primitive(_) => unimplemented!("primitive types doesn't have properties"),
-                    TypeVariant::Trait(t) => {
-                        return compiler.traits[t]
-                            .functions
-                            .iter()
-                            .find(|func| func.name == property_name.0)
-                            .map(|func| Type {
-                                variant: TypeVariant::complex(ComplexType::Function(FunctionType {
-                                    is_native: false,
-                                    have_self: func.this,
-                                    args: func.args.clone(),
-                                    returns: Box::new(func.returns.clone()),
-                                })),
-                                applied_generics: target.applied_generics,
-                                declared_at: compiler.traits[t].declared_at,
-                            })
-                            .ok_or_else(|| TypeError::PropertyNotFound {
-                                ty: Box::new(TypeKind::Struct),
-                                ty_name: None,
-                                property: property_name.0.clone(),
-                            });
-                    }
-                    TypeVariant::Complex(ref complex_type) => match &**complex_type {
-                        ComplexType::Component(component) => {
-                            if property_name.0 == "children" {
-                                return Ok(Type {
-                                    variant: component
-                                        .children
-                                        .as_ref()
-                                        .ok_or_else(|| TypeError::PropertyNotFound {
-                                            ty: Box::new(TypeKind::Component),
-                                            ty_name: None,
-                                            property: property_name.0.clone(),
-                                        })?
-                                        .clone()
-                                        .variant,
-                                    applied_generics: if target.applied_generics.is_empty() {
-                                        vec![TypeVariant::Primitive(PrimitiveType::Component).into()]
-                                    } else {
-                                        target.applied_generics
-                                    },
-                                    declared_at: None,
-                                });
-                            }
-
-                            component
-                                .properties
-                                .iter()
-                                .find(|(name, ..)| name == &property_name.0)
-                                .map(|(.., v)| v.clone().resolve_type(&target.applied_generics))
-                                .ok_or_else(|| TypeError::PropertyNotFound {
-                                    ty: Box::new(TypeKind::Component),
-                                    ty_name: None,
-                                    property: property_name.0.clone(),
-                                })
-                        }
-                        ComplexType::Struct(structure) => structure
-                            .properties
-                            .iter()
-                            .find(|(name, _)| name == &property_name.0)
-                            .map(|(.., v)| v.clone().resolve_type(&target.applied_generics))
-                            .ok_or_else(|| TypeError::PropertyNotFound {
-                                ty: Box::new(TypeKind::Struct),
-                                ty_name: None,
-                                property: property_name.0.clone(),
-                            }),
-                        ComplexType::TraitInstance(ty, trait_index) => compiler.traits[*trait_index]
-                            .functions
-                            .iter()
-                            .find(|f| f.name == property_name.0)
-                            .map(|f| {
-                                TypeVariant::complex(ComplexType::Function(FunctionType {
-                                    is_native: false,
-                                    have_self: f.this,
-                                    args: {
-                                        let mut args = vec![ty.clone()];
-
-                                        args.extend(f.args.clone());
-
-                                        args
-                                    },
-                                    returns: Box::new(f.returns.clone()),
-                                }))
-                                .into()
-                            })
-                            .ok_or_else(|| TypeError::PropertyNotFound {
-                                ty: Box::new(TypeKind::Struct),
-                                ty_name: None,
-                                property: property_name.0.clone(),
-                            }),
-                        _ => unimplemented!(
-                            "{} cannot be indexed by {}",
-                            target.clone().resolve_type(&target.applied_generics),
-                            property_name.0
-                        ),
-                    },
-                }
+                    })
+                } else {
+                    compiler.get_property(target, &property_name.0)
+                };
             }
             IndexTarget::Expression(expression) => {
                 let old = compiler.infer.replace(TypeVariant::usize().into());
-
                 let index = expression.get_type(compiler, self.index.span)?;
 
                 if old.is_some() {
@@ -373,6 +231,7 @@ impl GetType for IndexExpr {
                 match target.variant {
                     TypeVariant::This => todo!(),
                     TypeVariant::Generic(_) => todo!(),
+                    TypeVariant::Ref { .. } => todo!(),
                     TypeVariant::Primitive(_) => unimplemented!("primitive types doesn't have properties"),
                     TypeVariant::Trait(_) => unimplemented!(),
                     TypeVariant::Complex(complex_type) => match &*complex_type {

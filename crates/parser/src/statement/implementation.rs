@@ -1,28 +1,7 @@
 use mollie_lexer::Token;
 use mollie_shared::Positioned;
 
-use crate::{BlockExpr, CustomType, Ident, Parse, ParseResult, Parser, ty::Type};
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
-pub struct Argument {
-    pub name: Positioned<Ident>,
-    pub ty: Positioned<Type>,
-}
-
-impl Parse for Argument {
-    fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
-        parser.verify_if(Token::is_ident)?;
-        parser.verify2(&Token::Colon)?;
-
-        let name = Ident::parse(parser)?;
-
-        parser.consume(&Token::Colon)?;
-
-        let ty = Type::parse(parser)?;
-
-        Ok(name.between(&ty).wrap(Self { name, ty }))
-    }
-}
+use crate::{Argument, BlockExpr, CustomType, Ident, Parse, ParseResult, Parser, ty::Type};
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct ImplFunction {

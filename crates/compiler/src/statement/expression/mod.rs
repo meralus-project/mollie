@@ -10,6 +10,7 @@ mod as_expr;
 mod binary;
 mod block;
 mod call;
+mod closure_expr;
 mod enum_path;
 mod ident;
 mod if_else;
@@ -21,7 +22,7 @@ mod while_expr;
 
 impl Compile<ValueOrFunc> for Positioned<Expr> {
     fn compile(self, compiler: &mut Compiler, fn_builder: &mut FunctionBuilder) -> CompileResult<ValueOrFunc> {
-        use Expr::{Array, Binary, Block, EnumPath, FunctionCall, Ident, IfElse, Index, Is, Literal, Node, This, TypeIndex, While};
+        use Expr::{Array, Binary, Block, Closure, EnumPath, FunctionCall, Ident, IfElse, Index, Is, Literal, Node, This, TypeIndex, While};
 
         match self.value {
             Literal(value) => compiler.compile(fn_builder, self.span.wrap(value)).map(ValueOrFunc::Value),
@@ -45,6 +46,7 @@ impl Compile<ValueOrFunc> for Positioned<Expr> {
             }
             Ident(value) => compiler.compile(fn_builder, self.span.wrap(value)),
             TypeIndex(value) => compiler.compile(fn_builder, self.span.wrap(value)),
+            Closure(value) => compiler.compile(fn_builder, self.span.wrap(value)),
             This => compiler
                 .variables
                 .get("self")
@@ -55,7 +57,7 @@ impl Compile<ValueOrFunc> for Positioned<Expr> {
 
 impl GetType for Expr {
     fn get_type(&self, compiler: &mut Compiler, span: Span) -> TypeResult {
-        use Expr::{Array, Binary, Block, EnumPath, FunctionCall, Ident, IfElse, Index, Is, Literal, Node, This, TypeIndex, While};
+        use Expr::{Array, Binary, Block, Closure, EnumPath, FunctionCall, Ident, IfElse, Index, Is, Literal, Node, This, TypeIndex, While};
 
         match self {
             Literal(value) => value.get_type(compiler, span),
@@ -70,6 +72,7 @@ impl GetType for Expr {
             TypeIndex(value) => value.get_type(compiler, span),
             Ident(value) => value.get_type(compiler, span),
             While(value) => value.get_type(compiler, span),
+            Closure(value) => value.get_type(compiler, span),
             Is(_) => Ok(TypeVariant::boolean().into()),
             This => compiler.get_local_type("self"),
         }

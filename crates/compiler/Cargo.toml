@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-mollie-shared = { workspace = true, features = ["cranelift"] }
+mollie-shared = { workspace = true }
+mollie-ir = { workspace = true }
 mollie-lexer = { workspace = true }
 mollie-parser = { workspace = true }
 mollie-typing = { workspace = true }

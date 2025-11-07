@@ -17,11 +17,13 @@ must_use_candidate = { level = "allow", priority = 1 }
 mollie-shared = { workspace = true }
 mollie-compiler = { workspace = true }
 mollie-typing = { workspace = true }
+mollie-ir = { workspace = true }
 
 [workspace.dependencies]
 mollie-shared = { path = "./crates/shared" }
 mollie-lexer = { path = "./crates/lexer" }
 mollie-const = { path = "./crates/const" }
+mollie-ir = { path = "./crates/ir" }
 mollie-parser = { path = "./crates/parser" }
 mollie-compiler = { path = "./crates/compiler" }
 mollie-typing = { path = "./crates/typing" }

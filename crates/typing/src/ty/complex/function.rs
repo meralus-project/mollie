@@ -10,7 +10,7 @@ use crate::Type;
 #[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 pub struct FunctionType {
     pub is_native: bool,
-    pub have_self: bool,
+    pub this: Option<Type>,
     pub args: Vec<Type>,
     pub returns: Box<Type>,
 }

@@ -32,6 +32,7 @@ impl Lexer {
             "let" => Token::Let,
             "while" => Token::While,
             "for" => Token::For,
+            "public" => Token::Public,
             // "infix" => Token::Infix,
             "in" => Token::In,
             "loop" => Token::Loop,
@@ -43,36 +44,55 @@ impl Lexer {
         }
     }
 
-    fn lex_other(chars: &mut Peekable<Chars>, span: &mut Span, character: char) -> Token {
+    fn lex_other(chars: &mut Peekable<Chars>, span: &mut Span, character: char) -> Option<Token> {
         match character {
-            '[' => Token::BracketOpen,
-            ']' => Token::BracketClose,
-            '{' => Token::BraceOpen,
-            '}' => Token::BraceClose,
-            '(' => Token::ParenOpen,
-            ')' => Token::ParenClose,
+            '[' => Some(Token::BracketOpen),
+            ']' => Some(Token::BracketClose),
+            '{' => Some(Token::BraceOpen),
+            '}' => Some(Token::BraceClose),
+            '(' => Some(Token::ParenOpen),
+            ')' => Some(Token::ParenClose),
             ':' => {
                 if chars.next_if_eq(&':').is_some() {
                     span.end += 1;
                     span.column += 1;
 
-                    Token::PathSep
+                    Some(Token::PathSep)
                 } else {
-                    Token::Colon
+                    Some(Token::Colon)
                 }
             }
-            ';' => Token::Semi,
-            '+' => Token::Plus,
-            '*' => Token::Star,
-            '/' => Token::Slash,
+            ';' => Some(Token::Semi),
+            '+' => Some(Token::Plus),
+            '*' => Some(Token::Star),
+            '/' => {
+                if chars.next_if_eq(&'/').is_some() {
+                    let mut utf8size = 0;
+
+                    while let Some(character) = chars.next_if(|character| character != &'\n') {
+                        utf8size += character.len_utf8();
+                    }
+
+                    chars.next_if_eq(&'\n');
+
+                    span.start = span.end;
+                    span.end += utf8size + 2;
+                    span.line += 1;
+                    span.column = 0;
+
+                    None
+                } else {
+                    Some(Token::Slash)
+                }
+            }
             '=' => {
                 if chars.next_if_eq(&'=').is_some() {
                     span.end += 1;
                     span.column += 1;
 
-                    Token::EqEq
+                    Some(Token::EqEq)
                 } else {
-                    Token::Eq
+                    Some(Token::Eq)
                 }
             }
             '&' => {
@@ -80,9 +100,9 @@ impl Lexer {
                     span.end += 1;
                     span.column += 1;
 
-                    Token::AndAnd
+                    Some(Token::AndAnd)
                 } else {
-                    Token::And
+                    Some(Token::And)
                 }
             }
             '|' => {
@@ -90,38 +110,38 @@ impl Lexer {
                     span.end += 1;
                     span.column += 1;
 
-                    Token::OrOr
+                    Some(Token::OrOr)
                 } else {
-                    Token::Or
+                    Some(Token::Or)
                 }
             }
-            '%' => Token::Percent,
+            '%' => Some(Token::Percent),
             '.' => {
                 if chars.next_if_eq(&'.').is_some() {
                     span.end += 1;
                     span.column += 1;
 
-                    Token::DotDot
+                    Some(Token::DotDot)
                 } else {
-                    Token::Dot
+                    Some(Token::Dot)
                 }
             }
-            ',' => Token::Comma,
+            ',' => Some(Token::Comma),
             '!' => {
                 if chars.next_if_eq(&'=').is_some() {
                     span.end += 1;
                     span.column += 1;
 
-                    Token::NotEq
+                    Some(Token::NotEq)
                 } else {
-                    Token::Not
+                    Some(Token::Not)
                 }
             }
             // '#' => Token::Pound,
-            '?' => Token::Question,
-            '>' => Token::Greater,
-            '<' => Token::Less,
-            character => Token::Unknown(character),
+            '?' => Some(Token::Question),
+            '>' => Some(Token::Greater),
+            '<' => Some(Token::Less),
+            character => Some(Token::Unknown(character)),
         }
     }
 
@@ -313,11 +333,11 @@ impl Lexer {
                         continue;
                     }
 
-                    let token = Self::lex_other(&mut chars, &mut span, character);
+                    if let Some(token) = Self::lex_other(&mut chars, &mut span, character) {
+                        tokens.push(span.wrap(token));
 
-                    tokens.push(span.wrap(token));
-
-                    span.column += 1;
+                        span.column += 1;
+                    }
                 }
             }
         }

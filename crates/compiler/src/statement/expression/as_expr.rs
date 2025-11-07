@@ -2,9 +2,10 @@ use cranelift::{
     module::Module,
     prelude::{FunctionBuilder, InstBuilder, IntCC, MemFlags},
 };
+use mollie_ir::{FatPtr, VTablePtr};
 use mollie_parser::{IsExpr, IsPattern};
 use mollie_shared::{Positioned, Span};
-use mollie_typing::{ComplexType, FatPtr, Type, TypeVariant, VTablePtr};
+use mollie_typing::{ComplexType, Type, TypeVariant};
 
 use crate::{Compile, CompileError, CompileResult, Compiler, GetPositionedType, GetType, TypeResult, ValueOrFunc};
 
@@ -36,8 +37,9 @@ impl Compile<ValueOrFunc> for Positioned<IsPattern> {
                     };
 
                     let var = fn_builder.declare_var(name_ty.variant.as_ir_type(compiler.jit.module.isa()));
+                    let ty_idx = compiler.idx_of_type(&name_ty).unwrap();
 
-                    compiler.var(&name.value.0, name_ty);
+                    compiler.var(&name.value.0, ty_idx);
 
                     let size_t = compiler.jit.module.isa().pointer_type();
                     let vtable_ptr = FatPtr::get_metadata(compiler.jit.module.isa(), fn_builder, fat_ptr);
@@ -62,8 +64,6 @@ impl Compile<ValueOrFunc> for Positioned<IsPattern> {
                         declared_at: ty.declared_at,
                     };
 
-                    println!("{ty:#?}");
-
                     let variant = ty
                         .variant
                         .as_enum()
@@ -74,12 +74,11 @@ impl Compile<ValueOrFunc> for Positioned<IsPattern> {
                         .unwrap();
 
                     let _ty_index = compiler
-                        .types
-                        .get_index_of(&target.value.0)
+                        .get_type_idx(&target.value.0)
                         .ok_or(CompileError::VariableNotFound { name: target.value.0 })?;
 
                     let size_t = compiler.jit.module.isa().pointer_type();
-                    let variant_idx = FatPtr::get_metadata(compiler.jit.module.isa(), fn_builder, fat_ptr);
+                    let variant_idx = fn_builder.ins().load(size_t, MemFlags::trusted(), fat_ptr, 0);
                     let target_variant_idx = fn_builder.ins().iconst(size_t, i64::try_from(variant)?);
 
                     let result = fn_builder.ins().icmp(IntCC::Equal, variant_idx, target_variant_idx);
@@ -113,31 +112,21 @@ impl Compile<ValueOrFunc> for Positioned<IsPattern> {
                                     .clone()
                                     .resolve_type(&ty.applied_generics);
 
-                                println!("ddd {name_ty:#?}");
-                                println!("{:#?}", ty.variant.as_enum().unwrap().variants[variant].1.structure.as_ref());
-
                                 let var = fn_builder.declare_var(name_ty.variant.as_ir_type(compiler.jit.module.isa()));
+                                let ty_idx = compiler.idx_of_type(&name_ty).unwrap();
 
-                                compiler.var(&value.value.name.value.0, name_ty.clone());
+                                compiler.var(&value.value.name.value.0, ty_idx);
 
-                                let variant_ptr = FatPtr::get_ptr(compiler.jit.module.isa(), fn_builder, fat_ptr);
                                 let ptr = fn_builder.ins().load(
                                     ty.variant.as_enum().unwrap().variants[variant].1.structure.as_ref().unwrap().fields[property].ty,
                                     MemFlags::trusted(),
-                                    variant_ptr,
-                                    ty.variant.as_enum().unwrap().variants[variant].1.structure.as_ref().unwrap().fields[property].offset,
-                                );
-
-                                println!(
-                                    "{} == {}",
-                                    name_ty.variant.as_ir_type(compiler.jit.module.isa()),
-                                    fn_builder.func.dfg.value_type(ptr)
+                                    fat_ptr,
+                                    size_t.bytes().cast_signed()
+                                        + ty.variant.as_enum().unwrap().variants[variant].1.structure.as_ref().unwrap().fields[property].offset,
                                 );
 
                                 compiler.variables.insert(value.value.name.value.0, var);
-                                println!("trying def");
                                 fn_builder.def_var(var, ptr);
-                                println!("tried");
                             }
                         }
                     }
@@ -161,8 +150,6 @@ impl Compile<ValueOrFunc> for Positioned<IsExpr> {
         let ty = self.value.target.get_type(compiler)?;
 
         let value = self.value.target.compile(compiler, fn_builder)?;
-
-        println!("{}", fn_builder.func);
 
         compiler.infer.replace(ty);
         compiler.infer_val.replace(value);

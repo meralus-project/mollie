@@ -390,6 +390,7 @@ name = "mollie"
 version = "0.0.1"
 dependencies = [
  "mollie-compiler",
+ "mollie-ir",
  "mollie-shared",
  "mollie-typing",
 ]
@@ -402,6 +403,7 @@ dependencies = [
  "cranelift",
  "indexmap",
  "mollie-const",
+ "mollie-ir",
  "mollie-lexer",
  "mollie-parser",
  "mollie-shared",
@@ -413,7 +415,14 @@ name = "mollie-const"
 version = "0.1.0"
 dependencies = [
  "mollie-parser",
- "mollie-shared",
+]
+
+[[package]]
+name = "mollie-ir"
+version = "0.1.0"
+dependencies = [
+ "cranelift",
+ "mollie-const",
 ]
 
 [[package]]
@@ -437,7 +446,6 @@ dependencies = [
 name = "mollie-shared"
 version = "0.1.0"
 dependencies = [
- "cranelift",
  "serde",
 ]
 
@@ -446,7 +454,10 @@ name = "mollie-typing"
 version = "0.1.0"
 dependencies = [
  "cranelift",
+ "derive_more",
+ "indexmap",
  "mollie-const",
+ "mollie-ir",
  "mollie-shared",
  "serde",
 ]

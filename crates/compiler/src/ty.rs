@@ -1,44 +1,49 @@
+use cranelift::module::Module;
 use mollie_parser::{PrimitiveType, Type};
 use mollie_shared::Span;
-use mollie_typing::{ArrayType, ComplexType, TypeVariant};
+use mollie_typing::{ArrayType, ComplexType, FunctionType, TypeVariant};
 
 use crate::{Compiler, GetPositionedType, GetType, TypeError, TypeResult};
 
 impl GetType for Type {
     fn get_type(&self, compiler: &mut Compiler, _: Span) -> TypeResult {
         use PrimitiveType::{Boolean, Component, Float, Int8, Int16, Int32, Int64, IntSize, Null, String, UInt8, UInt16, UInt32, UInt64, UIntSize, Void};
-        use Type::{Array, Custom, OneOf, Primitive};
+        use Type::{Array, Custom, Func, OneOf, Primitive};
 
         Ok(match self {
-            Primitive(IntSize) => TypeVariant::of::<isize>().into(),
-            Primitive(Int64) => TypeVariant::of::<i64>().into(),
-            Primitive(Int32) => TypeVariant::of::<i32>().into(),
-            Primitive(Int16) => TypeVariant::of::<i16>().into(),
-            Primitive(Int8) => TypeVariant::of::<i8>().into(),
-            Primitive(UIntSize) => TypeVariant::of::<usize>().into(),
-            Primitive(UInt64) => TypeVariant::of::<u64>().into(),
-            Primitive(UInt32) => TypeVariant::of::<u32>().into(),
-            Primitive(UInt16) => TypeVariant::of::<u16>().into(),
-            Primitive(UInt8) => TypeVariant::of::<u8>().into(),
-            Primitive(Float) => TypeVariant::of::<f32>().into(),
-            Primitive(Boolean) => TypeVariant::of::<bool>().into(),
-            Primitive(String) => TypeVariant::of::<&str>().into(),
+            Primitive(IntSize) => TypeVariant::isize().into(),
+            Primitive(Int64) => TypeVariant::int64().into(),
+            Primitive(Int32) => TypeVariant::int32().into(),
+            Primitive(Int16) => TypeVariant::int16().into(),
+            Primitive(Int8) => TypeVariant::int8().into(),
+            Primitive(UIntSize) => TypeVariant::usize().into(),
+            Primitive(UInt64) => TypeVariant::uint64().into(),
+            Primitive(UInt32) => TypeVariant::uint32().into(),
+            Primitive(UInt16) => TypeVariant::uint16().into(),
+            Primitive(UInt8) => TypeVariant::uint8().into(),
+            Primitive(Float) => TypeVariant::float().into(),
+            Primitive(Boolean) => TypeVariant::boolean().into(),
+            Primitive(String) => TypeVariant::string().into(),
             Primitive(Component) => TypeVariant::Primitive(mollie_typing::PrimitiveType::Component).into(),
-            Primitive(Void) => TypeVariant::of::<()>().into(),
+            Primitive(Void) => TypeVariant::void().into(),
             Primitive(Null) => TypeVariant::null().into(),
             Array(ty, size) => {
                 let element = ty.get_type(compiler)?;
+                let element_ir = element.variant.as_ir_type(compiler.jit.module.isa());
 
-                TypeVariant::complex(ComplexType::Array(ArrayType {
-                    element,
-                    size: size.map(|v| v.value),
-                }))
-                .into()
+                mollie_typing::Type {
+                    variant: TypeVariant::complex(ComplexType::Array(ArrayType {
+                        element: element.clone(),
+                        size: size.map(|v| v.value),
+                        array: mollie_ir::Array { element: element_ir },
+                    })),
+                    applied_generics: vec![element],
+                    declared_at: None,
+                }
             }
             OneOf(types) => TypeVariant::complex(ComplexType::OneOf(types.iter().map(|ty| ty.get_type(compiler)).collect::<TypeResult<_>>()?)).into(),
             Custom(name) => compiler
-                .types
-                .get(&name.name.value.0)
+                .get_type(&name.name.value.0)
                 .cloned()
                 .map(|ty| {
                     name.generics
@@ -55,6 +60,13 @@ impl GetType for Type {
                     ty: None,
                     name: name.name.value.0.clone(),
                 })??,
+            Func(args, returns) => TypeVariant::complex(ComplexType::Function(FunctionType {
+                is_native: false,
+                this: None,
+                args: args.iter().map(|arg| arg.get_type(compiler)).collect::<TypeResult<_>>()?,
+                returns: Box::new(returns.as_ref().map_or_else(|| Ok(TypeVariant::void().into()), |ty| ty.get_type(compiler))?),
+            }))
+            .into(),
         })
     }
 }

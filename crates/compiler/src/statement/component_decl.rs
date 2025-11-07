@@ -1,8 +1,9 @@
 use cranelift::{module::Module, prelude::FunctionBuilder};
 use mollie_const::ConstantValue;
+use mollie_ir::Struct;
 use mollie_parser::ComponentDecl;
 use mollie_shared::Positioned;
-use mollie_typing::{ComplexType, ComponentType, Struct, Type, TypeVariant};
+use mollie_typing::{ComplexType, ComponentType, Type, TypeVariant};
 
 use crate::{Compile, CompileResult, Compiler, GetPositionedType};
 
@@ -43,7 +44,7 @@ impl Compile for Positioned<ComponentDecl> {
             declared_at: Some(self.span),
         };
 
-        compiler.types.insert(self.value.name.value.0, ty);
+        compiler.add_declared_type(self.value.name.value.0, ty);
 
         // compiler.var(self.value.name.value.0, ty.variant);
 

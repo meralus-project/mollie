@@ -4,6 +4,7 @@ mod binary;
 mod block;
 mod call;
 mod enum_path;
+mod for_in_expr;
 mod ident;
 mod if_else;
 mod index;
@@ -12,6 +13,7 @@ mod loop_expr;
 mod node;
 mod type_index;
 mod while_expr;
+mod closure_expr;
 
 use mollie_lexer::Token;
 use mollie_shared::{Operator, Positioned};
@@ -30,6 +32,7 @@ pub use self::{
     node::{NameValue, NodeExpr},
     type_index::TypeIndexExpr,
     while_expr::WhileExpr,
+    closure_expr::ClosureExpr,
 };
 use crate::{Parse, ParseResult, Parser};
 
@@ -122,16 +125,29 @@ pub enum Expr {
     Block(BlockExpr),
     EnumPath(EnumPathExpr),
     Is(IsExpr),
+    Closure(ClosureExpr),
     Ident(Ident),
     This,
 }
 
 impl Expr {
-    fn parse_atom(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
+    fn parse_atom(parser: &mut Parser, is_limited_expr: bool) -> ParseResult<Positioned<Self>> {
         if parser.check(&Token::ParenOpen) {
             let (_, mut parser) = parser.split(&Token::ParenOpen, &Token::ParenClose)?;
 
             Self::parse(&mut parser)
+        } else if is_limited_expr {
+            LiteralExpr::parse(parser)
+                .map(|v| v.map(Self::Literal))
+                .or_else(|_| BlockExpr::parse(parser).map(|v| v.map(Self::Block)))
+                .or_else(|_| IfElseExpr::parse(parser).map(|v| v.map(Self::IfElse)))
+                .or_else(|_| WhileExpr::parse(parser).map(|v| v.map(Self::While)))
+                .or_else(|_| ArrayExpr::parse(parser).map(|v| v.map(Self::Array)))
+                .or_else(|_| TypeIndexExpr::parse(parser).map(|v| v.map(Self::TypeIndex)))
+                .or_else(|_| EnumPathExpr::parse(parser).map(|v| v.map(Self::EnumPath)))
+                .or_else(|_| ClosureExpr::parse(parser).map(|v| v.map(Self::Closure)))
+                .or_else(|_| Ident::parse(parser).map(|v| v.map(Self::Ident)))
+                .or_else(|_| parser.consume(&Token::This).map(|v| v.wrap(Self::This)))
         } else {
             LiteralExpr::parse(parser)
                 .map(|v| v.map(Self::Literal))
@@ -142,13 +158,14 @@ impl Expr {
                 .or_else(|_| ArrayExpr::parse(parser).map(|v| v.map(Self::Array)))
                 .or_else(|_| TypeIndexExpr::parse(parser).map(|v| v.map(Self::TypeIndex)))
                 .or_else(|_| EnumPathExpr::parse(parser).map(|v| v.map(Self::EnumPath)))
+                .or_else(|_| ClosureExpr::parse(parser).map(|v| v.map(Self::Closure)))
                 .or_else(|_| Ident::parse(parser).map(|v| v.map(Self::Ident)))
                 .or_else(|_| parser.consume(&Token::This).map(|v| v.wrap(Self::This)))
         }
     }
 
-    fn parse_pratt_expr(parser: &mut Parser, precedence: Precedence) -> ParseResult<Positioned<Self>> {
-        let left = Self::parse_atom(parser)?;
+    fn parse_pratt_expr(parser: &mut Parser, precedence: Precedence, is_limited_expr: bool) -> ParseResult<Positioned<Self>> {
+        let left = Self::parse_atom(parser, is_limited_expr)?;
 
         go_parse_pratt_expr(parser, precedence, left)
     }
@@ -156,6 +173,6 @@ impl Expr {
 
 impl Parse for Expr {
     fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
-        Self::parse_pratt_expr(parser, Precedence::PLowest)
+        Self::parse_pratt_expr(parser, Precedence::PLowest, false)
     }
 }

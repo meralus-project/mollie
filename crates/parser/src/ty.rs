@@ -102,12 +102,29 @@ pub enum Type {
     Custom(CustomType),
     Array(Box<Positioned<Self>>, Option<Positioned<usize>>),
     OneOf(Vec<Positioned<Self>>),
+    Func(Vec<Positioned<Self>>, Option<Box<Positioned<Self>>>),
 }
 
 impl Parse for Type {
     fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
         let value = PrimitiveType::parse(parser)
             .map(|v| v.map(Self::Primitive))
+            .or_else(|_| {
+                let start = parser.consume(&Token::Fn)?;
+                let args = parser.consume_separated_in(&Token::Comma, &Token::ParenOpen, &Token::ParenClose)?;
+                let returns = if parser.try_consume(&Token::Arrow) {
+                    Some(Box::new(Self::parse(parser)?))
+                } else {
+                    None
+                };
+
+                ParseResult::Ok(
+                    returns
+                        .as_ref()
+                        .map_or_else(|| start.between(&args), |returns| start.between(returns))
+                        .wrap(Self::Func(args.value, returns)),
+                )
+            })
             .or_else(|_| CustomType::parse(parser).map(|v| v.map(Self::Custom)))?;
 
         let value = if parser.try_consume(&Token::BracketOpen) {

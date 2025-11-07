@@ -8,9 +8,12 @@ serde = ["dep:serde"]
 
 [dependencies]
 cranelift = { workspace = true }
-mollie-shared = { workspace = true, features = ["cranelift"] }
+mollie-shared = { workspace = true }
+mollie-ir = { workspace = true }
 mollie-const = { workspace = true }
 serde = { workspace = true, optional = true }
+derive_more = { workspace = true, features = ["display"] }
+indexmap = { workspace = true }
 
 [lints]
 workspace = true

@@ -3,17 +3,16 @@ use cranelift::{
     prelude::{FunctionBuilder, InstBuilder},
 };
 use indexmap::IndexMap;
+use mollie_ir::stack_alloc;
 use mollie_parser::EnumPathExpr;
 use mollie_shared::{Positioned, Span};
-use mollie_typing::{FatPtr, Type, TypeKind, TypeVariant};
+use mollie_typing::{Type, TypeKind, TypeVariant};
 
 use crate::{Compile, CompileResult, Compiler, GetPositionedType, GetType, TypeError, TypeResult, ValueOrFunc};
 
 impl Compile<ValueOrFunc> for Positioned<EnumPathExpr> {
     fn compile(mut self, compiler: &mut Compiler, fn_builder: &mut FunctionBuilder) -> CompileResult<ValueOrFunc> {
         let ty = self.get_type(compiler)?;
-
-        println!("{ty:#?}");
 
         if let Some(enumeration) = ty.variant.as_enum() {
             let variant = enumeration.variants.iter().position(|v| v.0 == self.value.index.value.name.value.0).unwrap();
@@ -48,18 +47,28 @@ impl Compile<ValueOrFunc> for Positioned<EnumPathExpr> {
                 // target.value.0, })?;
 
                 Ok(if let Some(structure) = &enumeration.variants[variant].1.structure {
-                    let ptr = structure.instance(compiler.jit.module.isa(), fn_builder, values);
-                    let metadata = fn_builder.ins().iconst(compiler.jit.module.isa().pointer_type(), i64::try_from(variant)?);
+                    let ptr_type = compiler.jit.module.isa().pointer_type();
+                    let slot = stack_alloc(fn_builder, structure.size + ptr_type.bytes());
+                    let variant = fn_builder.ins().iconst(ptr_type, i64::try_from(variant)?);
 
-                    ValueOrFunc::Value(FatPtr::new(compiler.jit.module.isa(), fn_builder, ptr, metadata))
+                    fn_builder.ins().stack_store(variant, slot, 0);
+
+                    for (field, value) in structure.fields.iter().zip(values) {
+                        fn_builder.ins().stack_store(value, slot, ptr_type.bytes().cast_signed() + field.offset);
+                    }
+
+                    ValueOrFunc::Value(fn_builder.ins().stack_addr(ptr_type, slot, 0))
                 } else {
                     ValueOrFunc::Nothing
                 })
             } else {
-                let zero = fn_builder.ins().iconst(compiler.jit.module.isa().pointer_type(), 0);
-                let metadata = fn_builder.ins().iconst(compiler.jit.module.isa().pointer_type(), i64::try_from(variant)?);
+                let ptr_type = compiler.jit.module.isa().pointer_type();
+                let slot = stack_alloc(fn_builder, ptr_type.bytes());
+                let variant = fn_builder.ins().iconst(ptr_type, i64::try_from(variant)?);
 
-                Ok(ValueOrFunc::Value(FatPtr::new(compiler.jit.module.isa(), fn_builder, zero, metadata)))
+                fn_builder.ins().stack_store(variant, slot, 0);
+
+                Ok(ValueOrFunc::Value(fn_builder.ins().stack_addr(ptr_type, slot, 0)))
             }
         } else {
             Ok(ValueOrFunc::Nothing)

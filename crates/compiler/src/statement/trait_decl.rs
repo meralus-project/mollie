@@ -73,7 +73,7 @@ impl Compile for Positioned<TraitDecl> {
             declared_at: Some(self.span),
         });
 
-        compiler.types.insert(self.value.name.value.name.value.0, Type {
+        compiler.add_declared_type(self.value.name.value.name.value.0, Type {
             variant: TypeVariant::Trait(index),
             applied_generics: Vec::new(),
             declared_at: Some(self.span),

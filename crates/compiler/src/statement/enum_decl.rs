@@ -1,7 +1,8 @@
 use cranelift::{module::Module, prelude::FunctionBuilder};
+use mollie_ir::Struct;
 use mollie_parser::EnumDecl;
 use mollie_shared::Positioned;
-use mollie_typing::{ComplexType, EnumType, EnumVariant, Struct, Type, TypeVariant};
+use mollie_typing::{ComplexType, EnumType, EnumVariant, Type, TypeVariant};
 
 use crate::{Compile, CompileResult, Compiler, GetPositionedType};
 
@@ -50,7 +51,7 @@ impl Compile for Positioned<EnumDecl> {
             declared_at: Some(self.span),
         };
 
-        compiler.types.insert(self.value.name.value.name.value.0, ty);
+        compiler.add_declared_type(self.value.name.value.name.value.0, ty);
 
         Ok(())
     }

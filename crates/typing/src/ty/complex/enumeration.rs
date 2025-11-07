@@ -1,10 +1,11 @@
 use std::fmt::{self, Write};
 
+use mollie_ir::Struct;
 use mollie_shared::pretty_fmt::PrettyFmt;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use crate::{Struct, Type};
+use crate::Type;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]

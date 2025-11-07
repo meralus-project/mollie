@@ -44,8 +44,6 @@ impl Compile<ValueOrFunc> for Positioned<WhileExpr> {
 
         compiler.pop_frame();
 
-        println!("{value:#?}");
-
         Ok(value)
     }
 }

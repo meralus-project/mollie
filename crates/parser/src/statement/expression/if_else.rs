@@ -1,7 +1,7 @@
 use mollie_lexer::Token;
 use mollie_shared::Positioned;
 
-use crate::{BlockExpr, Expr, Parse, ParseResult, Parser};
+use crate::{BlockExpr, Expr, Parse, ParseResult, Parser, Precedence};
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct IfElseExpr {
@@ -14,7 +14,7 @@ impl Parse for IfElseExpr {
     fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
         let start = parser.consume(&Token::If)?;
 
-        let condition = Expr::parse(parser)?;
+        let condition = Expr::parse_pratt_expr(parser, Precedence::PLowest, true)?;
         let block = BlockExpr::parse(parser)?;
 
         let else_block = if parser.try_consume(&Token::Else) {

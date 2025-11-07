@@ -33,7 +33,7 @@ impl BinaryExpr {
 
         parser.next();
 
-        let rhs = Expr::parse_pratt_expr(parser, precedence)?;
+        let rhs = Expr::parse_pratt_expr(parser, precedence, false)?;
 
         Ok(lhs.between(&rhs).wrap(Self {
             lhs: Box::new(lhs),

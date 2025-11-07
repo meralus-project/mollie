@@ -1,0 +1,11 @@
+[package]
+name = "mollie-ir"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+mollie-const = { workspace = true }
+cranelift = { workspace = true }
+
+[lints]
+workspace = true

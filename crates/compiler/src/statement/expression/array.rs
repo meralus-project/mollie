@@ -2,9 +2,10 @@ use cranelift::{
     module::Module,
     prelude::{FunctionBuilder, InstBuilder},
 };
+use mollie_ir::{Array, FatPtr};
 use mollie_parser::ArrayExpr;
 use mollie_shared::{Positioned, Span};
-use mollie_typing::{ArrayType, ComplexType, FatPtr, Type, TypeVariant};
+use mollie_typing::{ArrayType, ComplexType, Type, TypeVariant};
 
 use crate::{Compile, CompileResult, Compiler, GetPositionedType, GetType, TypeResult, ValueOrFunc};
 
@@ -22,7 +23,7 @@ impl Compile<ValueOrFunc> for Positioned<ArrayExpr> {
                 }
             }
 
-            let ptr = arr.instance(compiler.jit.module.isa(), fn_builder, elements);
+            let ptr = arr.array.instance(compiler.jit.module.isa(), fn_builder, elements);
             let size = fn_builder.ins().iconst(compiler.jit.module.isa().pointer_type(), size.cast_signed() as i64);
 
             Ok(ValueOrFunc::Value(FatPtr::new(compiler.jit.module.isa(), fn_builder, ptr, size)))
@@ -35,11 +36,16 @@ impl Compile<ValueOrFunc> for Positioned<ArrayExpr> {
 impl GetType for ArrayExpr {
     fn get_type(&self, compiler: &mut Compiler, span: Span) -> TypeResult {
         let element = self.elements[0].get_type(compiler)?;
+        let element_ir = element.variant.as_ir_type(compiler.jit.module.isa());
         let size = self.elements.len();
 
         Ok(Type {
             applied_generics: vec![element.clone()],
-            variant: TypeVariant::complex(ComplexType::Array(ArrayType { size: Some(size), element })),
+            variant: TypeVariant::complex(ComplexType::Array(ArrayType {
+                size: Some(size),
+                element,
+                array: Array { element: element_ir },
+            })),
             declared_at: Some(span),
         })
     }
