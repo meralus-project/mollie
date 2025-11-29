@@ -7,7 +7,7 @@ use mollie_parser::{IndexExpr, IndexTarget};
 use mollie_shared::{Positioned, Span};
 use mollie_typing::{ComplexType, PrimitiveType, Type, TypeKind, TypeVariant};
 
-use crate::{Compile, CompileResult, Compiler, GetPositionedType, GetType, TypeError, TypeResult, ValueOrFunc};
+use crate::{Compile, CompileResult, Compiler, GetNewPositionedType, GetNewType, GetPositionedType, GetType, TypeError, TypeResult, ValueOrFunc};
 
 impl Compile<ValueOrFunc> for Positioned<IndexExpr> {
     #[allow(clippy::too_many_lines)]
@@ -232,6 +232,7 @@ impl GetType for IndexExpr {
                     TypeVariant::This => todo!(),
                     TypeVariant::Generic(_) => todo!(),
                     TypeVariant::Ref { .. } => todo!(),
+                    TypeVariant::Unknown => todo!(),
                     TypeVariant::Primitive(_) => unimplemented!("primitive types doesn't have properties"),
                     TypeVariant::Trait(_) => unimplemented!(),
                     TypeVariant::Complex(complex_type) => match &*complex_type {
@@ -245,5 +246,54 @@ impl GetType for IndexExpr {
         result.applied_generics.extend(target.applied_generics);
 
         Ok(result)
+    }
+}
+
+impl GetNewType for IndexExpr {
+    fn get_new_type(
+        &self,
+        compiler: &mut Compiler,
+        core_types: &mollie_typing::CoreTypes,
+        type_storage: &mut mollie_typing::TypeStorage,
+        type_solver: &mut mollie_typing::TypeSolver,
+        span: Span,
+    ) -> TypeResult<mollie_typing::TypeInfoRef> {
+        let target = self.target.get_new_type(compiler, core_types, type_storage, type_solver)?;
+
+        match &self.index.value {
+            IndexTarget::Named(property_name) => {
+                // return if let Some((ty, _)) = type_storage.find_vtable_func(&target.variant,
+                // &property_name.0) {     Ok(Type {
+                //         variant: ty.variant.clone(),
+                //         applied_generics: target.applied_generics,
+                //         declared_at: ty.declared_at,
+                //     })
+                // } else {
+                match type_solver.get_info(target) {
+                    mollie_typing::TypeInfo::Struct(items) => {
+                        for item in items {
+                            if item.0 == property_name.0 {
+                                return Ok(item.1);
+                            }
+                        }
+                    }
+                    _ => unimplemented!(),
+                }
+                // };
+            }
+            IndexTarget::Expression(expression) => {
+                let expected = type_solver.add_info(mollie_typing::TypeInfo::Type(core_types.uint_size));
+                let index = expression.get_new_type(compiler, core_types, type_storage, type_solver, self.index.span)?;
+
+                type_solver.unify(expected, index);
+
+                match type_solver.get_info(target) {
+                    mollie_typing::TypeInfo::Array(element) => return Ok(*element),
+                    _ => unimplemented!(),
+                }
+            }
+        }
+
+        unimplemented!()
     }
 }

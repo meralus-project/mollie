@@ -450,6 +450,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "mollie-tast"
+version = "0.1.0"
+dependencies = [
+ "mollie-lexer",
+ "mollie-parser",
+ "mollie-shared",
+ "mollie-typing",
+ "serde",
+]
+
+[[package]]
 name = "mollie-typing"
 version = "0.1.0"
 dependencies = [

@@ -5,7 +5,7 @@ use cranelift::{
 use mollie_parser::TypeIndexExpr;
 use mollie_shared::{Positioned, Span};
 
-use crate::{Compile, CompileResult, Compiler, GetPositionedType, GetType, TypeResult, ValueOrFunc};
+use crate::{Compile, CompileResult, Compiler, GetNewType, GetPositionedType, GetType, TypeResult, ValueOrFunc};
 
 impl Compile<ValueOrFunc> for Positioned<TypeIndexExpr> {
     fn compile(self, compiler: &mut Compiler, fn_builder: &mut FunctionBuilder) -> CompileResult<ValueOrFunc> {
@@ -28,5 +28,18 @@ impl GetType for TypeIndexExpr {
         let (vtable, trait_index, function) = compiler.find_vtable_function_index(&ty.variant, &self.index.value.0).unwrap();
 
         Ok(compiler.vtables[vtable][&trait_index].1[function].0.clone())
+    }
+}
+
+impl GetNewType for TypeIndexExpr {
+    fn get_new_type(
+        &self,
+        compiler: &mut Compiler,
+        core_types: &mollie_typing::CoreTypes,
+        type_storage: &mut mollie_typing::TypeStorage,
+        type_solver: &mut mollie_typing::TypeSolver,
+        span: Span,
+    ) -> TypeResult<mollie_typing::TypeInfoRef> {
+        unimplemented!()
     }
 }

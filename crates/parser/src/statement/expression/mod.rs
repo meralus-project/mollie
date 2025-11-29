@@ -111,7 +111,7 @@ fn go_parse_pratt_expr(parser: &mut Parser, precedence: Precedence, left: Positi
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub enum Expr {
     Literal(LiteralExpr),
     FunctionCall(FuncCallExpr),

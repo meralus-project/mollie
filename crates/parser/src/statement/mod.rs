@@ -22,7 +22,7 @@ pub use self::{
 use super::{ParseResult, Parser};
 use crate::Parse;
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub enum Stmt {
     Expression(Expr),
     VariableDecl(VariableDecl),

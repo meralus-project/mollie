@@ -3,7 +3,7 @@ use mollie_shared::Positioned;
 
 use crate::{CustomType, Expr, Ident, Parse, ParseResult, Parser};
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct NameValue {
     pub name: Positioned<Ident>,
     pub value: Positioned<Expr>,
@@ -24,7 +24,7 @@ impl Parse for NameValue {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct NodeExpr {
     pub name: Positioned<CustomType>,
     pub from: Option<(Positioned<Box<Expr>>, Positioned<Ident>)>,

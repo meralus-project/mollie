@@ -3,7 +3,7 @@ use mollie_shared::Positioned;
 
 use crate::{BlockExpr, Expr, Ident, Parse, ParseResult, Parser};
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct ForInExpr {
     pub name: Positioned<Ident>,
     pub target: Box<Positioned<Expr>>,

@@ -6,7 +6,7 @@ use mollie_parser::ClosureExpr;
 use mollie_shared::{Positioned, Span};
 use mollie_typing::{PrimitiveType, TypeVariant};
 
-use crate::{Compile, CompileResult, Compiler, GetType, TypeResult, ValueOrFunc};
+use crate::{Compile, CompileResult, Compiler, GetNewType, GetType, TypeResult, ValueOrFunc};
 
 impl Compile<ValueOrFunc> for Positioned<ClosureExpr> {
     fn compile(self, compiler: &mut Compiler, original_fn_builder: &mut FunctionBuilder) -> CompileResult<ValueOrFunc> {
@@ -94,5 +94,18 @@ impl Compile<ValueOrFunc> for Positioned<ClosureExpr> {
 impl GetType for ClosureExpr {
     fn get_type(&self, compiler: &mut Compiler, _: Span) -> TypeResult {
         Ok(compiler.infer.clone().unwrap())
+    }
+}
+
+impl GetNewType for ClosureExpr {
+    fn get_new_type(
+        &self,
+        compiler: &mut Compiler,
+        core_types: &mollie_typing::CoreTypes,
+        type_storage: &mut mollie_typing::TypeStorage,
+        type_solver: &mut mollie_typing::TypeSolver,
+        span: Span,
+    ) -> TypeResult<mollie_typing::TypeInfoRef> {
+        unimplemented!()
     }
 }

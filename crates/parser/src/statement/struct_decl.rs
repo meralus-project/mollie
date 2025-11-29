@@ -3,7 +3,7 @@ use mollie_shared::Positioned;
 
 use crate::{Expr, Ident, NameWithGenerics, Parse, ParseResult, Parser, Type};
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct Property {
     pub name: Positioned<Ident>,
     pub nullable: Option<Positioned<bool>>,
@@ -34,7 +34,7 @@ impl Parse for Property {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct StructDecl {
     pub name: Positioned<NameWithGenerics>,
     pub properties: Positioned<Vec<Positioned<Property>>>,

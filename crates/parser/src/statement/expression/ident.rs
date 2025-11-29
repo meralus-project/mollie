@@ -3,7 +3,7 @@ use mollie_shared::Positioned;
 
 use crate::{Parse, ParseResult, Parser};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub struct Ident(pub String);
 
 impl Ident {

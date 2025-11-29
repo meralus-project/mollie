@@ -3,7 +3,7 @@ use mollie_shared::Positioned;
 
 use crate::{Ident, NameWithGenerics, Parse, ParseResult, Parser, Property};
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct EnumVariant {
     pub name: Positioned<Ident>,
     pub properties: Option<Positioned<Vec<Positioned<Property>>>>,
@@ -25,7 +25,7 @@ impl Parse for EnumVariant {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct EnumDecl {
     pub name: Positioned<NameWithGenerics>,
     pub variants: Positioned<Vec<Positioned<EnumVariant>>>,

@@ -1,5 +1,5 @@
 mod kind;
-mod resolver;
+pub mod resolver;
 mod ty;
 
 use std::fmt::{self, Write};
@@ -9,11 +9,7 @@ use mollie_shared::{MaybePositioned, Span, SpanType, pretty_fmt::PrettyFmt};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-pub use self::{
-    kind::TypeKind,
-    resolver::{TypeRef, TypeResolver, TypeVTable, VFuncRef, VTableRef},
-    ty::*,
-};
+pub use self::{kind::TypeKind, ty::*};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TraitFunc {
@@ -62,7 +58,10 @@ impl Type {
     #[must_use]
     pub fn resolve_type(mut self, applied_generics: &[Self]) -> Self {
         if let TypeVariant::Generic(generic) = self.variant {
-            return applied_generics.get(generic).unwrap_or_else(|| panic!("there's no applied generic {generic} for {self}")).clone();
+            return applied_generics
+                .get(generic)
+                .unwrap_or_else(|| panic!("there's no applied generic {generic} for {self}"))
+                .clone();
         } else if let TypeVariant::Complex(variant) = &self.variant {
             if let ComplexType::OneOf(types) = &**variant {
                 let mut result_types = Vec::with_capacity(types.len());

@@ -3,7 +3,7 @@ use mollie_shared::Positioned;
 
 use crate::{Ident, NameWithGenerics, Parse, ParseResult, Parser, ty::Type};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub struct TraitFuncArgument {
     pub name: Positioned<Ident>,
     pub ty: Positioned<Type>,
@@ -24,10 +24,10 @@ impl Parse for TraitFuncArgument {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct TraitFunction {
     pub name: Positioned<Ident>,
-    pub this: Option<Positioned<Token>>,
+    pub this: Option<Positioned<()>>,
     pub args: Vec<Positioned<TraitFuncArgument>>,
     pub returns: Option<Positioned<Type>>,
 }
@@ -40,7 +40,7 @@ impl Parse for TraitFunction {
 
         parser.consume(&Token::ParenOpen)?;
 
-        let this = parser.consume(&Token::This).ok();
+        let this = parser.consume(&Token::This).ok().map(|v| v.wrap(()));
 
         if this.is_some() {
             parser.try_consume(&Token::Comma);
@@ -74,7 +74,7 @@ impl Parse for TraitFunction {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct TraitDecl {
     pub name: Positioned<NameWithGenerics>,
     pub functions: Positioned<Vec<Positioned<TraitFunction>>>,

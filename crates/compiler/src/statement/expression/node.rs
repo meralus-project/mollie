@@ -8,7 +8,7 @@ use mollie_parser::NodeExpr;
 use mollie_shared::{Positioned, Span};
 use mollie_typing::{Type, TypeKind, TypeVariant};
 
-use crate::{Compile, CompileResult, Compiler, GetPositionedType, GetType, TypeError, TypeResult, ValueOrFunc};
+use crate::{Compile, CompileResult, Compiler, GetNewPositionedType, GetNewType, GetPositionedType, GetType, TypeError, TypeResult, ValueOrFunc};
 
 impl Compile<ValueOrFunc> for Positioned<NodeExpr> {
     #[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
@@ -292,6 +292,67 @@ impl GetType for NodeExpr {
                 got: Box::new(ty.kind()),
                 expected: Box::new(TypeKind::Struct.into()),
             })
+        }
+    }
+}
+
+impl GetNewType for NodeExpr {
+    fn get_new_type(
+        &self,
+        compiler: &mut Compiler,
+        core_types: &mollie_typing::CoreTypes,
+        type_storage: &mut mollie_typing::TypeStorage,
+        type_solver: &mut mollie_typing::TypeSolver,
+        span: Span,
+    ) -> TypeResult<mollie_typing::TypeInfoRef> {
+        let ty = type_storage
+            .get_named_type(&self.name.value.name.value.0)
+            .ok_or_else(|| TypeError::NotFound {
+                ty: Some(Box::new(TypeKind::OneOf(vec![TypeKind::Component, TypeKind::Struct]))),
+                name: self.name.value.name.value.0.clone(),
+            })?
+            .clone();
+
+        if let Some(structure) = ty.variant.as_struct() {
+            let expected_structure = mollie_typing::TypeInfo::Struct(
+                structure
+                    .properties
+                    .iter()
+                    .map(|(name, prop)| {
+                        (
+                            name.clone(),
+                            type_solver.add_info(mollie_typing::TypeInfo::Type(type_storage.ref_of_type(prop).unwrap())),
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+            );
+
+            let expected_structure = type_solver.add_info(expected_structure);
+
+            let structure = mollie_typing::TypeInfo::Struct(
+                structure
+                    .properties
+                    .iter()
+                    .map(|(name, _)| {
+                        let prop = self.properties.iter().find(|prop| &prop.value.name.value.0 == name)?;
+
+                        prop.value
+                            .value
+                            .get_new_type(compiler, core_types, type_storage, type_solver)
+                            .ok()
+                            .map(|value| (prop.value.name.value.0.clone(), value))
+                    })
+                    .collect::<Option<Vec<_>>>()
+                    .unwrap(),
+            );
+
+            let structure = type_solver.add_info(structure);
+
+            type_solver.unify(expected_structure, structure);
+
+            Ok(expected_structure)
+        } else {
+            unimplemented!()
         }
     }
 }

@@ -9,6 +9,8 @@ use cranelift::{
 };
 use derive_more::Display;
 use mollie_ir::Struct;
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
 pub use self::{complex::*, primitive::PrimitiveType};
 use crate::{Type, TypeKind};
@@ -31,6 +33,8 @@ pub enum TypeVariant {
     },
     #[display("<self>")]
     This,
+    #[display("<unknown>")]
+    Unknown
 }
 
 impl TypeVariant {
@@ -57,6 +61,7 @@ impl TypeVariant {
             Self::Generic(_) => TypeKind::Generic,
             Self::Trait(_) => TypeKind::Trait,
             Self::Ref { ty, .. } => ty.variant.kind(),
+            Self::Unknown => panic!("<unknown> should not be accessible as type-kind"),
         }
     }
 
@@ -413,6 +418,7 @@ impl TypeVariant {
             },
             Self::This | Self::Generic(_) | Self::Trait(_) | Self::Complex(_) => isa.pointer_type(),
             Self::Ref { ty, .. } => ty.variant.as_ir_type(isa),
+            Self::Unknown => unimplemented!("<unknown> type should not be accesible at compile-time"),
         }
     }
 

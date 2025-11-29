@@ -1,3 +1,5 @@
+> ⚠️ You are currently in the `dev` branch. It's NOT production-ready. This means that you may (and will) notice locally dependent, spaghetti, and obviously bad code, and that's OK. Everything will be fixed and improved soon™ to be ready for merging with the `master` branch.
+
 # Mollie
 
 [![License: MIT or Apache 2.0](https://img.shields.io/badge/License-MIT_or_Apache_2.0-634f7d.svg?style=for-the-badge)](LICENSE-APACHE)

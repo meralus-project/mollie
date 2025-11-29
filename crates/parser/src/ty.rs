@@ -3,7 +3,7 @@ use mollie_shared::Positioned;
 
 use crate::{Ident, Parse, ParseResult, Parser};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub enum PrimitiveType {
     IntSize,
     Int64,
@@ -20,7 +20,6 @@ pub enum PrimitiveType {
     String,
     Component,
     Void,
-    Null,
 }
 
 impl Parse for PrimitiveType {
@@ -44,13 +43,12 @@ impl Parse for PrimitiveType {
                 "void" => Some(Self::Void),
                 _ => None,
             },
-            Token::Null => Some(Self::Null),
             _ => None,
         })
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub struct NameWithGenerics {
     pub name: Positioned<Ident>,
     pub generics: Vec<Positioned<Ident>>,
@@ -73,7 +71,7 @@ impl Parse for NameWithGenerics {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub struct CustomType {
     pub name: Positioned<Ident>,
     pub generics: Vec<Positioned<Type>>,
@@ -96,7 +94,7 @@ impl Parse for CustomType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub enum Type {
     Primitive(PrimitiveType),
     Custom(CustomType),
@@ -105,9 +103,9 @@ pub enum Type {
     Func(Vec<Positioned<Self>>, Option<Box<Positioned<Self>>>),
 }
 
-impl Parse for Type {
-    fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
-        let value = PrimitiveType::parse(parser)
+impl Type {
+    fn parse_simple(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
+        PrimitiveType::parse(parser)
             .map(|v| v.map(Self::Primitive))
             .or_else(|_| {
                 let start = parser.consume(&Token::Fn)?;
@@ -125,7 +123,21 @@ impl Parse for Type {
                         .wrap(Self::Func(args.value, returns)),
                 )
             })
-            .or_else(|_| CustomType::parse(parser).map(|v| v.map(Self::Custom)))?;
+            .or_else(|_| CustomType::parse(parser).map(|v| v.map(Self::Custom)))
+    }
+}
+
+impl Parse for Type {
+    fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
+        let value = if parser.try_consume(&Token::ParenOpen) {
+            let value = Self::parse_simple(parser)?;
+
+            parser.consume(&Token::ParenClose)?;
+
+            value
+        } else {
+            Self::parse_simple(parser)?
+        };
 
         let value = if parser.try_consume(&Token::BracketOpen) {
             let size = parser

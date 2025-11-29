@@ -1,0 +1,18 @@
+[package]
+name = "mollie-tast"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = ["serde"]
+serde = ["dep:serde", "mollie-typing/serde"]
+
+[dependencies]
+serde = { workspace = true, optional = true }
+mollie-shared = { workspace = true }
+mollie-lexer = { workspace = true }
+mollie-parser = { workspace = true }
+mollie-typing = { workspace = true }
+
+[lints]
+workspace = true

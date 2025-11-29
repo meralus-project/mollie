@@ -3,10 +3,10 @@ use mollie_shared::Positioned;
 
 use crate::{Argument, BlockExpr, CustomType, Ident, Parse, ParseResult, Parser, ty::Type};
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct ImplFunction {
     pub name: Positioned<Ident>,
-    pub this: Option<Positioned<Token>>,
+    pub this: Option<Positioned<()>>,
     pub args: Vec<Positioned<Argument>>,
     pub returns: Option<Positioned<Type>>,
     pub body: Positioned<BlockExpr>,
@@ -20,7 +20,7 @@ impl Parse for ImplFunction {
 
         parser.consume(&Token::ParenOpen)?;
 
-        let this = parser.consume(&Token::This).ok();
+        let this = parser.consume(&Token::This).ok().map(|v| v.wrap(()));
 
         if this.is_some() {
             parser.try_consume(&Token::Comma);
@@ -60,7 +60,7 @@ impl Parse for ImplFunction {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct Impl {
     pub generics: Vec<Positioned<Ident>>,
     pub trait_name: Option<Positioned<CustomType>>,

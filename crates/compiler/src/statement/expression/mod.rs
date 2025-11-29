@@ -3,7 +3,7 @@ use mollie_parser::Expr;
 use mollie_shared::{Positioned, Span};
 use mollie_typing::TypeVariant;
 
-use crate::{Compile, CompileResult, Compiler, GetType, TypeResult, ValueOrFunc};
+use crate::{Compile, CompileResult, Compiler, GetNewType, GetType, TypeResult, ValueOrFunc};
 
 mod array;
 mod as_expr;
@@ -76,5 +76,40 @@ impl GetType for Expr {
             Is(_) => Ok(TypeVariant::boolean().into()),
             This => compiler.get_local_type("self"),
         }
+    }
+}
+
+impl GetNewType for Expr {
+    fn get_new_type(
+        &self,
+        compiler: &mut Compiler,
+        core_types: &mollie_typing::CoreTypes,
+        type_storage: &mut mollie_typing::TypeStorage,
+        type_solver: &mut mollie_typing::TypeSolver,
+        span: Span,
+    ) -> TypeResult<mollie_typing::TypeInfoRef> {
+        use Expr::{Array, Binary, Block, Closure, EnumPath, FunctionCall, Ident, IfElse, Index, Is, Literal, Node, This, TypeIndex, While};
+
+        let result = match self {
+            Literal(value) => value.get_new_type(compiler, core_types, type_storage, type_solver, span),
+            FunctionCall(value) => value.get_new_type(compiler, core_types, type_storage, type_solver, span),
+            Node(value) => value.get_new_type(compiler, core_types, type_storage, type_solver, span),
+            IfElse(value) => value.get_new_type(compiler, core_types, type_storage, type_solver, span),
+            Index(value) => value.get_new_type(compiler, core_types, type_storage, type_solver, span),
+            Binary(value) => value.get_new_type(compiler, core_types, type_storage, type_solver, span),
+            EnumPath(value) => value.get_new_type(compiler, core_types, type_storage, type_solver, span),
+            Block(value) => value.get_new_type(compiler, core_types, type_storage, type_solver, span),
+            Array(value) => value.get_new_type(compiler, core_types, type_storage, type_solver, span),
+            TypeIndex(value) => value.get_new_type(compiler, core_types, type_storage, type_solver, span),
+            Ident(value) => value.get_new_type(compiler, core_types, type_storage, type_solver, span),
+            While(value) => value.get_new_type(compiler, core_types, type_storage, type_solver, span),
+            Closure(value) => value.get_new_type(compiler, core_types, type_storage, type_solver, span),
+            Is(_) => Ok(type_solver.add_info(mollie_typing::TypeInfo::Type(core_types.boolean))),
+            This => Ok(type_solver.get_var("self").unwrap().ty),
+        }?;
+
+        type_solver.associate_type(self, span, result);
+
+        Ok(result)
     }
 }

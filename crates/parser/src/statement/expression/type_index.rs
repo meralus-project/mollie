@@ -3,7 +3,7 @@ use mollie_shared::Positioned;
 
 use crate::{Ident, Parse, ParseResult, Parser, Type};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub struct TypeIndexExpr {
     pub target: Positioned<Type>,
     pub index: Positioned<Ident>,

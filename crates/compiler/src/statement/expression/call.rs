@@ -8,7 +8,7 @@ use mollie_parser::FuncCallExpr;
 use mollie_shared::{Positioned, Span};
 use mollie_typing::{PrimitiveType, TypeKind, TypeVariant};
 
-use crate::{Compile, CompileResult, Compiler, GetPositionedType, GetType, TypeError, TypeResult, ValueOrFunc};
+use crate::{Compile, CompileResult, Compiler, GetNewPositionedType, GetNewType, GetPositionedType, GetType, TypeError, TypeResult, ValueOrFunc};
 
 impl Compile<ValueOrFunc> for Positioned<FuncCallExpr> {
     fn compile(self, compiler: &mut Compiler, fn_builder: &mut FunctionBuilder) -> CompileResult<ValueOrFunc> {
@@ -148,5 +148,97 @@ impl GetType for FuncCallExpr {
                 expected: Box::new(TypeKind::Function.into()),
             })
         }
+    }
+}
+
+impl GetNewType for FuncCallExpr {
+    fn get_new_type(
+        &self,
+        compiler: &mut Compiler,
+        core_types: &mollie_typing::CoreTypes,
+        type_storage: &mut mollie_typing::TypeStorage,
+        type_solver: &mut mollie_typing::TypeSolver,
+        span: Span,
+    ) -> TypeResult<mollie_typing::TypeInfoRef> {
+        let expected = self.function.get_new_type(compiler, core_types, type_storage, type_solver)?;
+        let args = self
+            .args
+            .value
+            .iter()
+            .map(|arg| arg.get_new_type(compiler, core_types, type_storage, type_solver))
+            .collect::<TypeResult<Vec<_>>>()?;
+
+        let output = type_solver.add_info(mollie_typing::TypeInfo::Unknown(None));
+        let got = type_solver.add_info(mollie_typing::TypeInfo::Func(args, output));
+
+        type_solver.unify(expected, got);
+
+        Ok(output)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use mollie_parser::{Expr, Parse, Stmt};
+    use mollie_typing::{CoreTypes, TypeSolver, TypeStorage, TypeVariant};
+
+    use crate::{Compiler, GetNewPositionedType};
+
+    #[test]
+    fn test_call_expr_solving() {
+        let mut storage = TypeStorage::default();
+        let mut solver = TypeSolver::default();
+
+        let types = CoreTypes {
+            void: storage.add_type(TypeVariant::void()),
+            any: storage.add_type(TypeVariant::any()),
+            boolean: storage.add_named_type("boolean", TypeVariant::boolean()),
+            int8: storage.add_named_type("int8", TypeVariant::int8()),
+            int16: storage.add_named_type("int16", TypeVariant::int16()),
+            int32: storage.add_named_type("int32", TypeVariant::int32()),
+            int64: storage.add_named_type("int64", TypeVariant::int64()),
+            int_size: storage.add_named_type("int_size", TypeVariant::isize()),
+            uint8: storage.add_named_type("uint8", TypeVariant::uint8()),
+            uint16: storage.add_named_type("uint16", TypeVariant::uint16()),
+            uint32: storage.add_named_type("uint32", TypeVariant::uint32()),
+            uint64: storage.add_named_type("uint64", TypeVariant::uint64()),
+            uint_size: storage.add_named_type("uint_size", TypeVariant::usize()),
+            float: storage.add_named_type("float", TypeVariant::float()),
+            string: storage.add_type(TypeVariant::string()),
+        };
+
+        let mut compiler = Compiler::default();
+
+        storage.add_named_type("Hello", TypeVariant::structure([("alo", TypeVariant::usize()), ("da", TypeVariant::uint8())]));
+        storage.add_named_type("println", TypeVariant::function([TypeVariant::usize()], TypeVariant::void()));
+
+        let expr = Expr::parse_value(
+            "{
+                const damn = Hello { alo: 24, da: 50 };
+                const b: int8 = 24;
+                const value = 24;
+                
+                println(value);
+                
+                damn.da
+            }",
+        )
+        .unwrap();
+
+        let ty = expr.get_new_type(&mut compiler, &types, &mut storage, &mut solver).unwrap();
+        let ty = solver.get_actual_type(ty).unwrap();
+
+        if let Expr::Block(block) = &expr.value {
+            if let Stmt::VariableDecl(v) = &block.stmts[0].value {
+                if let Some(ty) = solver.get_type_of(&v.value.value, v.value.span) {
+                    let ty = solver.get_actual_type(ty).unwrap();
+
+                    println!("type of variable decl value is {:?}", solver.format_type(ty, &storage));
+                }
+            }
+        }
+
+        println!("{expr:#?} {}", solver.len());
+        println!("{:?}", solver.format_type(ty, &storage));
     }
 }

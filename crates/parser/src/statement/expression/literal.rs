@@ -1,3 +1,5 @@
+use std::hash::Hash;
+
 use mollie_lexer::Token;
 use mollie_shared::Positioned;
 
@@ -9,13 +11,24 @@ pub enum Number {
     F32(f32),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
+impl Hash for Number {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        core::mem::discriminant(self).hash(state);
+
+        match self {
+            Number::I64(value) => value.hash(state),
+            Number::F32(value) => value.to_bits().hash(state),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub enum SizeType {
     Pixel,
     Percent,
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub enum LiteralExpr {
     SizeUnit(Number, SizeType),
     Number(Number, Option<String>),

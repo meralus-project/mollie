@@ -3,7 +3,7 @@ use mollie_shared::Positioned;
 
 use crate::{BlockExpr, Ident, Parse, ParseResult, Parser};
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct ClosureExpr {
     pub args: Positioned<Vec<Positioned<Ident>>>,
     pub body: Positioned<BlockExpr>,

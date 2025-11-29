@@ -7,7 +7,7 @@ use mollie_parser::IfElseExpr;
 use mollie_shared::{Positioned, Span};
 use mollie_typing::TypeVariant;
 
-use crate::{Compile, CompileResult, Compiler, GetPositionedType, GetType, TypeError, TypeResult, ValueOrFunc};
+use crate::{Compile, CompileResult, Compiler, GetNewPositionedType, GetNewType, GetPositionedType, GetType, TypeError, TypeResult, ValueOrFunc};
 
 impl Compile<ValueOrFunc> for Positioned<IfElseExpr> {
     fn compile(self, compiler: &mut Compiler, fn_builder: &mut FunctionBuilder) -> CompileResult<ValueOrFunc> {
@@ -81,5 +81,74 @@ impl Compile<ValueOrFunc> for Positioned<IfElseExpr> {
 impl GetType for IfElseExpr {
     fn get_type(&self, compiler: &mut Compiler, _: Span) -> TypeResult {
         self.block.get_type(compiler)
+    }
+}
+
+impl GetNewType for IfElseExpr {
+    fn get_new_type(
+        &self,
+        compiler: &mut Compiler,
+        core_types: &mollie_typing::CoreTypes,
+        type_storage: &mut mollie_typing::TypeStorage,
+        type_solver: &mut mollie_typing::TypeSolver,
+        span: Span,
+    ) -> TypeResult<mollie_typing::TypeInfoRef> {
+        let condition_expected = type_solver.add_info(mollie_typing::TypeInfo::Type(core_types.boolean));
+        let condition = self.condition.get_new_type(compiler, core_types, type_storage, type_solver)?;
+
+        type_solver.unify(condition_expected, condition);
+
+        let result_expected = self.block.get_new_type(compiler, core_types, type_storage, type_solver)?;
+
+        if let Some(else_block) = self.else_block.as_deref() {
+            let block_result = else_block.get_new_type(compiler, core_types, type_storage, type_solver)?;
+
+            type_solver.unify(result_expected, block_result);
+        }
+
+        Ok(result_expected)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use mollie_parser::{Expr, Parse};
+    use mollie_typing::{CoreTypes, TypeSolver, TypeStorage, TypeVariant};
+
+    use crate::{Compiler, GetNewPositionedType};
+
+    #[test]
+    fn test_if_else_expr_solving() {
+        let mut storage = TypeStorage::default();
+        let mut solver = TypeSolver::default();
+
+        let types = CoreTypes {
+            void: storage.add_type(TypeVariant::void()),
+            any: storage.add_type(TypeVariant::any()),
+            boolean: storage.add_named_type("boolean", TypeVariant::boolean()),
+            int8: storage.add_named_type("int8", TypeVariant::int8()),
+            int16: storage.add_named_type("int16", TypeVariant::int16()),
+            int32: storage.add_named_type("int32", TypeVariant::int32()),
+            int64: storage.add_named_type("int64", TypeVariant::int64()),
+            int_size: storage.add_named_type("int_size", TypeVariant::isize()),
+            uint8: storage.add_named_type("uint8", TypeVariant::uint8()),
+            uint16: storage.add_named_type("uint16", TypeVariant::uint16()),
+            uint32: storage.add_named_type("uint32", TypeVariant::uint32()),
+            uint64: storage.add_named_type("uint64", TypeVariant::uint64()),
+            uint_size: storage.add_named_type("uint_size", TypeVariant::usize()),
+            float: storage.add_named_type("float", TypeVariant::float()),
+            string: storage.add_type(TypeVariant::string()),
+        };
+
+        let mut compiler = Compiler::default();
+
+        let expr = Expr::parse_value("if 60 == 30 { \"eblan\" } else { 4int32 }").unwrap();
+        let ty = expr.get_new_type(&mut compiler, &types, &mut storage, &mut solver);
+
+        if let Ok(ty) = ty {
+            let ty = solver.get_actual_type(ty).unwrap();
+
+            println!("{:?}", solver.format_type(ty, &storage));
+        }
     }
 }

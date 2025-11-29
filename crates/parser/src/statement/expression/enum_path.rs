@@ -3,7 +3,7 @@ use mollie_shared::Positioned;
 
 use crate::{CustomType, Ident, NameValue, Parse, ParseResult, Parser};
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct EnumPathExpr {
     pub target: Positioned<Ident>,
     pub index: Positioned<CustomType>,

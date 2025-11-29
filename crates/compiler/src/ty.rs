@@ -3,7 +3,7 @@ use mollie_parser::{PrimitiveType, Type};
 use mollie_shared::Span;
 use mollie_typing::{ArrayType, ComplexType, FunctionType, TypeVariant};
 
-use crate::{Compiler, GetPositionedType, GetType, TypeError, TypeResult};
+use crate::{Compiler, GetNewPositionedType, GetNewType, GetPositionedType, GetType, TypeError, TypeResult};
 
 impl GetType for Type {
     fn get_type(&self, compiler: &mut Compiler, _: Span) -> TypeResult {
@@ -67,6 +67,60 @@ impl GetType for Type {
                 returns: Box::new(returns.as_ref().map_or_else(|| Ok(TypeVariant::void().into()), |ty| ty.get_type(compiler))?),
             }))
             .into(),
+        })
+    }
+}
+
+impl GetNewType for Type {
+    fn get_new_type(
+        &self,
+        compiler: &mut Compiler,
+        core_types: &mollie_typing::CoreTypes,
+        type_storage: &mut mollie_typing::TypeStorage,
+        type_solver: &mut mollie_typing::TypeSolver,
+        span: Span,
+    ) -> TypeResult<mollie_typing::TypeInfoRef> {
+        use PrimitiveType::{Boolean, Component, Float, Int8, Int16, Int32, Int64, IntSize, Null, String, UInt8, UInt16, UInt32, UInt64, UIntSize, Void};
+        use Type::{Array, Custom, Func, OneOf, Primitive};
+
+        Ok(match self {
+            Primitive(IntSize) => type_solver.add_info(mollie_typing::TypeInfo::Type(core_types.int_size)),
+            Primitive(Int64) => type_solver.add_info(mollie_typing::TypeInfo::Type(core_types.int64)),
+            Primitive(Int32) => type_solver.add_info(mollie_typing::TypeInfo::Type(core_types.int32)),
+            Primitive(Int16) => type_solver.add_info(mollie_typing::TypeInfo::Type(core_types.int16)),
+            Primitive(Int8) => type_solver.add_info(mollie_typing::TypeInfo::Type(core_types.int8)),
+            Primitive(UIntSize) => type_solver.add_info(mollie_typing::TypeInfo::Type(core_types.uint_size)),
+            Primitive(UInt64) => type_solver.add_info(mollie_typing::TypeInfo::Type(core_types.uint64)),
+            Primitive(UInt32) => type_solver.add_info(mollie_typing::TypeInfo::Type(core_types.uint32)),
+            Primitive(UInt16) => type_solver.add_info(mollie_typing::TypeInfo::Type(core_types.uint16)),
+            Primitive(UInt8) => type_solver.add_info(mollie_typing::TypeInfo::Type(core_types.uint8)),
+            Primitive(Float) => type_solver.add_info(mollie_typing::TypeInfo::Type(core_types.float)),
+            Primitive(Boolean) => type_solver.add_info(mollie_typing::TypeInfo::Type(core_types.boolean)),
+            Primitive(String) => type_solver.add_info(mollie_typing::TypeInfo::Type(core_types.string)),
+            Primitive(Component) => unimplemented!(), // type_solver.add_info(mollie_typing::TypeInfo::Type(core_types.component)),
+            Primitive(Void) => type_solver.add_info(mollie_typing::TypeInfo::Type(core_types.void)),
+            Primitive(Null) => unimplemented!(),
+            Array(ty, size) => {
+                let element = ty.get_new_type(compiler, core_types, type_storage, type_solver)?;
+
+                type_solver.add_info(mollie_typing::TypeInfo::Array(element))
+            }
+            OneOf(types) => unimplemented!(),
+            Custom(name) => unimplemented!(),
+            Func(args, returns) => {
+                let args = args
+                    .iter()
+                    .map(|arg| arg.get_new_type(compiler, core_types, type_storage, type_solver))
+                    .collect::<TypeResult<_>>()?;
+
+                let output = if let Some(ty) = returns.as_deref() {
+                    ty.get_new_type(compiler, core_types, type_storage, type_solver)?
+                } else {
+                    type_solver.add_info(mollie_typing::TypeInfo::Type(core_types.void))
+                };
+
+                type_solver.add_info(mollie_typing::TypeInfo::Func(args, output))
+            }
         })
     }
 }

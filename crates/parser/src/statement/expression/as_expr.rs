@@ -3,7 +3,7 @@ use mollie_shared::Positioned;
 
 use crate::{CustomType, Expr, Ident, LiteralExpr, Parse, ParseError, ParseResult, Parser};
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct NameValuePattern {
     pub name: Positioned<Ident>,
     pub value: Option<Positioned<IsPattern>>,
@@ -22,7 +22,7 @@ impl Parse for NameValuePattern {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub enum IsPattern {
     Literal(LiteralExpr),
     Enum {
@@ -66,7 +66,7 @@ impl Parse for IsPattern {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct IsExpr {
     pub target: Box<Positioned<Expr>>,
     pub pattern: Positioned<IsPattern>,

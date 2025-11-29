@@ -5,9 +5,9 @@ use cranelift::{
 use mollie_ir::FatPtr;
 use mollie_parser::{LiteralExpr, Number as LiteralNumber};
 use mollie_shared::{Positioned, Span};
-use mollie_typing::TypeVariant;
+use mollie_typing::{CoreTypes, TypeInfo, TypeInfoRef, TypeVariant};
 
-use crate::{Compile, CompileResult, Compiler, GetPositionedType, GetType, TypeResult};
+use crate::{Compile, CompileResult, Compiler, GetNewType, GetPositionedType, GetType, TypeResult};
 
 impl Compile<Value> for Positioned<LiteralExpr> {
     fn compile(self, compiler: &mut Compiler, fn_builder: &mut FunctionBuilder) -> CompileResult<Value> {
@@ -74,5 +74,33 @@ impl GetType for LiteralExpr {
             Null => TypeVariant::null(),
         }
         .into())
+    }
+}
+
+impl GetNewType for LiteralExpr {
+    fn get_new_type(&self, compiler: &mut Compiler, core_types: &CoreTypes, type_storage: &mut mollie_typing::TypeStorage, type_solver: &mut mollie_typing::TypeSolver, span: Span) -> TypeResult<TypeInfoRef> {
+        use LiteralExpr::{Boolean, Null, Number, SizeUnit, String};
+        use LiteralNumber::{F32, I64};
+
+        Ok(match self {
+            SizeUnit(..) => unimplemented!(),
+            Number(I64(_), postfix) => match postfix.as_deref() {
+                Some("uint_size") => type_solver.add_info(TypeInfo::Type(core_types.uint_size)),
+                Some("uint64") => type_solver.add_info(TypeInfo::Type(core_types.uint64)),
+                Some("uint32") => type_solver.add_info(TypeInfo::Type(core_types.uint32)),
+                Some("uint16") => type_solver.add_info(TypeInfo::Type(core_types.uint16)),
+                Some("uint8") => type_solver.add_info(TypeInfo::Type(core_types.uint8)),
+                Some("int_size") => type_solver.add_info(TypeInfo::Type(core_types.int_size)),
+                Some("int64") => type_solver.add_info(TypeInfo::Type(core_types.int64)),
+                Some("int32") => type_solver.add_info(TypeInfo::Type(core_types.int32)),
+                Some("int16") => type_solver.add_info(TypeInfo::Type(core_types.int16)),
+                Some("int8") => type_solver.add_info(TypeInfo::Type(core_types.int8)),
+                _ => type_solver.add_info(TypeInfo::Unknown(Some(core_types.int32))),
+            },
+            Number(F32(_), _) => type_solver.add_info(TypeInfo::Type(core_types.float)),
+            Boolean(_) => type_solver.add_info(TypeInfo::Type(core_types.boolean)),
+            String(_) => type_solver.add_info(TypeInfo::Type(core_types.string)),
+            Null => unimplemented!(),
+        })
     }
 }

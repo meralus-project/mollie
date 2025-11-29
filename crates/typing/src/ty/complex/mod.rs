@@ -6,6 +6,9 @@ mod enumeration;
 mod function;
 mod structure;
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
 pub use self::{
     array::ArrayType,
     component::{ComponentChildren, ComponentType},

@@ -8,7 +8,7 @@ use mollie_parser::EnumPathExpr;
 use mollie_shared::{Positioned, Span};
 use mollie_typing::{Type, TypeKind, TypeVariant};
 
-use crate::{Compile, CompileResult, Compiler, GetPositionedType, GetType, TypeError, TypeResult, ValueOrFunc};
+use crate::{Compile, CompileResult, Compiler, GetNewType, GetPositionedType, GetType, TypeError, TypeResult, ValueOrFunc};
 
 impl Compile<ValueOrFunc> for Positioned<EnumPathExpr> {
     fn compile(mut self, compiler: &mut Compiler, fn_builder: &mut FunctionBuilder) -> CompileResult<ValueOrFunc> {
@@ -140,5 +140,18 @@ impl GetType for EnumPathExpr {
                 declared_at: ty.declared_at,
             })
         }
+    }
+}
+
+impl GetNewType for EnumPathExpr {
+    fn get_new_type(
+        &self,
+        compiler: &mut Compiler,
+        core_types: &mollie_typing::CoreTypes,
+        type_storage: &mut mollie_typing::TypeStorage,
+        type_solver: &mut mollie_typing::TypeSolver,
+        span: Span,
+    ) -> TypeResult<mollie_typing::TypeInfoRef> {
+        unimplemented!()
     }
 }

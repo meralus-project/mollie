@@ -104,7 +104,7 @@ impl Struct {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Array {
     pub element: ir::Type,
 }

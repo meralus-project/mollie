@@ -3,7 +3,7 @@ use mollie_parser::WhileExpr;
 use mollie_shared::{Positioned, Span};
 use mollie_typing::TypeVariant;
 
-use crate::{Compile, CompileResult, Compiler, GetPositionedType, GetType, TypeError, TypeResult, ValueOrFunc};
+use crate::{Compile, CompileResult, Compiler, GetNewPositionedType, GetNewType, GetPositionedType, GetType, TypeError, TypeResult, ValueOrFunc};
 
 impl Compile<ValueOrFunc> for Positioned<WhileExpr> {
     fn compile(self, compiler: &mut Compiler, fn_builder: &mut FunctionBuilder) -> CompileResult<ValueOrFunc> {
@@ -51,5 +51,28 @@ impl Compile<ValueOrFunc> for Positioned<WhileExpr> {
 impl GetType for WhileExpr {
     fn get_type(&self, compiler: &mut Compiler, _: Span) -> TypeResult {
         self.block.get_type(compiler)
+    }
+}
+
+impl GetNewType for WhileExpr {
+    fn get_new_type(
+        &self,
+        compiler: &mut Compiler,
+        core_types: &mollie_typing::CoreTypes,
+        type_storage: &mut mollie_typing::TypeStorage,
+        type_solver: &mut mollie_typing::TypeSolver,
+        span: Span,
+    ) -> TypeResult<mollie_typing::TypeInfoRef> {
+        let condition_expected = type_solver.add_info(mollie_typing::TypeInfo::Type(core_types.boolean));
+        let condition = self.condition.get_new_type(compiler, core_types, type_storage, type_solver)?;
+
+        type_solver.unify(condition_expected, condition);
+
+        let result_expected = type_solver.add_info(mollie_typing::TypeInfo::Type(core_types.void));
+        let result = self.block.get_new_type(compiler, core_types, type_storage, type_solver)?;
+
+        type_solver.unify(result_expected, result);
+
+        Ok(result_expected)
     }
 }

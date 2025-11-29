@@ -3,7 +3,7 @@ use mollie_shared::Positioned;
 
 use crate::{BlockExpr, Ident, Parse, ParseResult, Parser, ty::Type};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub enum FuncVis {
     Public,
 }
@@ -16,7 +16,7 @@ impl Parse for FuncVis {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub struct Argument {
     pub name: Positioned<Ident>,
     pub ty: Positioned<Type>,
@@ -37,7 +37,7 @@ impl Parse for Argument {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct FuncDecl {
     pub func_vis: Option<Positioned<FuncVis>>,
     pub name: Positioned<Ident>,

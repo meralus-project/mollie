@@ -280,4 +280,12 @@ fn main(context: DrawContext) {
     call_me();
     call_it(|| { "it was called" });
     call_it(|| { "it was called again!" });
+
+    const callables: (fn() -> string)[] = [
+        || { "wow" },
+        || { "hello" }
+    ];
+
+    println_str(callables[0]());
+    println_str(callables[1]());
 }

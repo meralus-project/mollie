@@ -47,7 +47,7 @@ pub fn parse_statements_until(parser: &mut Parser, token: &Token) -> ParseResult
     Ok((statements, return_statement))
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct BlockExpr {
     pub stmts: Vec<Positioned<Stmt>>,
     pub final_stmt: Option<Box<Positioned<Stmt>>>,

@@ -5,13 +5,15 @@ mod span;
 
 use std::fmt;
 
+use serde::Serialize;
+
 pub use self::{
     maybe_positioned::{MaybePositioned, SpanType},
     positioned::Positioned,
     span::Span,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Operator {
     Assign,      // =
     Add,         // +

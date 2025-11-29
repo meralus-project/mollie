@@ -16,7 +16,7 @@ use mollie_ir::{Array, FatPtr, VTablePtr};
 use mollie_lexer::{Lexer, Token};
 use mollie_parser::{Expr, Parser, Stmt, parse_statements_until};
 use mollie_shared::{Positioned, Span};
-use mollie_typing::{ArrayType, ComplexType, FunctionType, PrimitiveType, Trait, Type, TypeKind, TypeVariant};
+use mollie_typing::{ArrayType, ComplexType, CoreTypes, FunctionType, PrimitiveType, Trait, Type, TypeInfoRef, TypeKind, TypeSolver, TypeStorage, TypeVariant};
 
 pub use self::error::{CompileError, CompileResult, TypeError, TypeResult};
 
@@ -107,7 +107,7 @@ impl Compiler {
         let property_name = property_name.as_ref();
 
         let mut result = match ty.variant {
-            TypeVariant::This | TypeVariant::Generic(_) => unreachable!(),
+            TypeVariant::This | TypeVariant::Generic(_) | TypeVariant::Unknown => unreachable!(),
             TypeVariant::Primitive(ty) => unimplemented!("{ty} doesn't have property called {property_name}"),
             TypeVariant::Trait(t) => {
                 return self.traits[t]
@@ -888,6 +888,28 @@ pub trait GetPositionedType {
 impl<T: GetType> GetPositionedType for Positioned<T> {
     fn get_type(&self, compiler: &mut Compiler) -> TypeResult {
         self.value.get_type(compiler, self.span)
+    }
+}
+
+pub trait GetNewType {
+    /// # Errors
+    ///
+    /// Returns `TypeError` if type inference fails. This can happen if, for
+    /// example, the required type is not declared.
+    fn get_new_type(&self, compiler: &mut Compiler, core_types: &CoreTypes, type_storage: &mut TypeStorage, type_solver: &mut TypeSolver, span: Span) -> TypeResult<TypeInfoRef>;
+}
+
+pub trait GetNewPositionedType {
+    /// # Errors
+    ///
+    /// Returns `TypeError` if type inference fails. This can happen if, for
+    /// example, the required type is not declared.
+    fn get_new_type(&self, compiler: &mut Compiler, core_types: &CoreTypes, type_storage: &mut TypeStorage, type_solver: &mut TypeSolver) -> TypeResult<TypeInfoRef>;
+}
+
+impl<T: GetNewType> GetNewPositionedType for Positioned<T> {
+    fn get_new_type(&self, compiler: &mut Compiler, core_types: &CoreTypes, type_storage: &mut TypeStorage, type_solver: &mut TypeSolver) -> TypeResult<TypeInfoRef> {
+        self.value.get_new_type(compiler, core_types, type_storage, type_solver, self.span)
     }
 }
 

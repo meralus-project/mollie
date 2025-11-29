@@ -5,7 +5,7 @@ use mollie_shared::{Operator, Positioned};
 
 use crate::{Expr, ParseError, ParseResult, Parser, Precedence};
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct BinaryExpr {
     pub lhs: Box<Positioned<Expr>>,
     pub rhs: Box<Positioned<Expr>>,
