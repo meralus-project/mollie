@@ -3,6 +3,7 @@ mod enum_decl;
 mod expression;
 mod func_decl;
 mod implementation;
+mod import;
 mod struct_decl;
 mod trait_decl;
 mod variable_decl;
@@ -15,6 +16,7 @@ pub use self::{
     expression::*,
     func_decl::{Argument, FuncDecl},
     implementation::{Impl, ImplFunction},
+    import::{Import, ImportKind},
     struct_decl::{Property, StructDecl},
     trait_decl::{TraitDecl, TraitFuncArgument, TraitFunction},
     variable_decl::VariableDecl,
@@ -32,6 +34,7 @@ pub enum Stmt {
     EnumDecl(EnumDecl),
     FuncDecl(FuncDecl),
     Impl(Impl),
+    Import(Import),
 }
 
 impl Parse for Stmt {
@@ -44,6 +47,7 @@ impl Parse for Stmt {
             .or_else(|_| Impl::parse(parser).map(|v| v.map(Self::Impl)))
             .or_else(|_| FuncDecl::parse(parser).map(|v| v.map(Self::FuncDecl)))
             .or_else(|_| TraitDecl::parse(parser).map(|v| v.map(Self::TraitDecl)))
+            .or_else(|_| Import::parse(parser).map(|v| v.map(Self::Import)))
             .or_else(|_| Expr::parse(parser).map(|v| v.map(Self::Expression)))
     }
 }

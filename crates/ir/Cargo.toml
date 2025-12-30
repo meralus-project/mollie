@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 mollie-const = { workspace = true }
+mollie-index = { workspace = true }
 cranelift = { workspace = true }
 
 [lints]

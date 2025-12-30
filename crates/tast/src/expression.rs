@@ -1,12 +1,20 @@
+use std::iter;
+
+use indexmap::map::Entry;
+use mollie_const::ConstantValue;
+use mollie_index::{Idx, IndexVec};
 use mollie_parser::IndexTarget;
 use mollie_shared::{Operator, Span};
 use mollie_typing::{
-    ComplexType, StructType, Type, TypeVariant,
-    resolver::{TypeInfo, TypeInfoRef, TypeRef, VFuncRef},
+    ComplexType, ComplexTypeKind, ComplexTypeRef, ComplexTypeVariant, ComplexTypeVariantRef, FieldRef, FieldType, PrimitiveType, TraitRef, TypeInfo,
+    TypeInfoRef, VFuncRef, VTableRef,
 };
 use serde::Serialize;
 
-use crate::{BlockRef, ExprRef, IntoPositionedTypedAST, IntoTypedAST, StmtRef, TypeChecker, Typed, TypedAST, statement::Stmt};
+use crate::{
+    BlockRef, ConstantContext, ExprRef, Func, IntoConstantValue, IntoPositionedTypedAST, IntoTypedAST, StmtRef, TraitFuncRef, TypeChecker, TypedAST,
+    VTableFunc, VTableFuncKind, statement::Stmt,
+};
 
 #[derive(Debug, Serialize)]
 pub enum LiteralExpr {
@@ -14,6 +22,12 @@ pub enum LiteralExpr {
     Float(f32),
     String(String),
     Boolean(bool),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum VFunc {
+    Known(VTableRef, VFuncRef),
+    Unknown(TraitRef, TraitFuncRef),
 }
 
 #[derive(Debug, Serialize)]
@@ -32,7 +46,11 @@ pub enum Expr {
     Var(String),
     Access {
         target: ExprRef,
-        index: String,
+        field: FieldRef,
+    },
+    VTableAccess {
+        target: ExprRef,
+        func: VFunc,
     },
     Index {
         target: ExprRef,
@@ -58,12 +76,12 @@ pub enum Expr {
     },
     Construct {
         ty: TypeInfoRef,
-        fields: Box<[(String, ExprRef)]>,
+        fields: Box<[(FieldRef, String, Option<ExprRef>)]>,
     },
     ConstructEnum {
         ty: TypeInfoRef,
         variant: usize,
-        fields: Option<Box<[(String, ExprRef)]>>,
+        fields: Option<Box<[(FieldRef, String, ExprRef)]>>,
     },
     ConstructComponent {
         ty: TypeInfoRef,
@@ -76,8 +94,9 @@ pub enum Expr {
     },
     TypeIndex {
         target: TypeInfoRef,
-        func: VFuncRef,
+        func: VFunc,
     },
+    Nothing,
 }
 
 #[derive(Debug, Serialize)]
@@ -86,9 +105,10 @@ pub enum Expr {
 pub enum IsPattern {
     Literal(ExprRef),
     EnumVariant {
-        target: TypeRef,
-        variant: usize,
-        values: Option<Box<[(String, Option<Self>)]>>,
+        target: ComplexTypeRef,
+        target_args: Box<[TypeInfoRef]>,
+        variant: ComplexTypeVariantRef,
+        values: Option<Box<[(FieldRef, String, Option<Self>)]>>,
     },
     TypeName {
         ty: TypeInfoRef,
@@ -131,6 +151,7 @@ impl IntoTypedAST<ExprRef> for mollie_parser::LiteralExpr {
 impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
     fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST, span: Span) -> Result<ExprRef, ()> {
         match self {
+            Self::Nothing => Ok(ast.add_expr(Expr::Nothing, checker.core_types.void, span)),
             Self::Literal(literal_expr) => literal_expr.into_typed_ast(checker, ast, span),
             Self::FunctionCall(func_call_expr) => {
                 let func = func_call_expr.function.into_typed_ast(checker, ast)?;
@@ -141,42 +162,85 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
                     .map(|arg| arg.into_typed_ast(checker, ast))
                     .collect::<Result<Box<_>, _>>()?;
 
-                let output = checker.solver.add_info(TypeInfo::Unknown(None));
-                let got = checker.solver.add_info(TypeInfo::Func(args.iter().map(|&expr| ast[expr].ty).collect(), output));
+                if let TypeInfo::Func(expected_args, returns) = checker.solver.get_info(ast[func].ty).clone() {
+                    if let &Expr::VTableAccess { target, .. } = &ast[func].value {
+                        checker.solver.unify(ast[target].ty, expected_args[0]);
 
-                checker.solver.unify(ast[func].ty, got);
+                        for (arg, expected_arg) in args.iter().zip(expected_args.into_iter().skip(1)) {
+                            checker.solver.unify(ast[*arg].ty, expected_arg);
+                        }
+                    } else {
+                        for (arg, expected_arg) in args.iter().zip(expected_args) {
+                            checker.solver.unify(ast[*arg].ty, expected_arg);
+                        }
+                    }
 
-                Ok(ast.add_expr(Expr::Call { func, args }, output, span))
+                    Ok(ast.add_expr(Expr::Call { func, args }, returns, span))
+                } else {
+                    unreachable!()
+                }
             }
             Self::Node(mut node_expr) => {
                 let ty = node_expr.name.into_typed_ast(checker, ast)?;
+                let ty = ty.as_type_info(None, &checker.core_types, &mut checker.solver, &[]);
+                let mut children = Some(node_expr.children);
 
-                if let TypeInfo::Struct(struct_ty, args) = checker.solver.get_info(ty).clone() {
-                    let fields = checker
-                        .types
-                        .get_type(struct_ty)
-                        .cloned()
-                        .and_then(|ty| {
-                            ty.variant.as_struct().and_then(|structure| {
-                                structure
-                                    .properties
-                                    .iter()
-                                    .map(|(name, ty)| {
-                                        let prop = node_expr.properties.iter().position(|prop| &prop.value.name.value.0 == name)?;
+                if let TypeInfo::Complex(struct_ty, kind, args) = checker.solver.get_info(ty).clone() {
+                    let fields = checker.complex_types[struct_ty].variants[ComplexTypeVariantRef::new(0)]
+                        .fields
+                        .iter()
+                        .map(|(position, (name, field_type, _))| {
+                            let ty = field_type.as_type_info(None, &checker.core_types, &mut checker.solver, args.as_ref());
+
+                            let (name, value) = if matches!(kind, ComplexTypeKind::Component) && name == "children" {
+                                (
+                                    String::from("children"),
+                                    if let Some(mut children) = children.take() {
+                                        if matches!(checker.solver.get_info(ty), TypeInfo::Array(..)) {
+                                            Some(children.map(|elements| {
+                                                Self::Array(mollie_parser::ArrayExpr {
+                                                    elements: elements.into_iter().map(|node| node.map(Self::Node)).collect(),
+                                                })
+                                            }))
+                                        } else {
+                                            children.value.pop().map(|value| value.map(Self::Node))
+                                        }
+                                    } else {
+                                        None
+                                    },
+                                )
+                            } else {
+                                node_expr.properties.iter().position(|prop| &prop.value.name.value.0 == name).map_or_else(
+                                    || (name.clone(), None),
+                                    |prop| {
                                         let prop = node_expr.properties.remove(prop);
 
-                                        prop.value.value.into_typed_ast(checker, ast).ok().map(|value| {
-                                            if let &TypeVariant::Generic(idx) = &ty.variant {
-                                                checker.solver.unify(*args.get(idx).unwrap(), ast[value].ty);
-                                            }
+                                        (prop.value.name.value.0, Some(prop.value.value))
+                                    },
+                                )
+                            };
 
-                                            (prop.value.name.value.0, value)
-                                        })
-                                    })
-                                    .collect::<Option<Box<_>>>()
-                            })
+                            (position, name, value, ty)
                         })
-                        .unwrap();
+                        .collect::<Box<_>>()
+                        .into_iter()
+                        .map(|value| {
+                            let (position, name, value, ty) = value;
+
+                            let value = match value {
+                                Some(value) => {
+                                    let value = value.into_typed_ast(checker, ast)?;
+
+                                    checker.solver.unify(ast[value].ty, ty);
+
+                                    Some(value)
+                                }
+                                None => None,
+                            };
+
+                            Ok((position, name, value))
+                        })
+                        .collect::<Result<_, _>>()?;
 
                     Ok(ast.add_expr(Expr::Construct { ty, fields }, ty, span))
                 } else {
@@ -185,79 +249,90 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
             }
             Self::Index(index_expr) => {
                 let target = index_expr.target.into_typed_ast(checker, ast)?;
-                let (expr, ty) = match index_expr.index.value {
-                    IndexTarget::Named(property_name) => match checker.solver.get_info(ast[target].ty) {
-                        TypeInfo::Struct(ty, args) => checker
-                            .types
-                            .get_type(*ty)
-                            .and_then(|ty| ty.variant.as_struct())
-                            .map(|structure| {
-                                let mut items = structure.properties.iter();
 
-                                loop {
-                                    if let Some(item) = items.next() {
-                                        if item.0 == property_name.0 {
-                                            break (
-                                                Expr::Access {
-                                                    target,
-                                                    index: property_name.0.clone(),
-                                                },
-                                                match &item.1.variant {
-                                                    TypeVariant::Primitive(primitive_type) => match primitive_type {
-                                                        mollie_typing::PrimitiveType::Any => todo!(),
-                                                        mollie_typing::PrimitiveType::ISize => checker.core_types.int_size,
-                                                        mollie_typing::PrimitiveType::I64 => checker.core_types.int64,
-                                                        mollie_typing::PrimitiveType::I32 => checker.core_types.int32,
-                                                        mollie_typing::PrimitiveType::I16 => checker.core_types.int16,
-                                                        mollie_typing::PrimitiveType::I8 => checker.core_types.int8,
-                                                        mollie_typing::PrimitiveType::USize => checker.core_types.uint_size,
-                                                        mollie_typing::PrimitiveType::U64 => checker.core_types.uint64,
-                                                        mollie_typing::PrimitiveType::U32 => checker.core_types.uint32,
-                                                        mollie_typing::PrimitiveType::U16 => checker.core_types.uint16,
-                                                        mollie_typing::PrimitiveType::U8 => checker.core_types.uint8,
-                                                        mollie_typing::PrimitiveType::Float => checker.core_types.float,
-                                                        mollie_typing::PrimitiveType::Boolean => checker.core_types.boolean,
-                                                        mollie_typing::PrimitiveType::String => checker.core_types.string,
-                                                        mollie_typing::PrimitiveType::Component => checker.core_types.component,
-                                                        mollie_typing::PrimitiveType::Void => checker.core_types.void,
-                                                        mollie_typing::PrimitiveType::Null => todo!(),
-                                                    },
-                                                    TypeVariant::Complex(complex_type) => todo!(),
-                                                    TypeVariant::Trait(_) => todo!(),
-                                                    &TypeVariant::Generic(generic) => *args.get(generic).unwrap(),
-                                                    TypeVariant::Ref { ty, mutable } => todo!(),
-                                                    TypeVariant::This => todo!(),
-                                                    TypeVariant::Unknown => todo!(),
-                                                },
-                                            );
-                                        }
-                                    } else {
-                                        unimplemented!();
+                match index_expr.index.value {
+                    IndexTarget::Named(property_name) => {
+                        if let TypeInfo::Trait(trait_ref, type_args) = checker.solver.get_info(ast[target].ty).clone() {
+                            for (func, (name, args, returns)) in checker.traits[trait_ref].1.iter() {
+                                if name == &property_name.0 {
+                                    let args = args
+                                        .iter()
+                                        .map(|arg| arg.as_type_info(Some(ast[target].ty), &checker.core_types, &mut checker.solver, type_args.as_ref()))
+                                        .collect();
+
+                                    let returns = returns.as_type_info(Some(ast[target].ty), &checker.core_types, &mut checker.solver, &[]);
+                                    let ty = checker.solver.add_info(TypeInfo::Func(args, returns));
+
+                                    return Ok(ast.add_expr(
+                                        Expr::VTableAccess {
+                                            target,
+                                            func: VFunc::Unknown(trait_ref, func),
+                                        },
+                                        ty,
+                                        span,
+                                    ));
+                                }
+                            }
+                        } else if let Some(vtables) = checker
+                            .solver
+                            .vtables
+                            .get(&FieldType::from_type_info(checker.solver.get_info(ast[target].ty), &checker.solver))
+                        {
+                            for &vtable in vtables.values() {
+                                for (func_ref, func) in checker.vtables[vtable].iter() {
+                                    if func.name == property_name.0 {
+                                        return Ok(ast.add_expr(
+                                            Expr::VTableAccess {
+                                                target,
+                                                func: VFunc::Known(vtable, func_ref),
+                                            },
+                                            func.ty,
+                                            span,
+                                        ));
                                     }
                                 }
-                            })
-                            .unwrap(),
-                        ty => unimplemented!("{ty:?}"),
-                    },
+                            }
+                        }
+
+                        match checker.solver.get_info(ast[target].ty) {
+                            TypeInfo::Complex(ty, _, args) => {
+                                let ty = *ty;
+                                let args = args.clone();
+
+                                for item in checker.complex_types[ty].instantiate(
+                                    ComplexTypeVariantRef::new(0),
+                                    None,
+                                    &checker.core_types,
+                                    &mut checker.solver,
+                                    args.as_ref(),
+                                ) {
+                                    if item.1 == property_name.0 {
+                                        return Ok(ast.add_expr(Expr::Access { target, field: item.0 }, item.2, span));
+                                    }
+                                }
+
+                                panic!("can't index {ty:?}: no field called {}", property_name.0);
+                            }
+                            ty => unimplemented!("{ty:?}"),
+                        }
+                    }
                     IndexTarget::Expression(expr) => {
                         let index = expr.into_typed_ast(checker, ast, index_expr.index.span)?;
 
-                        checker.solver.unify(checker.core_types.uint_size, ast[index].ty);
+                        checker.solver.unify(ast[index].ty, checker.core_types.uint_size);
 
                         match checker.solver.get_info(ast[target].ty) {
-                            TypeInfo::Array(element, _) => (Expr::Index { target, index }, *element),
+                            TypeInfo::Array(element, _) => Ok(ast.add_expr(Expr::Index { target, index }, *element, span)),
                             _ => unimplemented!(),
                         }
                     }
-                };
-
-                Ok(ast.add_expr(expr, ty, span))
+                }
             }
             Self::Binary(binary_expr) => {
                 let lhs = binary_expr.lhs.into_typed_ast(checker, ast)?;
                 let rhs = binary_expr.rhs.into_typed_ast(checker, ast)?;
 
-                checker.solver.unify(ast[lhs].ty, ast[rhs].ty);
+                checker.solver.unify(ast[rhs].ty, ast[lhs].ty);
 
                 let ty = if matches!(
                     binary_expr.operator.value,
@@ -279,28 +354,27 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
                 ))
             }
             Self::TypeIndex(type_index_expr) => {
-                let target = type_index_expr.target.into_typed_ast(checker, ast)?;
-                let ty = checker.solver.get_as_type(target, &checker.types).unwrap();
+                let target_field = type_index_expr.target.into_typed_ast(checker, ast)?;
+                let target = target_field.as_type_info(None, &checker.core_types, &mut checker.solver, &[]);
 
-                let vfunc = checker.types.find_vtable_func(&ty.variant, &type_index_expr.index.value.0).unwrap();
-                let vfunc_ty = checker.types.get_vfunc_type(vfunc).unwrap();
-
-                if let Some(func) = vfunc_ty.variant.as_function() {
-                    let args = func
-                        .args
-                        .iter()
-                        .map(|arg| checker.solver.add_info(TypeInfo::Type(checker.types.ref_of_type(arg).unwrap())))
-                        .collect();
-
-                    let output = checker
-                        .solver
-                        .add_info(TypeInfo::Type(checker.types.ref_of_type(func.returns.as_ref()).unwrap()));
-                    let ty = checker.solver.add_info(TypeInfo::Func(args, output));
-
-                    Ok(ast.add_expr(Expr::TypeIndex { target, func: vfunc }, ty, span))
-                } else {
-                    unimplemented!()
+                if let Some(vtables) = checker.solver.vtables.get(&target_field) {
+                    for &vtable in vtables.values() {
+                        for (func_ref, func) in checker.vtables[vtable].iter() {
+                            if func.name == type_index_expr.index.value.0 {
+                                return Ok(ast.add_expr(
+                                    Expr::TypeIndex {
+                                        target,
+                                        func: VFunc::Known(vtable, func_ref),
+                                    },
+                                    func.ty,
+                                    span,
+                                ));
+                            }
+                        }
+                    }
                 }
+
+                unimplemented!()
             }
             Self::Array(array_expr) => {
                 let element = checker.solver.add_info(TypeInfo::Unknown(None));
@@ -339,7 +413,7 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
                 let else_block = if let Some(else_block) = if_else_expr.else_block {
                     let block = else_block.into_typed_ast(checker, ast)?;
 
-                    checker.solver.unify(ty, ast[block].ty);
+                    checker.solver.unify(ast[block].ty, ty);
 
                     Some(block)
                 } else {
@@ -354,13 +428,13 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
                 let condition_expected = checker.core_types.boolean;
                 let condition = while_expr.condition.into_typed_ast(checker, ast)?;
 
-                checker.solver.unify(condition_expected, ast[condition].ty);
+                checker.solver.unify(ast[condition].ty, condition_expected);
 
                 let ty = checker.core_types.void;
                 let block = while_expr.block.into_typed_ast(checker, ast)?;
 
                 checker.solver.pop_frame();
-                checker.solver.unify(ty, ast[block].ty);
+                checker.solver.unify(ast[block].ty, ty);
 
                 Ok(ast.add_expr(Expr::While { condition, block }, ty, span))
             }
@@ -375,16 +449,34 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
                 Ok(ast.add_expr(Expr::Block(block), ty, span))
             }
             Self::EnumPath(enum_path_expr) => {
-                let target = checker.types.get_named_type_ref(enum_path_expr.target.value.0).unwrap();
+                let target = *checker.name_to_complex_type.get(&enum_path_expr.target.value.0).unwrap();
+                let mut applied_generics = enum_path_expr
+                    .index
+                    .value
+                    .generics
+                    .into_iter()
+                    .map(|generic| generic.into_typed_ast(checker, ast).ok())
+                    .collect::<Option<Vec<_>>>()
+                    .unwrap();
+
+                let target_ty = &checker.complex_types[target];
                 let mut current_variant = None;
                 let mut resulting_fields = None;
+                let generic_args = (0..target_ty.generics)
+                    .rev()
+                    .map(|generic| {
+                        applied_generics
+                            .pop()
+                            .unwrap_or(FieldType::Generic(generic))
+                            .as_type_info(None, &checker.core_types, &mut checker.solver, &[])
+                    })
+                    .rev()
+                    .collect::<Box<_>>();
 
-                if let Some(ty) = checker.types.get_type(target).cloned()
-                    && let Some(enumeration) = ty.variant.as_enum()
-                {
-                    for (variant, (name, _)) in enumeration.variants.iter().enumerate() {
-                        if name == &enum_path_expr.index.value.name.value.0 {
-                            current_variant.replace(variant);
+                if matches!(target_ty.kind, ComplexTypeKind::Enum) {
+                    for (variant, variant_value) in target_ty.variants.raw.iter().enumerate() {
+                        if variant_value.name.as_deref() == Some(enum_path_expr.index.value.name.value.0.as_str()) {
+                            current_variant.replace(ComplexTypeVariantRef::new(variant));
 
                             break;
                         }
@@ -393,37 +485,36 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
                     if let Some(current_variant) = current_variant
                         && let Some(fields) = enum_path_expr.properties
                     {
-                        let variant = &enumeration.variants[current_variant].1;
+                        let mut new_fields = Vec::new();
 
-                        if let Some(props) = &variant.properties {
-                            let mut new_fields = Vec::new();
+                        for value in fields.value {
+                            let name = value.value.name.value.0;
 
-                            for value in fields.value {
-                                let name = value.value.name.value.0;
+                            let field = checker.complex_types[target].variants[current_variant]
+                                .fields
+                                .iter()
+                                .find(|(_, (field_name, ..))| field_name == &name)
+                                .map(|(field, (_, ty, _))| (field, ty.as_type_info(None, &checker.core_types, &mut checker.solver, &generic_args)));
 
-                                if let Some(prop) = props.iter().find(|prop| prop.0 == name) {
-                                    let value = value.value.value.into_typed_ast(checker, ast)?;
+                            if let Some((field, ty)) = field {
+                                let value = value.value.value.into_typed_ast(checker, ast)?;
 
-                                    let expected = checker.types.ref_of_type(&prop.1).unwrap();
-                                    let expected = checker.solver.add_info(TypeInfo::Type(expected));
+                                checker.solver.unify(ast[value].ty, ty);
 
-                                    checker.solver.unify(expected, ast[value].ty);
-
-                                    new_fields.push((name, value));
-                                }
+                                new_fields.push((field, name, value));
                             }
-
-                            resulting_fields.replace(new_fields);
                         }
+
+                        resulting_fields.replace(new_fields);
                     }
                 }
 
-                let ty = checker.solver.add_info(TypeInfo::Type(target));
+                let ty = checker.solver.add_info(TypeInfo::Complex(target, ComplexTypeKind::Enum, generic_args));
 
                 Ok(ast.add_expr(
                     Expr::ConstructEnum {
                         ty,
-                        variant: current_variant.unwrap(),
+                        variant: current_variant.unwrap().index(),
                         fields: resulting_fields.map(|value| value.into_boxed_slice()),
                     },
                     ty,
@@ -432,7 +523,11 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
             }
             Self::Is(is_expr) => {
                 let target = is_expr.target.into_typed_ast(checker, ast)?;
-                let pattern = is_expr.pattern.into_typed_ast(checker, ast)?;
+                let pattern = is_expr
+                    .pattern
+                    .span
+                    .wrap((ast[target].ty, is_expr.pattern.value))
+                    .into_typed_ast(checker, ast)?;
 
                 Ok(ast.add_expr(Expr::IsPattern { target, pattern }, checker.core_types.boolean, span))
             }
@@ -536,65 +631,93 @@ impl IntoTypedAST<BlockRef> for mollie_parser::BlockExpr {
     }
 }
 
-impl IntoTypedAST<IsPattern> for mollie_parser::IsPattern {
+impl IntoTypedAST<IsPattern> for (TypeInfoRef, mollie_parser::IsPattern) {
     fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST, span: Span) -> Result<IsPattern, ()> {
-        Ok(match self {
-            Self::Literal(literal_expr) => IsPattern::Literal(literal_expr.into_typed_ast(checker, ast, span)?),
-            Self::Enum { target, index, values } => {
-                let target = checker.types.get_named_type_ref(target.value.0).unwrap();
+        Ok(match self.1 {
+            mollie_parser::IsPattern::Literal(literal_expr) => IsPattern::Literal(literal_expr.into_typed_ast(checker, ast, span)?),
+            mollie_parser::IsPattern::Enum { target, index, values } => {
+                let target = *checker.name_to_complex_type.get(&target.value.0).unwrap();
                 let mut current_variant = None;
                 let mut resulting_values = None;
-
-                if let Some(ty) = checker.types.get_type(target).cloned()
-                    && let Some(enumeration) = ty.variant.as_enum()
-                {
-                    for (variant, (name, _)) in enumeration.variants.iter().enumerate() {
-                        if name == &index.value.name.value.0 {
+                let target_args = if matches!(checker.complex_types[target].kind, ComplexTypeKind::Enum) {
+                    for (variant, variant_data) in checker.complex_types[target].variants.iter() {
+                        if variant_data.name.as_ref() == Some(&index.value.name.value.0) {
                             current_variant.replace(variant);
 
                             break;
                         }
                     }
 
+                    let mut applied_generics = index
+                        .value
+                        .generics
+                        .into_iter()
+                        .map(|generic| generic.into_typed_ast(checker, ast).ok())
+                        .collect::<Option<Vec<_>>>()
+                        .unwrap();
+
+                    let ty = &checker.complex_types[target];
+                    let generic_args = (0..ty.generics)
+                        .rev()
+                        .map(|generic| {
+                            applied_generics
+                                .pop()
+                                .unwrap_or(FieldType::Generic(generic))
+                                .as_type_info(None, &checker.core_types, &mut checker.solver, &[])
+                        })
+                        .rev()
+                        .collect::<Box<_>>();
+
                     if let Some(current_variant) = current_variant
                         && let Some(values) = values
                     {
-                        let variant = &enumeration.variants[current_variant].1;
+                        let fields = ty
+                            .instantiate(current_variant, None, &checker.core_types, &mut checker.solver, &generic_args)
+                            .map(|(field, name, ty)| (field, name.to_string(), ty))
+                            .collect::<Box<[_]>>();
 
-                        if let Some(props) = &variant.properties {
-                            let mut new_values = Vec::new();
+                        let mut new_values = Vec::new();
 
-                            for value in values.value {
-                                if let Some(prop) = props.iter().find(|prop| prop.0 == value.value.name.value.0) {
-                                    let pattern = if let Some(value) = value.value.value {
-                                        Some(value.into_typed_ast(checker, ast)?)
-                                    } else {
-                                        None
-                                    };
+                        for value in values.value {
+                            if let Some(prop) = fields.iter().find(|prop| prop.1 == value.value.name.value.0) {
+                                let pattern = if let Some(value) = value.value.value {
+                                    Some(value.span.wrap((prop.2, value.value)).into_typed_ast(checker, ast)?)
+                                } else {
+                                    None
+                                };
 
-                                    if pattern.is_none() {
-                                        let ty = checker.solver.add_info(TypeInfo::Type(checker.types.ref_of_type(&prop.1).unwrap()));
-
-                                        checker.solver.add_var(&prop.0, ty);
-                                    }
-
-                                    new_values.push((value.value.name.value.0, pattern));
+                                if pattern.is_none() {
+                                    checker.solver.add_var(&prop.1, prop.2);
                                 }
-                            }
 
-                            resulting_values.replace(new_values);
+                                new_values.push((prop.0, value.value.name.value.0, pattern));
+                            }
+                        }
+
+                        resulting_values.replace(new_values);
+                    }
+
+                    if let TypeInfo::Complex(_, _, type_args) = checker.solver.get_info(self.0) {
+                        for (expected, got) in type_args.clone().into_iter().zip(&generic_args) {
+                            checker.solver.unify(*got, expected);
                         }
                     }
-                }
+
+                    generic_args
+                } else {
+                    Box::default()
+                };
 
                 IsPattern::EnumVariant {
                     target,
+                    target_args,
                     variant: current_variant.unwrap(),
                     values: resulting_values.map(|v| v.into_boxed_slice()),
                 }
             }
-            Self::TypeName { ty, name } => {
+            mollie_parser::IsPattern::TypeName { ty, name } => {
                 let ty = ty.into_typed_ast(checker, ast)?;
+                let ty = ty.as_type_info(None, &checker.core_types, &mut checker.solver, &[]);
 
                 checker.solver.add_var(&name.value.0, ty);
 
@@ -618,132 +741,513 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
 
                 if let Some(ty) = variable_decl.ty {
                     let ty = ty.into_typed_ast(checker, ast)?;
+                    let ty = ty.as_type_info(None, &checker.core_types, &mut checker.solver, &[]);
 
                     assert!(!checker.solver.contains_unknown(ty), "explicit type can't have non-explicit generics");
 
                     checker.solver.unify(value_ty, ty);
+                    checker.solver.add_var(&variable_decl.name.value.0, ty);
+                } else {
+                    checker.solver.add_var(&variable_decl.name.value.0, value_ty);
                 }
 
-                checker.solver.add_var(variable_decl.name.value.0, value_ty);
-
-                Ok(None)
+                Ok(Some(ast.add_stmt(Stmt::VariableDecl {
+                    name: variable_decl.name.value.0,
+                    value,
+                })))
             }
             Self::StructDecl(struct_decl) => {
-                let mut properties = Vec::new();
-
                 for (index, name) in struct_decl.name.value.generics.iter().enumerate() {
-                    checker.types.add_named_type(&name.value.0, TypeVariant::Generic(index));
+                    checker.available_generics.insert(name.value.0.clone(), index);
                 }
 
-                // let mut fields = Vec::new();
+                let mut variants = IndexVec::new();
+                let mut properties = IndexVec::new();
 
                 for property in struct_decl.properties.value {
                     let name = property.value.name.value.0;
                     let ty = property.value.ty.into_typed_ast(checker, ast)?;
-                    // let constant = property.value.default_value.as_ref().and_then(|value|
-                    // ConstantValue::to_constant(&value.value));
+                    let constant = match property.value.default_value {
+                        Some(value) => {
+                            let expected_ty = ty.as_type_info(None, &checker.core_types, &mut checker.solver, &[]);
+                            let value = value.into_typed_ast(checker, ast)?;
 
-                    // fields.push((ty.variant.as_ir_type(compiler.jit.module.isa()), constant));
+                            checker.solver.unify(ast[value].ty, expected_ty);
 
-                    if let &TypeInfo::Type(ty) = checker.solver.get_info(ty) {
-                        properties.push((name, checker.types.get_type(ty).unwrap().clone()));
-                    }
+                            Some(value.into_constant_value(checker, ast, &mut ConstantContext::default())?)
+                        }
+                        None => None,
+                    };
+
+                    properties.push((name, ty, constant));
                 }
+
+                variants.push(ComplexTypeVariant {
+                    name: None,
+                    discriminant: 0,
+                    fields: properties.into_boxed_slice(),
+                });
 
                 for name in &struct_decl.name.value.generics {
-                    checker.types.remove_named_type(&name.value.0);
+                    checker.available_generics.remove(&name.value.0);
                 }
 
-                let ty = Type {
-                    applied_generics: Vec::new(),
-                    variant: TypeVariant::complex(ComplexType::Struct(StructType {
-                        structure: Default::default(),
-                        generics: struct_decl.name.value.generics.into_iter().map(|g| g.value.0).collect(),
-                        properties,
-                    })),
-                    declared_at: Some(span),
-                };
+                let complex_type = ComplexTypeRef::new(checker.complex_types.len());
 
-                checker.types.add_named_full_type(struct_decl.name.value.name.value.0, ty);
+                checker.name_to_complex_type.insert(struct_decl.name.value.name.value.0.clone(), complex_type);
+                checker.complex_types.push(ComplexType {
+                    name: Some(struct_decl.name.value.name.value.0),
+                    kind: ComplexTypeKind::Struct,
+                    generics: struct_decl.name.value.generics.len(),
+                    variants: variants.into_boxed_slice(),
+                });
 
                 Ok(None)
             }
-            Self::ComponentDecl(component_decl) => todo!(),
-            Self::TraitDecl(trait_decl) => todo!(),
-            Self::EnumDecl(enum_decl) => todo!(),
-            Self::FuncDecl(func_decl) => todo!(),
-            Self::Impl(_) => todo!(),
+            Self::ComponentDecl(component_decl) => {
+                for (index, name) in component_decl.name.value.generics.iter().enumerate() {
+                    checker.available_generics.insert(name.value.0.clone(), index);
+                }
+
+                let mut variants = IndexVec::new();
+                let mut fields = IndexVec::with_capacity(component_decl.properties.len());
+
+                for property in component_decl.properties {
+                    let name = property.value.name.value.0;
+                    let ty = property.value.ty.into_typed_ast(checker, ast)?;
+                    let constant = match property.value.default_value {
+                        Some(value) => {
+                            let expected_ty = ty.as_type_info(None, &checker.core_types, &mut checker.solver, &[]);
+                            let value = value.into_typed_ast(checker, ast)?;
+
+                            checker.solver.unify(ast[value].ty, expected_ty);
+
+                            Some(value.into_constant_value(checker, ast, &mut ConstantContext::default())?)
+                        }
+                        None => None,
+                    };
+
+                    fields.push((name, ty, constant));
+                }
+
+                variants.push(ComplexTypeVariant {
+                    name: None,
+                    discriminant: 0,
+                    fields: fields.into_boxed_slice(),
+                });
+
+                for name in &component_decl.name.value.generics {
+                    checker.available_generics.remove(&name.value.0);
+                }
+
+                let complex_type = ComplexTypeRef::new(checker.complex_types.len());
+
+                checker
+                    .name_to_complex_type
+                    .insert(component_decl.name.value.name.value.0.clone(), complex_type);
+                checker.complex_types.push(ComplexType {
+                    name: Some(component_decl.name.value.name.value.0),
+                    kind: ComplexTypeKind::Component,
+                    generics: component_decl.name.value.generics.len(),
+                    variants: variants.into_boxed_slice(),
+                });
+
+                Ok(None)
+            }
+            Self::TraitDecl(trait_decl) => {
+                for (index, name) in trait_decl.name.value.generics.iter().enumerate() {
+                    checker.available_generics.insert(name.value.0.clone(), index);
+                }
+
+                let mut functions = IndexVec::with_capacity(trait_decl.functions.value.len());
+
+                for function in trait_decl.functions.value {
+                    let name = function.value.name.value.0;
+                    let mut args = Vec::with_capacity(function.value.args.len() + usize::from(function.value.this.is_some()));
+
+                    if function.value.this.is_some() {
+                        args.push(FieldType::This);
+                    }
+
+                    for arg in function.value.args {
+                        args.push(arg.value.ty.into_typed_ast(checker, ast)?);
+                    }
+
+                    let output = function
+                        .value
+                        .returns
+                        .map_or(Ok(FieldType::Primitive(PrimitiveType::Void)), |returns| returns.into_typed_ast(checker, ast))?;
+
+                    functions.push((name, args, output));
+                }
+
+                for name in &trait_decl.name.value.generics {
+                    checker.available_generics.remove(&name.value.0);
+                }
+
+                let trait_ref = TraitRef::new(checker.traits.len());
+
+                checker.name_to_trait.insert(trait_decl.name.value.name.value.0, trait_ref);
+                checker.traits.push((trait_decl.name.value.generics.len(), functions));
+
+                Ok(None)
+            }
+            Self::EnumDecl(enum_decl) => {
+                for (index, name) in enum_decl.name.value.generics.iter().enumerate() {
+                    checker.available_generics.insert(name.value.0.clone(), index);
+                }
+
+                let mut variants = IndexVec::new();
+
+                for (discriminant, variant) in enum_decl.variants.value.into_iter().enumerate() {
+                    let name = Some(variant.value.name.value.0);
+                    let mut fields = IndexVec::with_capacity(variant.value.properties.as_ref().map(|value| value.value.len()).unwrap_or_default());
+
+                    if let Some(properties) = variant.value.properties {
+                        for property in properties.value {
+                            let name = property.value.name.value.0;
+                            let ty = property.value.ty.into_typed_ast(checker, ast)?;
+
+                            fields.push((name, ty, None));
+                        }
+                    }
+
+                    variants.push(ComplexTypeVariant {
+                        name,
+                        discriminant,
+                        fields: fields.into_boxed_slice(),
+                    });
+                }
+
+                for name in &enum_decl.name.value.generics {
+                    checker.available_generics.remove(&name.value.0);
+                }
+
+                let complex_type = ComplexTypeRef::new(checker.complex_types.len());
+
+                checker.name_to_complex_type.insert(enum_decl.name.value.name.value.0.clone(), complex_type);
+                checker.complex_types.push(ComplexType {
+                    name: Some(enum_decl.name.value.name.value.0),
+                    kind: ComplexTypeKind::Enum,
+                    generics: enum_decl.name.value.generics.len(),
+                    variants: variants.into_boxed_slice(),
+                });
+
+                Ok(None)
+            }
+            Self::FuncDecl(func_decl) => {
+                checker.solver.push_frame();
+
+                let mut arg_names = Vec::with_capacity(func_decl.args.capacity());
+                let mut args = Vec::with_capacity(func_decl.args.capacity());
+
+                for arg in func_decl.args {
+                    let ty = arg.value.ty.into_typed_ast(checker, ast)?;
+                    let ty = ty.as_type_info(None, &checker.core_types, &mut checker.solver, &[]);
+
+                    checker.solver.add_var(&arg.value.name.value.0, ty);
+
+                    arg_names.push(arg.value.name.value.0);
+                    args.push(ty);
+                }
+
+                let returns = if let Some(returns) = func_decl.returns {
+                    returns
+                        .into_typed_ast(checker, ast)?
+                        .as_type_info(None, &checker.core_types, &mut checker.solver, &[])
+                } else {
+                    checker.core_types.void
+                };
+
+                let body = func_decl.body.into_typed_ast(checker, ast)?;
+
+                checker.solver.unify(ast[body].ty, returns);
+                checker.solver.pop_frame();
+
+                let ty = checker.solver.add_info(TypeInfo::Func(args.into_boxed_slice(), returns));
+
+                checker.solver.add_var(&func_decl.name.value.0, ty);
+                checker.local_functions.push(Func {
+                    name: func_decl.name.value.0,
+                    arg_names,
+                    ty,
+                    kind: VTableFuncKind::Local(body),
+                });
+
+                Ok(None)
+            }
+            Self::Impl(mut implementation) => {
+                for (index, name) in implementation.generics.iter().enumerate() {
+                    checker.available_generics.insert(name.value.0.clone(), index);
+                }
+
+                let mut applied_generics = Vec::new();
+
+                let trait_ref = match implementation.trait_name {
+                    Some(trait_name) => {
+                        applied_generics = trait_name
+                            .value
+                            .generics
+                            .into_iter()
+                            .map(|generic| {
+                                generic
+                                    .into_typed_ast(checker, ast)
+                                    .map(|v| v.as_type_info(None, &checker.core_types, &mut checker.solver, &[]))
+                            })
+                            .collect::<Result<_, _>>()?;
+
+                        checker
+                            .name_to_trait
+                            .get(&trait_name.value.name.value.0)
+                            .copied()
+                            .map(|t| (trait_name.value.name.value.0, t))
+                    }
+                    None => None,
+                };
+
+                let target = implementation.target.into_typed_ast(checker, ast)?;
+                let target_info = target.as_type_info(None, &checker.core_types, &mut checker.solver, &applied_generics);
+                let mut functions = IndexVec::with_capacity(
+                    implementation
+                        .functions
+                        .value
+                        .capacity()
+                        .max(trait_ref.as_ref().map(|(_, t)| checker.traits[*t].1.len()).unwrap_or_default()),
+                );
+
+                if let Some((trait_name, trait_ref)) = &trait_ref {
+                    let trait_functions = checker.traits[*trait_ref]
+                        .1
+                        .iter()
+                        .map(|(k, (name, ..))| (k, name.clone()))
+                        .collect::<Box<[_]>>();
+
+                    for (func_ref, name) in trait_functions {
+                        if let Some(func) = implementation.functions.value.iter().position(|func| func.value.name.value.0 == name) {
+                            let function = implementation.functions.value.remove(func);
+
+                            checker.solver.push_frame();
+
+                            let mut arg_names = Vec::with_capacity(function.value.args.capacity() + usize::from(function.value.this.is_some()));
+                            let mut args = Vec::with_capacity(function.value.args.capacity() + usize::from(function.value.this.is_some()));
+
+                            if function.value.this.is_some() {
+                                checker.solver.add_var("self", target_info);
+
+                                arg_names.push("self".to_string());
+                                args.push(target_info);
+                            }
+
+                            for arg in function.value.args {
+                                let ty = arg.value.ty.into_typed_ast(checker, ast)?;
+                                let ty = ty.as_type_info(Some(target_info), &checker.core_types, &mut checker.solver, &applied_generics);
+
+                                checker.solver.add_var(&arg.value.name.value.0, ty);
+
+                                arg_names.push(arg.value.name.value.0);
+                                args.push(ty);
+                            }
+
+                            let returns = if let Some(returns) = function.value.returns {
+                                returns.into_typed_ast(checker, ast)?.as_type_info(
+                                    Some(target_info),
+                                    &checker.core_types,
+                                    &mut checker.solver,
+                                    &applied_generics,
+                                )
+                            } else {
+                                checker.core_types.void
+                            };
+
+                            let body = function.value.body.into_typed_ast(checker, ast)?;
+
+                            checker.solver.unify(ast[body].ty, returns);
+                            checker.solver.pop_frame();
+
+                            functions.push(VTableFunc {
+                                trait_func: Some(func_ref),
+                                name: function.value.name.value.0,
+                                arg_names,
+                                ty: checker.solver.add_info(TypeInfo::Func(args.into_boxed_slice(), returns)),
+                                kind: VTableFuncKind::Local(body),
+                            });
+                        } else {
+                            println!("didn't found implementation for {trait_name}::{name}");
+                        }
+                    }
+                }
+
+                for function in implementation.functions.value {
+                    if let Some((trait_name, _)) = &trait_ref {
+                        println!("there's no function called {} in {trait_name}", function.value.name.value.0);
+                    }
+
+                    checker.solver.push_frame();
+
+                    let mut arg_names = Vec::with_capacity(function.value.args.capacity() + usize::from(function.value.this.is_some()));
+                    let mut args = Vec::with_capacity(function.value.args.capacity() + usize::from(function.value.this.is_some()));
+
+                    if function.value.this.is_some() {
+                        checker.solver.add_var("self", target_info);
+
+                        arg_names.push("self".to_string());
+                        args.push(target_info);
+                    }
+
+                    for arg in function.value.args {
+                        let ty = arg.value.ty.into_typed_ast(checker, ast)?;
+                        let ty = ty.as_type_info(Some(target_info), &checker.core_types, &mut checker.solver, &applied_generics);
+
+                        checker.solver.add_var(&arg.value.name.value.0, ty);
+
+                        arg_names.push(arg.value.name.value.0);
+                        args.push(ty);
+                    }
+
+                    let returns = if let Some(returns) = function.value.returns {
+                        returns
+                            .into_typed_ast(checker, ast)?
+                            .as_type_info(Some(target_info), &checker.core_types, &mut checker.solver, &applied_generics)
+                    } else {
+                        checker.core_types.void
+                    };
+
+                    let body = function.value.body.into_typed_ast(checker, ast)?;
+
+                    checker.solver.unify(ast[body].ty, returns);
+                    checker.solver.pop_frame();
+
+                    functions.push(VTableFunc {
+                        trait_func: None,
+                        name: function.value.name.value.0,
+                        arg_names,
+                        ty: checker.solver.add_info(TypeInfo::Func(args.into_boxed_slice(), returns)),
+                        kind: VTableFuncKind::Local(body),
+                    });
+                }
+
+                for name in &implementation.generics {
+                    checker.available_generics.remove(&name.value.0);
+                }
+
+                let (trait_name, trait_ref) = match trait_ref {
+                    Some((name, t_ref)) => (Some(name), Some(t_ref)),
+                    None => (None, None),
+                };
+
+                match checker.solver.vtables.entry(target) {
+                    Entry::Occupied(entry) => match entry.into_mut().entry(trait_ref) {
+                        Entry::Occupied(entry) => {
+                            if let Some(trait_name) = &trait_name {
+                                println!("duplicate {trait_name} implementation!");
+                            } else {
+                                for func in functions.into_values() {
+                                    checker.vtables[*entry.get()].push(func);
+                                }
+                            }
+                        }
+                        Entry::Vacant(entry) => {
+                            entry.insert(checker.vtables.insert(functions));
+                        }
+                    },
+                    Entry::Vacant(entry) => {
+                        entry.insert(iter::once((trait_ref, checker.vtables.insert(functions))).collect());
+                    }
+                }
+
+                Ok(None)
+            }
+            Self::Import(_) => todo!(),
         }
     }
 }
 
-impl IntoTypedAST<TypeInfoRef> for mollie_parser::CustomType {
-    fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST, span: Span) -> Result<TypeInfoRef, ()> {
-        let applied_generics = self
-            .generics
-            .into_iter()
-            .map(|generic| generic.into_typed_ast(checker, ast))
-            .collect::<Result<Vec<_>, _>>()?;
+impl IntoTypedAST<FieldType> for mollie_parser::CustomType {
+    fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST, _: Span) -> Result<FieldType, ()> {
+        Ok(checker.available_generics.get(&self.name.value.0).copied().map_or_else(
+            || {
+                let mut applied_generics = self
+                    .generics
+                    .into_iter()
+                    .map(|generic| generic.into_typed_ast(checker, ast).ok())
+                    .collect::<Option<Vec<_>>>()
+                    .unwrap();
 
-        let ty = checker.types.get_named_type_ref(self.name.value.0).unwrap();
-        let info = checker
-            .types
-            .get_type(ty)
-            .and_then(|ty| ty.variant.as_struct())
-            .map_or(TypeInfo::Type(ty), |structure| {
-                TypeInfo::Struct(
-                    ty,
-                    (0..structure.generics.len())
-                        .map(|generic| {
-                            applied_generics
-                                .get(generic)
-                                .copied()
-                                .unwrap_or_else(|| checker.solver.add_info(TypeInfo::Unknown(None)))
+                checker
+                    .name_to_trait
+                    .get(&self.name.value.0)
+                    .map(|&ty| {
+                        FieldType::Trait(
+                            ty,
+                            (0..checker.traits[ty].0)
+                                .rev()
+                                .map(|generic| applied_generics.pop().unwrap_or(FieldType::Generic(generic)))
+                                .rev()
+                                .collect(),
+                        )
+                    })
+                    .or_else(|| {
+                        checker.name_to_complex_type.get(&self.name.value.0).map(|&ty| {
+                            FieldType::Complex(
+                                ty,
+                                checker.complex_types[ty].kind,
+                                (0..checker.complex_types[ty].generics)
+                                    .rev()
+                                    .map(|generic| applied_generics.pop().unwrap_or(FieldType::Generic(generic)))
+                                    .rev()
+                                    .collect(),
+                            )
                         })
-                        .collect(),
-                )
-            });
-
-        Ok(checker.solver.add_info(info))
+                    })
+                    .unwrap()
+            },
+            FieldType::Generic,
+        ))
     }
 }
 
-impl IntoTypedAST<TypeInfoRef> for mollie_parser::Type {
-    fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST, span: Span) -> Result<TypeInfoRef, ()> {
+impl IntoTypedAST<FieldType> for mollie_parser::Type {
+    fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST, span: Span) -> Result<FieldType, ()> {
         Ok(match self {
-            Self::Primitive(primitive_type) => match primitive_type {
-                mollie_parser::PrimitiveType::IntSize => checker.core_types.int_size,
-                mollie_parser::PrimitiveType::Int64 => checker.core_types.int64,
-                mollie_parser::PrimitiveType::Int32 => checker.core_types.int32,
-                mollie_parser::PrimitiveType::Int16 => checker.core_types.int16,
-                mollie_parser::PrimitiveType::Int8 => checker.core_types.int8,
-                mollie_parser::PrimitiveType::UIntSize => checker.core_types.uint_size,
-                mollie_parser::PrimitiveType::UInt64 => checker.core_types.uint64,
-                mollie_parser::PrimitiveType::UInt32 => checker.core_types.uint32,
-                mollie_parser::PrimitiveType::UInt16 => checker.core_types.uint16,
-                mollie_parser::PrimitiveType::UInt8 => checker.core_types.uint8,
-                mollie_parser::PrimitiveType::Float => checker.core_types.float,
-                mollie_parser::PrimitiveType::Boolean => checker.core_types.boolean,
-                mollie_parser::PrimitiveType::String => checker.core_types.string,
-                mollie_parser::PrimitiveType::Component => checker.core_types.component,
-                mollie_parser::PrimitiveType::Void => checker.core_types.void,
-            },
+            Self::Primitive(primitive_type) => {
+                use mollie_parser::PrimitiveType::{
+                    Boolean, Component, Float, Int8, Int16, Int32, Int64, IntSize, String, UInt8, UInt16, UInt32, UInt64, UIntSize, Void,
+                };
+
+                match primitive_type {
+                    IntSize => FieldType::Primitive(PrimitiveType::ISize),
+                    Int64 => FieldType::Primitive(PrimitiveType::I64),
+                    Int32 => FieldType::Primitive(PrimitiveType::I32),
+                    Int16 => FieldType::Primitive(PrimitiveType::I16),
+                    Int8 => FieldType::Primitive(PrimitiveType::I8),
+                    UIntSize => FieldType::Primitive(PrimitiveType::USize),
+                    UInt64 => FieldType::Primitive(PrimitiveType::U64),
+                    UInt32 => FieldType::Primitive(PrimitiveType::U32),
+                    UInt16 => FieldType::Primitive(PrimitiveType::U16),
+                    UInt8 => FieldType::Primitive(PrimitiveType::U8),
+                    Float => FieldType::Primitive(PrimitiveType::Float),
+                    Boolean => FieldType::Primitive(PrimitiveType::Boolean),
+                    String => FieldType::Primitive(PrimitiveType::String),
+                    Component => FieldType::Primitive(PrimitiveType::Component),
+                    Void => FieldType::Primitive(PrimitiveType::Void),
+                }
+            }
             Self::Custom(custom_type) => custom_type.into_typed_ast(checker, ast, span)?,
             Self::Array(element, size) => {
                 let element = element.into_typed_ast(checker, ast)?;
 
-                checker.solver.add_info(TypeInfo::Array(element, size.map(|size| size.value)))
+                FieldType::Array(Box::new(element), size.map(|size| size.value))
             }
-            Self::OneOf(types) => todo!(),
+            Self::OneOf(_) => todo!(),
             Self::Func(args, output) => {
                 let args = args.into_iter().map(|arg| arg.into_typed_ast(checker, ast)).collect::<Result<_, _>>()?;
                 let output = if let Some(output) = output {
                     output.into_typed_ast(checker, ast)?
                 } else {
-                    checker.core_types.void
+                    FieldType::Primitive(PrimitiveType::Void)
                 };
 
-                checker.solver.add_info(TypeInfo::Func(args, output))
+                FieldType::Func(args, Box::new(output))
             }
         })
     }
@@ -778,7 +1282,7 @@ impl TypedAST {
             }
             &Expr::Block(block) => self.is_constant_block(block),
             Expr::Array(elements) => elements.iter().all(|&element| self.is_constant_expr(element)),
-            &Expr::Binary { operator, lhs, rhs } => self.is_constant_expr(lhs) && self.is_constant_expr(rhs),
+            &Expr::Binary { operator: _, lhs, rhs } => self.is_constant_expr(lhs) && self.is_constant_expr(rhs),
             _ => false,
         }
     }
@@ -791,115 +1295,154 @@ pub struct Block {
     pub expr: Option<ExprRef>,
 }
 
-#[cfg(test)]
-mod tests {
-    use mollie_parser::Parse;
-    use mollie_typing::{
-        PrimitiveType, TypeVariant,
-        resolver::{CoreTypes, TypeInfo, TypeSolver, TypeStorage},
-    };
+impl IntoConstantValue for BlockRef {
+    fn into_constant_value(self, checker: &TypeChecker, ast: &TypedAST, context: &mut ConstantContext) -> Result<ConstantValue, ()> {
+        for &stmt in &ast[self].value.stmts {
+            match &ast[stmt] {
+                Stmt::Expr(expr_ref) => {
+                    expr_ref.into_constant_value(checker, ast, context)?;
+                }
+                Stmt::VariableDecl { name, value } => {
+                    let value = value.into_constant_value(checker, ast, context)?;
 
-    use crate::{IntoPositionedTypedAST, TypeChecker, TypedAST, expression::Expr, index::IndexVec, visitor::Visitor};
-
-    struct TestVisitor;
-
-    impl Visitor for TestVisitor {
-        fn visit_var(&mut self, ast: &TypedAST, name: &str) {
-            println!("accessing to {name}");
+                    context.set_var(name, value);
+                }
+                Stmt::Import(_) => todo!(),
+            }
         }
+
+        ast[self]
+            .value
+            .expr
+            .map_or(Ok(ConstantValue::Nothing), |expr| expr.into_constant_value(checker, ast, context))
     }
+}
 
-    #[test]
-    fn test_typed_ast() {
-        let mut types = TypeStorage::default();
-        let mut solver = TypeSolver::default();
-
-        // struct A {}
-
-        // let a: A<f32> = A {};
-        // let b = a;
-
-        let core_types = CoreTypes {
-            void: solver.add_info(TypeInfo::Primitive(PrimitiveType::Void)),
-            any: solver.add_info(TypeInfo::Primitive(PrimitiveType::Any)),
-            boolean: solver.add_info(TypeInfo::Primitive(PrimitiveType::Boolean)),
-            int8: solver.add_info(TypeInfo::Primitive(PrimitiveType::I8)),
-            int16: solver.add_info(TypeInfo::Primitive(PrimitiveType::I16)),
-            int32: solver.add_info(TypeInfo::Primitive(PrimitiveType::I32)),
-            int64: solver.add_info(TypeInfo::Primitive(PrimitiveType::I64)),
-            int_size: solver.add_info(TypeInfo::Primitive(PrimitiveType::ISize)),
-            uint8: solver.add_info(TypeInfo::Primitive(PrimitiveType::U8)),
-            uint16: solver.add_info(TypeInfo::Primitive(PrimitiveType::U16)),
-            uint32: solver.add_info(TypeInfo::Primitive(PrimitiveType::U32)),
-            uint64: solver.add_info(TypeInfo::Primitive(PrimitiveType::U64)),
-            uint_size: solver.add_info(TypeInfo::Primitive(PrimitiveType::USize)),
-            float: solver.add_info(TypeInfo::Primitive(PrimitiveType::Float)),
-            component: solver.add_info(TypeInfo::Primitive(PrimitiveType::Component)),
-            string: solver.add_info(TypeInfo::Primitive(PrimitiveType::String)),
-        };
-
-        types.add_named_type("Hello", TypeVariant::structure([("alo", TypeVariant::usize()), ("da", TypeVariant::uint8())]));
-        types.add_named_type("magic", TypeVariant::function([TypeVariant::usize()], TypeVariant::usize()));
-
-        let mut checker = TypeChecker { core_types, types, solver };
-
-        let expr = mollie_parser::Expr::parse_value(
-            "{
-                struct B<T> { value: T }
-
-                const allow = |hello| { hello };
-                const alo: B<int32> = B { value: true };
-                const boolean = true;
-                const boolean: int64 = boolean;
-                const booleans: boolean[] = [boolean, boolean, boolean];
-                
-                allow(50);
-
-                B { value: B { value: allow } }
-            }",
-        )
-        .unwrap();
-        let mut ast = TypedAST {
-            blocks: IndexVec::new(),
-            statements: IndexVec::new(),
-            exprs: IndexVec::new(),
-        };
-
-        let expr = expr.into_typed_ast(&mut checker, &mut ast).unwrap();
-
-        TestVisitor.visit_expr(&ast, expr);
-
-        let result = checker
-            .solver
-            .format_type(checker.solver.get_actual_type(ast[expr].ty, &checker.types).unwrap(), &checker.types);
-
-        if let Expr::Binary { operator, lhs, rhs } = &ast[expr].value {
-            let lhs = checker
-                .solver
-                .format_type(checker.solver.get_actual_type(ast[*lhs].ty, &checker.types).unwrap(), &checker.types);
-
-            let rhs = checker
-                .solver
-                .format_type(checker.solver.get_actual_type(ast[*rhs].ty, &checker.types).unwrap(), &checker.types);
-
-            println!("{lhs} {operator} {rhs} => {result}");
-        } else {
-            println!("Typed AST dump: {ast:#?}");
-            println!("Solver size: {:#?}", checker.solver.len());
-            println!("Solver dump: {:#?}", checker.solver);
-
-            for error in checker.solver.errors.drain(..).collect::<Vec<_>>() {
-                match error {
-                    mollie_typing::resolver::TypeUnificationError::TypeMismatch(lhs, rhs) => {
-                        let lhs = checker.solver.get_actual_type(lhs, &checker.types).map(|ty| checker.solver.format_type(ty, &checker.types));
-                        let rhs = checker.solver.get_actual_type(rhs, &checker.types).map(|ty| checker.solver.format_type(ty, &checker.types));
-
-                        println!("type mismatch: {lhs:?} is not {rhs:?}");
-                    }
-                    mollie_typing::resolver::TypeUnificationError::ArraySizeMismatch(..) => {}
+impl IntoConstantValue for ExprRef {
+    fn into_constant_value(self, checker: &TypeChecker, ast: &TypedAST, context: &mut ConstantContext) -> Result<ConstantValue, ()> {
+        Ok(match &ast[self].value {
+            Expr::Literal(literal_expr) => match (literal_expr, checker.solver.get_info2(ast[self].ty)) {
+                (&LiteralExpr::Integer(value), TypeInfo::Primitive(primitive)) => match primitive {
+                    PrimitiveType::ISize => ConstantValue::ISize(value.try_into().map_err(|_| ())?),
+                    PrimitiveType::I64 => ConstantValue::I64(value),
+                    PrimitiveType::I32 => ConstantValue::I32(value.try_into().map_err(|_| ())?),
+                    PrimitiveType::I16 => ConstantValue::I16(value.try_into().map_err(|_| ())?),
+                    PrimitiveType::I8 => ConstantValue::I8(value.try_into().map_err(|_| ())?),
+                    PrimitiveType::USize => ConstantValue::USize(value.try_into().map_err(|_| ())?),
+                    PrimitiveType::U64 => ConstantValue::U64(value.cast_unsigned()),
+                    PrimitiveType::U32 => ConstantValue::U32(value.try_into().map_err(|_| ())?),
+                    PrimitiveType::U16 => ConstantValue::U16(value.try_into().map_err(|_| ())?),
+                    PrimitiveType::U8 => ConstantValue::U8(value.try_into().map_err(|_| ())?),
+                    _ => panic!("wrong type for integer"),
+                },
+                (&LiteralExpr::Float(value), TypeInfo::Primitive(PrimitiveType::Float)) => ConstantValue::Float(value),
+                (&LiteralExpr::Boolean(value), TypeInfo::Primitive(PrimitiveType::Boolean)) => ConstantValue::Boolean(value),
+                (LiteralExpr::String(value), TypeInfo::Primitive(PrimitiveType::String)) => ConstantValue::String(value.clone()),
+                (literal, _) => panic!(
+                    "wrong type for literal: expected {} for {literal:?}",
+                    checker.display_of_type(ast[self].ty, None)
+                ),
+            },
+            Expr::If { condition, block, else_block } => {
+                if condition.into_constant_value(checker, ast, context)? == ConstantValue::Boolean(true) {
+                    block.into_constant_value(checker, ast, context)?
+                } else if let Some(block) = else_block {
+                    block.into_constant_value(checker, ast, context)?
+                } else {
+                    ConstantValue::Nothing
                 }
             }
-            println!("{result}");
-        }
+            Expr::Block(block_ref) => {
+                context.push_frame();
+
+                let value = block_ref.into_constant_value(checker, ast, context)?;
+
+                context.pop_frame();
+
+                value
+            }
+            Expr::Var(name) => context.search_var(name).map_or_else(|| panic!("no variable called {name}"), Clone::clone),
+            Expr::Access { .. } => todo!(),
+            Expr::VTableAccess { .. } => todo!(),
+            Expr::Index { .. } => todo!(),
+            Expr::While { condition, block } => {
+                while condition.into_constant_value(checker, ast, context)? == ConstantValue::Boolean(true) {
+                    block.into_constant_value(checker, ast, context)?;
+                }
+
+                ConstantValue::Nothing
+            }
+            Expr::Array(expr_refs) => ConstantValue::Array(
+                expr_refs
+                    .iter()
+                    .map(|expr| expr.into_constant_value(checker, ast, context))
+                    .collect::<Result<_, _>>()?,
+            ),
+            Expr::Binary { operator, lhs, rhs } => match (
+                lhs.into_constant_value(checker, ast, context)?,
+                operator,
+                rhs.into_constant_value(checker, ast, context)?,
+            ) {
+                (ConstantValue::I8(a), Operator::Add, ConstantValue::I8(b)) => ConstantValue::I8(a + b),
+                (ConstantValue::U8(a), Operator::Add, ConstantValue::U8(b)) => ConstantValue::U8(a + b),
+                (ConstantValue::I16(a), Operator::Add, ConstantValue::I16(b)) => ConstantValue::I16(a + b),
+                (ConstantValue::U16(a), Operator::Add, ConstantValue::U16(b)) => ConstantValue::U16(a + b),
+                (ConstantValue::I32(a), Operator::Add, ConstantValue::I32(b)) => ConstantValue::I32(a + b),
+                (ConstantValue::U32(a), Operator::Add, ConstantValue::U32(b)) => ConstantValue::U32(a + b),
+                (ConstantValue::I64(a), Operator::Add, ConstantValue::I64(b)) => ConstantValue::I64(a + b),
+                (ConstantValue::U64(a), Operator::Add, ConstantValue::U64(b)) => ConstantValue::U64(a + b),
+                (ConstantValue::ISize(a), Operator::Add, ConstantValue::ISize(b)) => ConstantValue::ISize(a + b),
+                (ConstantValue::USize(a), Operator::Add, ConstantValue::USize(b)) => ConstantValue::USize(a + b),
+                (ConstantValue::Float(a), Operator::Add, ConstantValue::Float(b)) => ConstantValue::Float(a + b),
+                (ConstantValue::I8(a), Operator::Sub, ConstantValue::I8(b)) => ConstantValue::I8(a - b),
+                (ConstantValue::U8(a), Operator::Sub, ConstantValue::U8(b)) => ConstantValue::U8(a - b),
+                (ConstantValue::I16(a), Operator::Sub, ConstantValue::I16(b)) => ConstantValue::I16(a - b),
+                (ConstantValue::U16(a), Operator::Sub, ConstantValue::U16(b)) => ConstantValue::U16(a - b),
+                (ConstantValue::I32(a), Operator::Sub, ConstantValue::I32(b)) => ConstantValue::I32(a - b),
+                (ConstantValue::U32(a), Operator::Sub, ConstantValue::U32(b)) => ConstantValue::U32(a - b),
+                (ConstantValue::I64(a), Operator::Sub, ConstantValue::I64(b)) => ConstantValue::I64(a - b),
+                (ConstantValue::U64(a), Operator::Sub, ConstantValue::U64(b)) => ConstantValue::U64(a - b),
+                (ConstantValue::ISize(a), Operator::Sub, ConstantValue::ISize(b)) => ConstantValue::ISize(a - b),
+                (ConstantValue::USize(a), Operator::Sub, ConstantValue::USize(b)) => ConstantValue::USize(a - b),
+                (ConstantValue::Float(a), Operator::Sub, ConstantValue::Float(b)) => ConstantValue::Float(a - b),
+                (ConstantValue::I8(a), Operator::Mul, ConstantValue::I8(b)) => ConstantValue::I8(a * b),
+                (ConstantValue::U8(a), Operator::Mul, ConstantValue::U8(b)) => ConstantValue::U8(a * b),
+                (ConstantValue::I16(a), Operator::Mul, ConstantValue::I16(b)) => ConstantValue::I16(a * b),
+                (ConstantValue::U16(a), Operator::Mul, ConstantValue::U16(b)) => ConstantValue::U16(a * b),
+                (ConstantValue::I32(a), Operator::Mul, ConstantValue::I32(b)) => ConstantValue::I32(a * b),
+                (ConstantValue::U32(a), Operator::Mul, ConstantValue::U32(b)) => ConstantValue::U32(a * b),
+                (ConstantValue::I64(a), Operator::Mul, ConstantValue::I64(b)) => ConstantValue::I64(a * b),
+                (ConstantValue::U64(a), Operator::Mul, ConstantValue::U64(b)) => ConstantValue::U64(a * b),
+                (ConstantValue::ISize(a), Operator::Mul, ConstantValue::ISize(b)) => ConstantValue::ISize(a * b),
+                (ConstantValue::USize(a), Operator::Mul, ConstantValue::USize(b)) => ConstantValue::USize(a * b),
+                (ConstantValue::Float(a), Operator::Mul, ConstantValue::Float(b)) => ConstantValue::Float(a * b),
+                (ConstantValue::I8(a), Operator::Div, ConstantValue::I8(b)) => ConstantValue::I8(a / b),
+                (ConstantValue::U8(a), Operator::Div, ConstantValue::U8(b)) => ConstantValue::U8(a / b),
+                (ConstantValue::I16(a), Operator::Div, ConstantValue::I16(b)) => ConstantValue::I16(a / b),
+                (ConstantValue::U16(a), Operator::Div, ConstantValue::U16(b)) => ConstantValue::U16(a / b),
+                (ConstantValue::I32(a), Operator::Div, ConstantValue::I32(b)) => ConstantValue::I32(a / b),
+                (ConstantValue::U32(a), Operator::Div, ConstantValue::U32(b)) => ConstantValue::U32(a / b),
+                (ConstantValue::I64(a), Operator::Div, ConstantValue::I64(b)) => ConstantValue::I64(a / b),
+                (ConstantValue::U64(a), Operator::Div, ConstantValue::U64(b)) => ConstantValue::U64(a / b),
+                (ConstantValue::ISize(a), Operator::Div, ConstantValue::ISize(b)) => ConstantValue::ISize(a / b),
+                (ConstantValue::USize(a), Operator::Div, ConstantValue::USize(b)) => ConstantValue::USize(a / b),
+                (ConstantValue::Float(a), Operator::Div, ConstantValue::Float(b)) => ConstantValue::Float(a / b),
+                (ConstantValue::Boolean(a), Operator::And, ConstantValue::Boolean(b)) => ConstantValue::Boolean(a && b),
+                (ConstantValue::Boolean(a), Operator::Or, ConstantValue::Boolean(b)) => ConstantValue::Boolean(a || b),
+                (a, Operator::Equal, b) => ConstantValue::Boolean(a == b),
+                (a, Operator::NotEqual, b) => ConstantValue::Boolean(a != b),
+                (a, Operator::GreaterThan, b) => ConstantValue::Boolean(a > b),
+                (a, Operator::LessThan, b) => ConstantValue::Boolean(a < b),
+                (a, op, b) => panic!("wrong binary operation: {a:?} {op} {b:?}"),
+            },
+            Expr::Call { .. } => todo!(),
+            Expr::Closure { .. } => todo!(),
+            Expr::Construct { .. } => todo!(),
+            Expr::ConstructEnum { .. } => todo!(),
+            Expr::ConstructComponent { .. } => todo!(),
+            Expr::IsPattern { .. } => todo!(),
+            Expr::TypeIndex { .. } => todo!(),
+            Expr::Nothing => ConstantValue::Nothing,
+        })
     }
 }

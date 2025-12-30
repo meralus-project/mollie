@@ -24,6 +24,7 @@ impl Lexer {
             "from" => Token::From,
             "struct" => Token::Struct,
             "enum" => Token::Enum,
+            "import" => Token::Import,
             // "match" => Token::Match,
             "fn" => Token::Fn,
             "trait" => Token::Trait,

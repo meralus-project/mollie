@@ -10,9 +10,12 @@ serde = ["dep:serde", "mollie-typing/serde"]
 [dependencies]
 serde = { workspace = true, optional = true }
 mollie-shared = { workspace = true }
+mollie-index = { workspace = true }
 mollie-lexer = { workspace = true }
 mollie-parser = { workspace = true }
+mollie-const = { workspace = true }
 mollie-typing = { workspace = true }
+indexmap = { workspace = true }
 
 [lints]
 workspace = true

@@ -1,4 +1,7 @@
-use std::hash::Hash;
+use std::{
+    hash::{Hash, Hasher},
+    mem::discriminant,
+};
 
 use mollie_parser::{Expr, LiteralExpr};
 
@@ -16,14 +19,16 @@ pub enum ConstantValue {
     USize(usize),
     Float(f32),
     Boolean(bool),
+    Array(Box<[Self]>),
     String(String),
+    Nothing,
 }
 
 impl Eq for ConstantValue {}
 
 impl Hash for ConstantValue {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        core::mem::discriminant(self).hash(state);
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        discriminant(self).hash(state);
     }
 }
 

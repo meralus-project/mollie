@@ -6,13 +6,14 @@ edition = "2024"
 [dependencies]
 mollie-shared = { workspace = true }
 mollie-ir = { workspace = true }
+mollie-index = { workspace = true }
 mollie-lexer = { workspace = true }
 mollie-parser = { workspace = true }
 mollie-typing = { workspace = true }
+mollie-tast = { workspace = true }
 mollie-const = { workspace = true }
 indexmap = { workspace = true }
 cranelift = { workspace = true }
-ariadne = { workspace = true }
 
 [lints]
 workspace = true

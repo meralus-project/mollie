@@ -81,6 +81,14 @@ impl Parser {
         }
     }
 
+    pub fn len(&self) -> usize {
+        self.tokens.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// # Errors
     ///
     /// Will return an error if next token is not equal to "token".

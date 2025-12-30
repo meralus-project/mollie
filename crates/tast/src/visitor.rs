@@ -1,10 +1,10 @@
 use mollie_shared::Operator;
-use mollie_typing::resolver::{TypeInfoRef, VFuncRef};
+use mollie_typing::{FieldRef, TypeInfoRef};
 
 pub use self::default_visitors::*;
 use crate::{
     BlockRef, ExprRef, StmtRef, TypedAST,
-    expression::{IsPattern, LiteralExpr},
+    expression::{IsPattern, LiteralExpr, VFunc},
 };
 
 pub trait Visitor {
@@ -18,8 +18,12 @@ pub trait Visitor {
     #[allow(unused_variables)]
     fn visit_var(&mut self, ast: &TypedAST, name: &str) {}
 
-    fn visit_access(&mut self, ast: &TypedAST, target: ExprRef, index: &str) {
-        visit_access(self, ast, target, index);
+    fn visit_vtable_access(&mut self, ast: &TypedAST, target: ExprRef, func: VFunc) {
+        visit_vtable_access(self, ast, target, func);
+    }
+
+    fn visit_access(&mut self, ast: &TypedAST, target: ExprRef, field: FieldRef) {
+        visit_access(self, ast, target, field);
     }
 
     fn visit_index(&mut self, ast: &TypedAST, target: ExprRef, index: ExprRef) {
@@ -46,11 +50,11 @@ pub trait Visitor {
         visit_closure(self, ast, args, body);
     }
 
-    fn visit_construct(&mut self, ast: &TypedAST, ty: TypeInfoRef, fields: &[(String, ExprRef)]) {
+    fn visit_construct(&mut self, ast: &TypedAST, ty: TypeInfoRef, fields: &[(FieldRef, String, Option<ExprRef>)]) {
         visit_construct(self, ast, ty, fields);
     }
 
-    fn visit_construct_enum(&mut self, ast: &TypedAST, ty: TypeInfoRef, variant: usize, fields: Option<&[(String, ExprRef)]>) {
+    fn visit_construct_enum(&mut self, ast: &TypedAST, ty: TypeInfoRef, variant: usize, fields: Option<&[(FieldRef, String, ExprRef)]>) {
         visit_construct_enum(self, ast, ty, variant, fields);
     }
 
@@ -63,7 +67,7 @@ pub trait Visitor {
     }
 
     #[allow(unused_variables)]
-    fn visit_type_index(&mut self, ast: &TypedAST, target: TypeInfoRef, func: VFuncRef) {}
+    fn visit_type_index(&mut self, ast: &TypedAST, target: TypeInfoRef, func: VFunc) {}
 
     fn visit_expr(&mut self, ast: &TypedAST, expr: ExprRef) {
         visit_expr(self, ast, expr);
@@ -81,12 +85,12 @@ pub trait Visitor {
 #[allow(unused_variables)]
 mod default_visitors {
     use mollie_shared::Operator;
-    use mollie_typing::resolver::TypeInfoRef;
+    use mollie_typing::{FieldRef, TypeInfoRef};
 
     use super::Visitor;
     use crate::{
         BlockRef, ExprRef, StmtRef, TypedAST,
-        expression::{Expr, IsPattern},
+        expression::{Expr, IsPattern, VFunc},
         statement::Stmt,
     };
 
@@ -99,7 +103,11 @@ mod default_visitors {
         }
     }
 
-    pub fn visit_access<T: Visitor + ?Sized>(visitor: &mut T, ast: &TypedAST, target: ExprRef, index: &str) {
+    pub fn visit_vtable_access<T: Visitor + ?Sized>(visitor: &mut T, ast: &TypedAST, target: ExprRef, func: VFunc) {
+        visitor.visit_expr(ast, target);
+    }
+
+    pub fn visit_access<T: Visitor + ?Sized>(visitor: &mut T, ast: &TypedAST, target: ExprRef, field: FieldRef) {
         visitor.visit_expr(ast, target);
     }
 
@@ -136,16 +144,18 @@ mod default_visitors {
         visitor.visit_block(ast, body);
     }
 
-    pub fn visit_construct<T: Visitor + ?Sized>(visitor: &mut T, ast: &TypedAST, ty: TypeInfoRef, fields: &[(String, ExprRef)]) {
+    pub fn visit_construct<T: Visitor + ?Sized>(visitor: &mut T, ast: &TypedAST, ty: TypeInfoRef, fields: &[(FieldRef, String, Option<ExprRef>)]) {
         for field in fields {
-            visitor.visit_expr(ast, field.1);
+            if let Some(expr) = field.2 {
+                visitor.visit_expr(ast, expr);
+            }
         }
     }
 
-    pub fn visit_construct_enum<T: Visitor + ?Sized>(visitor: &mut T, ast: &TypedAST, ty: TypeInfoRef, variant: usize, fields: Option<&[(String, ExprRef)]>) {
+    pub fn visit_construct_enum<T: Visitor + ?Sized>(visitor: &mut T, ast: &TypedAST, ty: TypeInfoRef, variant: usize, fields: Option<&[(FieldRef, String, ExprRef)]>) {
         if let Some(fields) = fields {
             for field in fields {
-                visitor.visit_expr(ast, field.1);
+                visitor.visit_expr(ast, field.2);
             }
         }
     }
@@ -170,10 +180,10 @@ mod default_visitors {
         fn visit_is_pattern_inner<T: Visitor + ?Sized>(visitor: &mut T, ast: &TypedAST, pattern: &IsPattern) {
             match pattern {
                 &IsPattern::Literal(expr) => visitor.visit_expr(ast, expr),
-                IsPattern::EnumVariant { target, variant, values } => {
+                IsPattern::EnumVariant { target, target_args, variant, values } => {
                     if let Some(values) = values.as_deref() {
                         for value in values {
-                            if let Some(value) = &value.1 {
+                            if let Some(value) = &value.2 {
                                 visit_is_pattern_inner(visitor, ast, value);
                             }
                         }
@@ -194,7 +204,8 @@ mod default_visitors {
             &Expr::If { condition, block, else_block } => visitor.visit_if(ast, condition, block, else_block),
             &Expr::Block(block) => visitor.visit_block(ast, block),
             Expr::Var(name) => visitor.visit_var(ast, name.as_str()),
-            Expr::Access { target, index } => visitor.visit_access(ast, *target, index.as_str()),
+            &Expr::VTableAccess { target, func } => visitor.visit_vtable_access(ast, target, func),
+            &Expr::Access { target, field } => visitor.visit_access(ast, target, field),
             &Expr::Index { target, index } => visitor.visit_index(ast, target, index),
             &Expr::While { condition, block } => visitor.visit_while(ast, condition, block),
             Expr::Array(elements) => visitor.visit_array(ast, elements.as_ref()),
@@ -206,13 +217,15 @@ mod default_visitors {
             Expr::ConstructComponent { ty, fields, children } => visitor.visit_construct_component(ast, *ty, fields.as_ref(), children.as_ref()),
             Expr::IsPattern { target, pattern } => visitor.visit_is_pattern(ast, *target, pattern),
             &Expr::TypeIndex { target, func } => visitor.visit_type_index(ast, target, func),
+            Expr::Nothing => (),
         }
     }
 
     pub fn visit_stmt<T: Visitor + ?Sized>(visitor: &mut T, ast: &TypedAST, stmt: StmtRef) {
         match &ast[stmt] {
             &Stmt::Expr(expr) => visitor.visit_expr(ast, expr),
-            Stmt::VariableDecl {} => (),
+            Stmt::VariableDecl { value, .. } => visitor.visit_expr(ast, *value),
+            _ => todo!()
         }
     }
 

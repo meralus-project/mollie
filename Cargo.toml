@@ -11,18 +11,25 @@ resolver = "2"
 all = "warn"
 nursery = "warn"
 pedantic = "warn"
+absolute_paths = { level = "warn", priority = 1 }
 must_use_candidate = { level = "allow", priority = 1 }
+too_many_lines = { level = "allow", priority = 1 }
 
 [dependencies]
 mollie-shared = { workspace = true }
 mollie-compiler = { workspace = true }
 mollie-typing = { workspace = true }
 mollie-ir = { workspace = true }
+mollie-const = { workspace = true }
+mollie-index = { workspace = true }
+mollie-tast = { workspace = true }
 
 [workspace.dependencies]
 mollie-shared = { path = "./crates/shared" }
 mollie-lexer = { path = "./crates/lexer" }
 mollie-const = { path = "./crates/const" }
+mollie-index = { path = "./crates/index" }
+mollie-tast = { path = "./crates/tast" }
 mollie-ir = { path = "./crates/ir" }
 mollie-parser = { path = "./crates/parser" }
 mollie-compiler = { path = "./crates/compiler" }

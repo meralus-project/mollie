@@ -3,6 +3,7 @@ mod as_expr;
 mod binary;
 mod block;
 mod call;
+mod closure_expr;
 mod enum_path;
 mod for_in_expr;
 mod ident;
@@ -13,7 +14,6 @@ mod loop_expr;
 mod node;
 mod type_index;
 mod while_expr;
-mod closure_expr;
 
 use mollie_lexer::Token;
 use mollie_shared::{Operator, Positioned};
@@ -24,6 +24,7 @@ pub use self::{
     binary::BinaryExpr,
     block::{BlockExpr, parse_statements_until},
     call::FuncCallExpr,
+    closure_expr::ClosureExpr,
     enum_path::EnumPathExpr,
     ident::Ident,
     if_else::IfElseExpr,
@@ -32,7 +33,6 @@ pub use self::{
     node::{NameValue, NodeExpr},
     type_index::TypeIndexExpr,
     while_expr::WhileExpr,
-    closure_expr::ClosureExpr,
 };
 use crate::{Parse, ParseResult, Parser};
 
@@ -128,14 +128,19 @@ pub enum Expr {
     Closure(ClosureExpr),
     Ident(Ident),
     This,
+    Nothing,
 }
 
 impl Expr {
     fn parse_atom(parser: &mut Parser, is_limited_expr: bool) -> ParseResult<Positioned<Self>> {
         if parser.check(&Token::ParenOpen) {
-            let (_, mut parser) = parser.split(&Token::ParenOpen, &Token::ParenClose)?;
+            let ([start, end], mut parser) = parser.split(&Token::ParenOpen, &Token::ParenClose)?;
 
-            Self::parse(&mut parser)
+            if parser.is_empty() {
+                Ok(start.between(&end).wrap(Self::Nothing))
+            } else {
+                Self::parse(&mut parser)
+            }
         } else if is_limited_expr {
             LiteralExpr::parse(parser)
                 .map(|v| v.map(Self::Literal))

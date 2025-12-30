@@ -4,6 +4,6 @@ mod utils;
 
 pub use self::{
     ptr::{FatPtr, VTablePtr},
-    ty::{Array, Field, Struct},
+    ty::{Array, Field, Struct, compile_constant},
     utils::stack_alloc,
 };

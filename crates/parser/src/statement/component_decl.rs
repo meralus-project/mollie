@@ -1,7 +1,7 @@
 use mollie_lexer::Token;
 use mollie_shared::Positioned;
 
-use crate::{Expr, Ident, NodeExpr, Parse, ParseResult, Parser, Type};
+use crate::{Expr, Ident, NameWithGenerics, NodeExpr, Parse, ParseResult, Parser, Type};
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct ComponentProperty {
@@ -36,7 +36,7 @@ impl Parse for ComponentProperty {
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct ComponentDecl {
-    pub name: Positioned<Ident>,
+    pub name: Positioned<NameWithGenerics>,
     pub inherits: Option<Positioned<Ident>>,
     pub properties: Vec<Positioned<ComponentProperty>>,
     pub view: Option<Positioned<NodeExpr>>,
@@ -46,7 +46,7 @@ impl Parse for ComponentDecl {
     fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
         parser.consume(&Token::Declare)?;
 
-        let name = Ident::parse(parser)?;
+        let name = NameWithGenerics::parse(parser)?;
 
         let inherits = if parser.try_consume(&Token::Inherits) {
             Some(Ident::parse(parser)?)

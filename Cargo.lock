@@ -21,16 +21,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dde20b3d026af13f561bdd0f15edf01fc734f0dafcedbaf42bba506a9517f223"
 
 [[package]]
-name = "ariadne"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36f5e3dca4e09a6f340a61a0e9c7b61e030c69fc27bf29d73218f7e5e3b7638f"
-dependencies = [
- "unicode-width",
- "yansi",
-]
-
-[[package]]
 name = "bitflags"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -390,8 +380,11 @@ name = "mollie"
 version = "0.0.1"
 dependencies = [
  "mollie-compiler",
+ "mollie-const",
+ "mollie-index",
  "mollie-ir",
  "mollie-shared",
+ "mollie-tast",
  "mollie-typing",
 ]
 
@@ -399,14 +392,15 @@ dependencies = [
 name = "mollie-compiler"
 version = "0.1.0"
 dependencies = [
- "ariadne",
  "cranelift",
  "indexmap",
  "mollie-const",
+ "mollie-index",
  "mollie-ir",
  "mollie-lexer",
  "mollie-parser",
  "mollie-shared",
+ "mollie-tast",
  "mollie-typing",
 ]
 
@@ -418,11 +412,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "mollie-index"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "mollie-ir"
 version = "0.1.0"
 dependencies = [
  "cranelift",
  "mollie-const",
+ "mollie-index",
 ]
 
 [[package]]
@@ -453,6 +455,9 @@ dependencies = [
 name = "mollie-tast"
 version = "0.1.0"
 dependencies = [
+ "indexmap",
+ "mollie-const",
+ "mollie-index",
  "mollie-lexer",
  "mollie-parser",
  "mollie-shared",
@@ -468,6 +473,7 @@ dependencies = [
  "derive_more",
  "indexmap",
  "mollie-const",
+ "mollie-index",
  "mollie-ir",
  "mollie-shared",
  "serde",
@@ -634,12 +640,6 @@ name = "unicode-segmentation"
 version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f6ccf251212114b54433ec949fd6a7841275f9ada20dddd2f29e9ceea4501493"
-
-[[package]]
-name = "unicode-width"
-version = "0.1.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7dd6e30e90baa6f72411720665d41d89b9a3d039dc45b8faea1ddd07f617f6af"
 
 [[package]]
 name = "unicode-xid"
@@ -820,9 +820,3 @@ name = "windows_x86_64_msvc"
 version = "0.53.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "271414315aff87387382ec3d271b52d7ae78726f5d44ac98b4f4030c91880486"
-
-[[package]]
-name = "yansi"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cfe53a6657fd280eaa890a3bc59152892ffa3e30101319d168b781ed6529b049"
