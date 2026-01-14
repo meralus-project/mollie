@@ -1,24 +1,43 @@
 use mollie_lexer::Token;
 use mollie_shared::Positioned;
 
-use crate::{Ident, Parse, ParseResult, Parser, Type};
+use crate::{Ident, Parse, ParseResult, Parser, TypeArgs};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
-pub struct TypeIndexExpr {
-    pub target: Positioned<Type>,
-    pub index: Positioned<Ident>,
+pub struct TypePathSegment {
+    pub name: Positioned<Ident>,
+    pub args: Option<Positioned<TypeArgs>>,
 }
 
-impl Parse for TypeIndexExpr {
-    fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
-        let start = parser.consume(&Token::Less)?;
-        let target = Type::parse(parser)?;
+impl TypePathSegment {
+    pub fn parse_from(name: Positioned<Ident>, parser: &mut Parser, special_case: bool) -> ParseResult<Positioned<Self>> {
+        let args = if parser.check(&Token::PathSep) && parser.check2(&Token::Less) {
+            parser.consume(&Token::PathSep)?;
 
-        parser.consume(&Token::Greater)?;
-        parser.consume(&Token::PathSep)?;
+            Some(TypeArgs::parse(parser)?)
+        } else if parser.check(&Token::Less) && !special_case {
+            Some(TypeArgs::parse(parser)?)
+        } else {
+            None
+        };
 
-        let index = Ident::parse(parser)?;
+        Ok(name.span.between(args.as_ref().map_or(name.span, |args| args.span)).wrap(Self { name, args }))
+    }
+}
 
-        Ok(start.between(&index).wrap(Self { target, index }))
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
+pub struct TypePathExpr {
+    pub segments: Vec<Positioned<TypePathSegment>>,
+}
+
+impl TypePathExpr {
+    pub fn parse(init: Positioned<TypePathSegment>, parser: &mut Parser, special_case: bool) -> ParseResult<Positioned<Self>> {
+        let mut segments = vec![init];
+
+        while parser.try_consume(&Token::PathSep) {
+            segments.push(TypePathSegment::parse_from(Ident::parse(parser)?, parser, special_case)?);
+        }
+
+        Ok(segments[0].between(&segments[segments.len() - 1]).wrap(Self { segments }))
     }
 }

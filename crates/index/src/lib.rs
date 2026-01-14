@@ -10,11 +10,13 @@ use serde::Serialize;
 #[macro_export]
 macro_rules! new_idx_type {
     ($name:ident) => {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
         #[cfg_attr(feature = "serde", derive(serde::Serialize))]
         pub struct $name(usize);
 
         impl $crate::Idx for $name {
+            const ZERO: Self = Self(0);
+
             fn new(idx: usize) -> Self {
                 Self(idx)
             }
@@ -27,6 +29,8 @@ macro_rules! new_idx_type {
 }
 
 pub trait Idx: Debug + Copy + PartialEq + Eq + Hash + 'static {
+    const ZERO: Self;
+
     fn new(idx: usize) -> Self;
 
     fn index(self) -> usize;
@@ -158,8 +162,12 @@ impl<I: Idx, T> IndexVec<I, T> {
         self.raw.push(value);
     }
 
+    pub fn next_index(&self) -> I {
+        I::new(self.raw.len())
+    }
+
     pub fn insert(&mut self, value: T) -> I {
-        let index = I::new(self.raw.len());
+        let index = self.next_index();
 
         self.raw.push(value);
 

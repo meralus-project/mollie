@@ -31,6 +31,10 @@ impl<T> Positioned<T> {
         self.span.wrap(f(self.value))
     }
 
+    pub fn inner_map<U, F: FnOnce(Self) -> U>(self, f: F) -> Positioned<U> {
+        self.span.wrap(f(self))
+    }
+
     pub fn unpack(self) -> (Span, T) {
         (self.span, self.value)
     }

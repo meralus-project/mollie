@@ -16,6 +16,7 @@ mollie-parser = { workspace = true }
 mollie-const = { workspace = true }
 mollie-typing = { workspace = true }
 indexmap = { workspace = true }
+itertools = "0.14.0"
 
 [lints]
 workspace = true

@@ -69,11 +69,11 @@ impl Parse for ComponentDecl {
             }
         }
 
-        let view = if (parser.try_consume(&Token::Comma) || properties.is_empty()) && parser.check_if(Token::is_ident) {
-            Some(NodeExpr::parse(parser)?)
-        } else {
-            None
-        };
+        // let view = if (parser.try_consume(&Token::Comma) || properties.is_empty()) && parser.check_if(Token::is_ident) {
+        //     Some(NodeExpr::parse(parser)?)
+        // } else {
+        //     None
+        // };
 
         let end = parser.consume(&Token::BraceClose)?;
 
@@ -81,7 +81,7 @@ impl Parse for ComponentDecl {
             name,
             inherits,
             properties,
-            view,
+            view: None,
         }))
     }
 }

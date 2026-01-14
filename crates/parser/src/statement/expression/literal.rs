@@ -1,4 +1,7 @@
-use std::hash::Hash;
+use std::{
+    hash::{Hash, Hasher},
+    mem::discriminant,
+};
 
 use mollie_lexer::Token;
 use mollie_shared::Positioned;
@@ -12,12 +15,12 @@ pub enum Number {
 }
 
 impl Hash for Number {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        core::mem::discriminant(self).hash(state);
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        discriminant(self).hash(state);
 
         match self {
-            Number::I64(value) => value.hash(state),
-            Number::F32(value) => value.to_bits().hash(state),
+            Self::I64(value) => value.hash(state),
+            Self::F32(value) => value.to_bits().hash(state),
         }
     }
 }

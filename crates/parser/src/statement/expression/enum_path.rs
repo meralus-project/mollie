@@ -1,31 +1,31 @@
-use mollie_lexer::Token;
-use mollie_shared::Positioned;
+// use mollie_lexer::Token;
+// use mollie_shared::Positioned;
 
-use crate::{CustomType, Ident, NameValue, Parse, ParseResult, Parser};
+// use crate::{CustomType, Ident, NameValue, Parse, ParseResult, Parser};
 
-#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
-pub struct EnumPathExpr {
-    pub target: Positioned<Ident>,
-    pub index: Positioned<CustomType>,
-    pub properties: Option<Positioned<Vec<Positioned<NameValue>>>>,
-}
+// #[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
+// pub struct EnumPathExpr {
+//     pub target: Positioned<Ident>,
+//     pub index: Positioned<CustomType>,
+//     pub properties: Option<Positioned<Vec<Positioned<NameValue>>>>,
+// }
 
-impl Parse for EnumPathExpr {
-    fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
-        parser.verify_if(Token::is_ident)?;
-        parser.verify2(&Token::PathSep)?;
+// impl Parse for EnumPathExpr {
+//     fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
+//         parser.verify_if(Token::is_ident)?;
+//         parser.verify2(&Token::PathSep)?;
 
-        let target = Ident::parse(parser)?;
+//         let target = Ident::parse(parser)?;
 
-        parser.consume(&Token::PathSep)?;
+//         parser.consume(&Token::PathSep)?;
 
-        let index = CustomType::parse(parser)?;
+//         let index = CustomType::parse(parser)?;
 
-        let properties = parser.consume_separated_in(&Token::Comma, &Token::BraceOpen, &Token::BraceClose).ok();
+//         let properties = parser.consume_separated_in(&Token::Comma, &Token::BraceOpen, &Token::BraceClose).ok();
 
-        Ok(properties
-            .as_ref()
-            .map_or_else(|| target.between(&index), |properties| target.between(properties))
-            .wrap(Self { target, index, properties }))
-    }
-}
+//         Ok(properties
+//             .as_ref()
+//             .map_or_else(|| target.between(&index), |properties| target.between(properties))
+//             .wrap(Self { target, index, properties }))
+//     }
+// }

@@ -14,6 +14,7 @@ mollie-tast = { workspace = true }
 mollie-const = { workspace = true }
 indexmap = { workspace = true }
 cranelift = { workspace = true }
+itertools = "0.14.0"
 
 [lints]
 workspace = true

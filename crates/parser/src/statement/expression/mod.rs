@@ -20,18 +20,18 @@ use mollie_shared::{Operator, Positioned};
 
 pub use self::{
     array::ArrayExpr,
-    as_expr::{IsExpr, IsPattern, NameValuePattern},
+    as_expr::{IsExpr, IsPattern, NameValuePattern, TypePattern},
     binary::BinaryExpr,
     block::{BlockExpr, parse_statements_until},
     call::FuncCallExpr,
     closure_expr::ClosureExpr,
-    enum_path::EnumPathExpr,
+    // enum_path::EnumPathExpr,
     ident::Ident,
     if_else::IfElseExpr,
     index::{IndexExpr, IndexTarget},
     literal::{LiteralExpr, Number, SizeType},
     node::{NameValue, NodeExpr},
-    type_index::TypeIndexExpr,
+    type_index::{TypePathExpr, TypePathSegment},
     while_expr::WhileExpr,
 };
 use crate::{Parse, ParseResult, Parser};
@@ -72,7 +72,7 @@ impl Precedence {
     }
 }
 
-fn go_parse_pratt_expr(parser: &mut Parser, precedence: Precedence, left: Positioned<Expr>) -> ParseResult<Positioned<Expr>> {
+fn go_parse_pratt_expr(parser: &mut Parser, precedence: Precedence, left: Positioned<Expr>, is_limited_expr: bool) -> ParseResult<Positioned<Expr>> {
     if let Some(value) = parser.peek() {
         let (p, _) = Precedence::from_ref(&value.value);
 
@@ -87,22 +87,22 @@ fn go_parse_pratt_expr(parser: &mut Parser, precedence: Precedence, left: Positi
                     pattern,
                 }));
 
-                go_parse_pratt_expr(parser, precedence, left)
+                go_parse_pratt_expr(parser, precedence, left, is_limited_expr)
             }
             Precedence::PCall if precedence < Precedence::PCall => {
                 let left = FuncCallExpr::parse(parser, left)?.map(Expr::FunctionCall);
 
-                go_parse_pratt_expr(parser, precedence, left)
+                go_parse_pratt_expr(parser, precedence, left, is_limited_expr)
             }
             Precedence::PIndex if precedence < Precedence::PIndex => {
                 let left = IndexExpr::parse(parser, left)?.map(Expr::Index);
 
-                go_parse_pratt_expr(parser, precedence, left)
+                go_parse_pratt_expr(parser, precedence, left, is_limited_expr)
             }
             ref peek_precedence if precedence < *peek_precedence => {
-                let left = BinaryExpr::parse(parser, left)?.map(Expr::Binary);
+                let left = BinaryExpr::parse(parser, left, is_limited_expr)?.map(Expr::Binary);
 
-                go_parse_pratt_expr(parser, precedence, left)
+                go_parse_pratt_expr(parser, precedence, left, is_limited_expr)
             }
             _ => Ok(left),
         }
@@ -118,12 +118,12 @@ pub enum Expr {
     Node(NodeExpr),
     Index(IndexExpr),
     Binary(BinaryExpr),
-    TypeIndex(TypeIndexExpr),
+    TypeIndex(TypePathExpr),
     Array(ArrayExpr),
     IfElse(IfElseExpr),
     While(WhileExpr),
     Block(BlockExpr),
-    EnumPath(EnumPathExpr),
+    // EnumPath(EnumPathExpr),
     Is(IsExpr),
     Closure(ClosureExpr),
     Ident(Ident),
@@ -148,23 +148,50 @@ impl Expr {
                 .or_else(|_| IfElseExpr::parse(parser).map(|v| v.map(Self::IfElse)))
                 .or_else(|_| WhileExpr::parse(parser).map(|v| v.map(Self::While)))
                 .or_else(|_| ArrayExpr::parse(parser).map(|v| v.map(Self::Array)))
-                .or_else(|_| TypeIndexExpr::parse(parser).map(|v| v.map(Self::TypeIndex)))
-                .or_else(|_| EnumPathExpr::parse(parser).map(|v| v.map(Self::EnumPath)))
+                // .or_else(|_| EnumPathExpr::parse(parser).map(|v| v.map(Self::EnumPath)))
                 .or_else(|_| ClosureExpr::parse(parser).map(|v| v.map(Self::Closure)))
-                .or_else(|_| Ident::parse(parser).map(|v| v.map(Self::Ident)))
+                .or_else(|_| {
+                    Ident::parse(parser).and_then(|name| {
+                        Ok(if parser.check(&Token::PathSep) {
+                            TypePathExpr::parse(name.span.wrap(TypePathSegment { name, args: None }), parser, true)?.map(Self::TypeIndex)
+                        } else {
+                            name.map(Self::Ident)
+                        })
+                    })
+                })
                 .or_else(|_| parser.consume(&Token::This).map(|v| v.wrap(Self::This)))
         } else {
             LiteralExpr::parse(parser)
                 .map(|v| v.map(Self::Literal))
-                .or_else(|_| NodeExpr::parse(parser).map(|v| v.map(Self::Node)))
                 .or_else(|_| BlockExpr::parse(parser).map(|v| v.map(Self::Block)))
                 .or_else(|_| IfElseExpr::parse(parser).map(|v| v.map(Self::IfElse)))
                 .or_else(|_| WhileExpr::parse(parser).map(|v| v.map(Self::While)))
                 .or_else(|_| ArrayExpr::parse(parser).map(|v| v.map(Self::Array)))
-                .or_else(|_| TypeIndexExpr::parse(parser).map(|v| v.map(Self::TypeIndex)))
-                .or_else(|_| EnumPathExpr::parse(parser).map(|v| v.map(Self::EnumPath)))
+                // .or_else(|_| EnumPathExpr::parse(parser).map(|v| v.map(Self::EnumPath)))
                 .or_else(|_| ClosureExpr::parse(parser).map(|v| v.map(Self::Closure)))
-                .or_else(|_| Ident::parse(parser).map(|v| v.map(Self::Ident)))
+                .or_else(|_| {
+                    Ident::parse(parser).and_then(|name| {
+                        Ok(if parser.check(&Token::PathSep) {
+                            let path = TypePathExpr::parse(name.span.wrap(TypePathSegment { name, args: None }), parser, true)?;
+
+                            if parser.check_one_of(&[Token::BraceOpen, Token::From]) {
+                                NodeExpr::parse(path, parser)?.map(Self::Node)
+                            } else {
+                                path.map(Self::TypeIndex)
+                            }
+                        } else if parser.check_one_of(&[Token::BraceOpen, Token::From]) {
+                            NodeExpr::parse(
+                                name.span.wrap(TypePathExpr {
+                                    segments: vec![name.span.wrap(TypePathSegment { name, args: None })],
+                                }),
+                                parser,
+                            )?
+                            .map(Self::Node)
+                        } else {
+                            name.map(Self::Ident)
+                        })
+                    })
+                })
                 .or_else(|_| parser.consume(&Token::This).map(|v| v.wrap(Self::This)))
         }
     }
@@ -172,7 +199,7 @@ impl Expr {
     fn parse_pratt_expr(parser: &mut Parser, precedence: Precedence, is_limited_expr: bool) -> ParseResult<Positioned<Self>> {
         let left = Self::parse_atom(parser, is_limited_expr)?;
 
-        go_parse_pratt_expr(parser, precedence, left)
+        go_parse_pratt_expr(parser, precedence, left, is_limited_expr)
     }
 }
 

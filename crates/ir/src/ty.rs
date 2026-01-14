@@ -3,13 +3,14 @@ use cranelift::{
     module::{DataDescription, Module},
     prelude::{FunctionBuilder, InstBuilder, isa::TargetIsa},
 };
+use itertools::Itertools;
 use mollie_const::ConstantValue;
 
-use crate::{FatPtr, stack_alloc};
+use crate::{FatPtr, MollieType, stack_alloc};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Field {
-    pub ty: ir::Type,
+    pub ty: MollieType,
     pub offset: i32,
     pub default_value: Option<ConstantValue>,
 }
@@ -21,7 +22,7 @@ pub struct Struct {
 }
 
 impl Struct {
-    pub fn new<T: IntoIterator<Item = (ir::Type, Option<ConstantValue>)>>(fields_iter: T) -> Self {
+    pub fn new<T: IntoIterator<Item = (MollieType, Option<ConstantValue>)>>(fields_iter: T) -> Self {
         let mut fields = Vec::new();
         let mut offset = 0;
         let mut size = 0;
@@ -92,13 +93,14 @@ pub fn compile_constant<M: Module>(
         &ConstantValue::Boolean(value) => fn_builder.ins().iconst(ir::types::I8, i64::from(value)),
         ConstantValue::Array(values) => {
             let element = match values.first()? {
-                ConstantValue::I8(_) | ConstantValue::U8(_) | ConstantValue::Boolean(_) => ir::types::I8,
-                ConstantValue::I16(_) | ConstantValue::U16(_) => ir::types::I16,
-                ConstantValue::I32(_) | ConstantValue::U32(_) => ir::types::I32,
-                ConstantValue::I64(_) | ConstantValue::U64(_) => ir::types::I64,
-                ConstantValue::ISize(_) | ConstantValue::USize(_) | ConstantValue::Array(_) | ConstantValue::String(_) => module.isa().pointer_type(),
-                ConstantValue::Float(_) => ir::types::F32,
-                ConstantValue::Nothing => ir::types::INVALID,
+                ConstantValue::I8(_) | ConstantValue::U8(_) | ConstantValue::Boolean(_) => MollieType::Regular(ir::types::I8),
+                ConstantValue::I16(_) | ConstantValue::U16(_) => MollieType::Regular(ir::types::I16),
+                ConstantValue::I32(_) | ConstantValue::U32(_) => MollieType::Regular(ir::types::I32),
+                ConstantValue::I64(_) | ConstantValue::U64(_) => MollieType::Regular(ir::types::I64),
+                ConstantValue::ISize(_) | ConstantValue::USize(_) => MollieType::Regular(module.isa().pointer_type()),
+                ConstantValue::Array(_) | ConstantValue::String(_) => MollieType::Fat(module.isa().pointer_type(), module.isa().pointer_type()),
+                ConstantValue::Float(_) => MollieType::Regular(ir::types::F32),
+                ConstantValue::Nothing => MollieType::Regular(ir::types::INVALID),
             };
 
             let values = values
@@ -131,7 +133,7 @@ pub fn compile_constant<M: Module>(
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Array {
-    pub element: ir::Type,
+    pub element: MollieType,
 }
 
 #[allow(clippy::cast_possible_truncation)]
@@ -153,8 +155,18 @@ impl Array {
         let values = values.into_iter();
         let slot = stack_alloc(fn_builder, self.get_size(values.len()));
 
-        for (index, value) in values.enumerate() {
-            fn_builder.ins().stack_store(value, slot, self.get_offset_of(index));
+        match self.element {
+            MollieType::Regular(_) => {
+                for (index, value) in values.enumerate() {
+                    fn_builder.ins().stack_store(value, slot, self.get_offset_of(index));
+                }
+            }
+            MollieType::Fat(ty, _) => {
+                for (index, (value, metadata)) in values.tuples::<(ir::Value, ir::Value)>().enumerate() {
+                    fn_builder.ins().stack_store(value, slot, self.get_offset_of(index));
+                    fn_builder.ins().stack_store(metadata, slot, self.get_offset_of(index) + ty.bytes().cast_signed());
+                }
+            }
         }
 
         fn_builder.ins().stack_addr(isa.pointer_type(), slot, 0)

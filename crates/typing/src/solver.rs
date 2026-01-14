@@ -6,7 +6,9 @@ use std::{
 use indexmap::IndexMap;
 use mollie_index::{Idx, IndexVec};
 
-use crate::{ComplexType, ComplexTypeKind, ComplexTypeRef, ComplexTypeVariantRef, FieldType, PrimitiveType, TraitRef, TypeInfo, TypeInfoRef, VTableRef};
+use crate::{
+    ComplexType, ComplexTypeKind, ComplexTypeRef, ComplexTypeVariantRef, FieldRef, FieldType, PrimitiveType, TraitRef, TypeInfo, TypeInfoRef, VTableRef,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Variable {
@@ -22,9 +24,13 @@ pub enum TypeUnificationError {
     UnknownType(TypeInfoRef),
 }
 
+pub trait TypeStorage {
+    fn get_complex_type(&self, complex_type_ref: ComplexTypeRef) -> &ComplexType;
+    fn get_trait_name(&self, trait_ref: TraitRef) -> Option<&str>;
+}
+
 #[derive(Debug, Default)]
 pub struct TypeSolver {
-    name_to_info: IndexMap<String, TypeInfoRef>,
     pub type_infos: IndexVec<TypeInfoRef, TypeInfo>,
     frames: Vec<IndexMap<String, Variable>>,
     pub vtables: IndexMap<FieldType, IndexMap<Option<TraitRef>, VTableRef>>,
@@ -44,18 +50,36 @@ impl TypeSolver {
         }
     }
 
+    pub fn find_vtable(&self, field_type: &FieldType) -> Option<&IndexMap<Option<TraitRef>, VTableRef>> {
+        if let Some(v) = self.vtables.get(field_type) {
+            Some(v)
+        } else {
+            for (ty, v) in &self.vtables {
+                if ty.try_unify(field_type) {
+                    return Some(v);
+                }
+            }
+
+            None
+        }
+    }
+
     pub fn hash_value_into<T: Hasher>(&self, state: &mut T, info: &TypeInfo) {
         match info {
             TypeInfo::Unknown(None) => (),
             TypeInfo::Primitive(primitive_type) => primitive_type.hash(state),
             TypeInfo::Func(args, returns) => {
+                "fn".hash(state);
+
                 for &arg in args {
-                    self.hash_into(state, arg);
+                    self.hash_into(state, arg.inner());
                 }
 
                 self.hash_into(state, *returns);
             }
             TypeInfo::Trait(trait_ref, type_args) => {
+                "trait".hash(state);
+
                 trait_ref.hash(state);
 
                 for &type_arg in type_args {
@@ -63,6 +87,8 @@ impl TypeSolver {
                 }
             }
             TypeInfo::Complex(complex_type_ref, complex_type_kind, type_args) => {
+                "complex".hash(state);
+
                 complex_type_ref.hash(state);
                 complex_type_kind.hash(state);
 
@@ -71,11 +97,13 @@ impl TypeSolver {
                 }
             }
             &TypeInfo::Array(element, size) => {
+                "array".hash(state);
+
                 self.hash_into(state, element);
 
                 size.hash(state);
             }
-            _ => unreachable!(),
+            v => unreachable!("can't hash {v:?}"),
         }
     }
 
@@ -137,45 +165,50 @@ impl TypeSolver {
         self.type_infos.values()
     }
 
-    pub fn get_named_info<T: AsRef<str>>(&self, name: T) -> Option<TypeInfoRef> {
-        self.name_to_info.get(name.as_ref()).copied()
-    }
-
-    pub fn remove_named_info<T: AsRef<str>>(&mut self, name: T) -> Option<TypeInfoRef> {
-        self.name_to_info.swap_remove(name.as_ref())
-    }
-
-    pub fn add_name_for_info<T: Into<String>>(&mut self, name: T, info_ref: TypeInfoRef) {
-        self.name_to_info.insert(name.into(), info_ref);
-    }
-
-    pub fn add_named_info<T: Into<String>>(&mut self, name: T, info: TypeInfo) -> TypeInfoRef {
-        let result = TypeInfoRef(self.type_infos.len());
-
-        self.type_infos.push(info);
-        self.name_to_info.insert(name.into(), result);
-
-        result
+    fn is_constant_info(&self, info: &TypeInfo) -> bool {
+        match info {
+            TypeInfo::Ref(_) | TypeInfo::Generic(..) | TypeInfo::Unknown(_) => false,
+            TypeInfo::Primitive(_) => true,
+            TypeInfo::Func(func_args, returns) => {
+                func_args.iter().all(|arg| self.is_constant_info(&self.type_infos[arg.inner()])) && self.is_constant_info(&self.type_infos[*returns])
+            }
+            TypeInfo::Trait(_, type_args) => type_args.iter().all(|type_arg| self.is_constant_info(&self.type_infos[*type_arg])),
+            TypeInfo::Complex(.., type_args) => type_args.iter().all(|type_arg| self.is_constant_info(&self.type_infos[*type_arg])),
+            &TypeInfo::Array(element, _) => self.is_constant_info(&self.type_infos[element]),
+        }
     }
 
     pub fn add_info(&mut self, info: TypeInfo) -> TypeInfoRef {
-        let result = TypeInfoRef(self.type_infos.len());
+        if self.is_constant_info(&info)
+            && let Some((result, _)) = self.type_infos.iter().find(|(_, i)| i == &&info)
+        {
+            result
+        } else {
+            let result = TypeInfoRef(self.type_infos.len());
 
-        self.type_infos.push(info);
+            self.type_infos.push(info);
 
-        result
+            result
+        }
+    }
+
+    pub fn get_info3(&self, info_ref: TypeInfoRef) -> (TypeInfoRef, &TypeInfo) {
+        match &self.type_infos[info_ref] {
+            &TypeInfo::Ref(info_ref) | &TypeInfo::Generic(_, Some(info_ref)) => self.get_info3(info_ref),
+            info => (info_ref, info),
+        }
     }
 
     pub fn get_info(&self, info_ref: TypeInfoRef) -> &TypeInfo {
         match &self.type_infos[info_ref] {
-            &TypeInfo::Ref(info_ref) => self.get_info(info_ref),
+            &TypeInfo::Ref(info_ref) | &TypeInfo::Generic(_, Some(info_ref)) => self.get_info(info_ref),
             info => info,
         }
     }
 
     pub fn get_info2(&self, info_ref: TypeInfoRef) -> &TypeInfo {
         match &self.type_infos[info_ref] {
-            &TypeInfo::Unknown(Some(info_ref)) | &TypeInfo::Ref(info_ref) => self.get_info2(info_ref),
+            &TypeInfo::Unknown(Some(info_ref)) | &TypeInfo::Generic(_, Some(info_ref)) | &TypeInfo::Ref(info_ref) => self.get_info2(info_ref),
             info => info,
         }
     }
@@ -187,9 +220,17 @@ impl TypeSolver {
         }
     }
 
+    pub fn get_maybe_info2(&self, info_ref: TypeInfoRef) -> (TypeInfoRef, Option<&TypeInfo>) {
+        match self.type_infos.get(info_ref) {
+            Some(&TypeInfo::Ref(info_ref)) => self.get_maybe_info2(info_ref),
+            info => (info_ref, info),
+        }
+    }
+
     pub fn get_field_type(&self, info_ref: TypeInfoRef) -> FieldType {
         match self.get_info(info_ref) {
             TypeInfo::Unknown(_) => unimplemented!(),
+            &TypeInfo::Generic(idx, _) => FieldType::Generic(idx, Some(info_ref)),
             &TypeInfo::Primitive(ty) => FieldType::Primitive(ty),
             TypeInfo::Ref(_) => unreachable!(),
             TypeInfo::Func(..) => todo!(),
@@ -201,24 +242,55 @@ impl TypeSolver {
         }
     }
 
+    pub fn solve_generic_args(&mut self, ty: TypeInfoRef, args: &[TypeInfoRef]) {
+        let (ty, ty_val) = self.get_info3(ty);
+
+        match ty_val.clone() {
+            TypeInfo::Generic(idx, None) => self.type_infos[ty] = TypeInfo::Generic(idx, args.get(idx).copied()),
+            TypeInfo::Ref(type_info_ref) | TypeInfo::Array(type_info_ref, _) => self.solve_generic_args(type_info_ref, args),
+            TypeInfo::Func(func_args, type_info_ref) => {
+                for arg in func_args {
+                    self.solve_generic_args(arg.inner(), args);
+                }
+
+                self.solve_generic_args(type_info_ref, args);
+            }
+            TypeInfo::Trait(_, type_info_refs) | TypeInfo::Complex(.., type_info_refs) => {
+                for arg in type_info_refs {
+                    self.solve_generic_args(arg, args);
+                }
+            }
+            i => println!("can't solve {i:?} with {args:?}"),
+        }
+    }
+
+    #[track_caller]
     pub fn unify(&mut self, got: TypeInfoRef, expected: TypeInfoRef) {
+        let (got, got_val) = self.get_info3(got);
+        let (expected, expected_val) = self.get_maybe_info2(expected);
+
         if got == expected {
             return;
         }
 
-        match (self.get_info(got).clone(), self.get_maybe_info(expected).cloned()) {
-            (_, None)
+        match (got_val.clone(), expected_val.cloned()) {
+            (TypeInfo::Generic(_, Some(got)), Some(TypeInfo::Generic(idx, None))) => self.type_infos[expected] = TypeInfo::Generic(idx, Some(got)),
+            (TypeInfo::Generic(idx, None), Some(TypeInfo::Generic(_, Some(expected)))) => self.type_infos[got] = TypeInfo::Generic(idx, Some(expected)),
+            (_, None | Some(TypeInfo::Generic(_, Some(_))))
+            | (TypeInfo::Generic(_, Some(_)), _)
             | (TypeInfo::Unknown(None), Some(TypeInfo::Unknown(None)))
             | (TypeInfo::Unknown(Some(_)), Some(TypeInfo::Unknown(Some(_))))
             | (TypeInfo::Primitive(PrimitiveType::Component), Some(TypeInfo::Complex(_, ComplexTypeKind::Component, _)))
             | (TypeInfo::Complex(_, ComplexTypeKind::Component, _), Some(TypeInfo::Primitive(PrimitiveType::Component))) => (),
+            (_, Some(TypeInfo::Generic(idx, None))) => self.type_infos[expected] = TypeInfo::Generic(idx, Some(got)),
+            (TypeInfo::Generic(idx, None), _) => self.type_infos[got] = TypeInfo::Generic(idx, Some(expected)),
             (_, Some(TypeInfo::Unknown(None))) => self.type_infos[expected] = TypeInfo::Ref(got),
             (TypeInfo::Unknown(_), _) => self.type_infos[got] = TypeInfo::Ref(expected),
             (_, Some(TypeInfo::Ref(b))) => self.unify(got, b),
             (TypeInfo::Ref(a), _) => self.unify(a, expected),
             (TypeInfo::Func(a_args, a_out), Some(TypeInfo::Func(b_args, b_out))) => {
                 for (a, b) in a_args.into_iter().zip(b_args) {
-                    self.unify(a, b);
+                    self.unify(a.inner(), b.inner());
                 }
 
                 self.unify(a_out, b_out);
@@ -228,8 +300,8 @@ impl TypeSolver {
 
                 match (a_size, b_size) {
                     (None, None) => (),
-                    (None, Some(_)) => self.type_infos[b] = TypeInfo::Array(b, None),
-                    (Some(_), None) => self.type_infos[a] = TypeInfo::Array(a, None),
+                    (None, Some(_)) => self.type_infos[expected] = TypeInfo::Array(b, None),
+                    (Some(_), None) => self.type_infos[got] = TypeInfo::Array(a, None),
                     (Some(a_size), Some(b_size)) => {
                         if a_size != b_size {
                             self.errors.push(TypeUnificationError::ArraySizeMismatch(a_size, b_size));
@@ -248,8 +320,7 @@ impl TypeSolver {
             }
             (TypeInfo::Trait(trait_ref, _), Some(_)) => {
                 if self
-                    .vtables
-                    .get(&self.get_field_type(expected))
+                    .find_vtable(&self.get_field_type(expected))
                     .is_none_or(|vtables| !vtables.contains_key(&Some(trait_ref)))
                 {
                     self.errors.push(TypeUnificationError::UnimplementedTrait(trait_ref, expected));
@@ -257,8 +328,7 @@ impl TypeSolver {
             }
             (_, Some(TypeInfo::Trait(trait_ref, _))) => {
                 if self
-                    .vtables
-                    .get(&self.get_field_type(got))
+                    .find_vtable(&self.get_field_type(got))
                     .is_none_or(|vtables| !vtables.contains_key(&Some(trait_ref)))
                 {
                     self.errors.push(TypeUnificationError::UnimplementedTrait(trait_ref, got));
@@ -284,20 +354,20 @@ impl TypeSolver {
         match &self.type_infos[ty] {
             TypeInfo::Unknown(fallback) => fallback.is_none(),
             &TypeInfo::Ref(ty) => self.contains_unknown(ty),
-            TypeInfo::Func(args, output) => args.iter().any(|&arg| self.contains_unknown(arg)) || self.contains_unknown(*output),
+            TypeInfo::Func(args, output) => args.iter().any(|&arg| self.contains_unknown(arg.inner())) || self.contains_unknown(*output),
             TypeInfo::Complex(_, _, args) => args.iter().any(|&arg| self.contains_unknown(arg)),
             &TypeInfo::Array(element, _) => self.contains_unknown(element),
             _ => false,
         }
     }
 
-    fn generic_fmt(
+    fn generic_fmt<S: TypeStorage>(
         &self,
         f: &mut fmt::Formatter,
         generics: &GenericFmt,
         generic: usize,
         this: Option<TypeInfoRef>,
-        storage: &IndexVec<ComplexTypeRef, ComplexType>,
+        storage: &S,
     ) -> fmt::Result {
         match generics {
             GenericFmt::Field(type_args, other_generics) => match type_args.get(generic) {
@@ -311,12 +381,12 @@ impl TypeSolver {
         }
     }
 
-    fn fmt_field(
+    fn fmt_field<S: TypeStorage>(
         &self,
         f: &mut fmt::Formatter,
         field_type: &FieldType,
         this: Option<TypeInfoRef>,
-        storage: &IndexVec<ComplexTypeRef, ComplexType>,
+        storage: &S,
         generics: &GenericFmt,
     ) -> fmt::Result {
         match field_type {
@@ -328,7 +398,7 @@ impl TypeSolver {
                 Some(field_type) => self.fmt_field(f, field_type, this, storage, generics),
                 None => f.write_str("<unknown>"),
             },
-            &FieldType::Generic(idx) => self.generic_fmt(f, generics, idx, this, storage),
+            &FieldType::Generic(idx, _) => self.generic_fmt(f, generics, idx, this, storage),
             FieldType::Primitive(primitive_type) => primitive_type.fmt(f),
             FieldType::Array(element_type, size) => {
                 self.fmt_field(f, element_type, this, storage, generics)?;
@@ -353,19 +423,24 @@ impl TypeSolver {
                         f.write_str(", ")?;
                     }
 
-                    self.fmt_field(f, ty, this, storage, generics)?;
+                    self.fmt_field(f, ty.as_inner(), this, storage, generics)?;
                 }
 
                 f.write_str(") -> ")?;
 
                 self.fmt_field(f, output.as_ref(), this, storage, generics)
             }
-            FieldType::Trait(..) => todo!(),
+            FieldType::Trait(t, args) => match storage.get_trait_name(*t) {
+                Some(name) => name.fmt(f),
+                None => write!(f, "<trait: {}>", t.index()),
+            },
             FieldType::Complex(complex_type, kind, type_args) => {
-                let complex_type = &storage[*complex_type];
+                let complex_type = storage.get_complex_type(*complex_type);
 
                 if let Some(name) = &complex_type.name {
                     name.fmt(f)?;
+
+                    f.write_char(' ')?;
                 }
 
                 f.write_char('{')?;
@@ -374,22 +449,30 @@ impl TypeSolver {
                     ComplexTypeKind::Struct | ComplexTypeKind::Component => {
                         let mut first = true;
 
-                        for (name, ty, _) in complex_type.variants[ComplexTypeVariantRef::new(0)].fields.values() {
-                            if first {
-                                first = false;
-                            } else {
-                                f.write_str(", ")?;
+                        f.write_char(' ')?;
+
+                        if !complex_type.variants[ComplexTypeVariantRef::new(0)].fields.is_empty() {
+                            for (name, ty, _) in complex_type.variants[ComplexTypeVariantRef::new(0)].fields.values() {
+                                if first {
+                                    first = false;
+                                } else {
+                                    f.write_str(", ")?;
+                                }
+
+                                name.fmt(f)?;
+
+                                f.write_str(": ")?;
+
+                                self.fmt_field(f, ty, this, storage, &GenericFmt::Field(type_args.as_ref(), generics))?;
                             }
 
-                            name.fmt(f)?;
-
-                            f.write_str(": ")?;
-
-                            self.fmt_field(f, ty, this, storage, &GenericFmt::Field(type_args.as_ref(), generics))?;
+                            f.write_char(' ')?;
                         }
                     }
                     ComplexTypeKind::Enum => {
                         let mut first = true;
+
+                        f.write_char(' ')?;
 
                         for variant in complex_type.variants.values() {
                             if first {
@@ -402,25 +485,37 @@ impl TypeSolver {
                                 name.fmt(f)?;
                             }
 
-                            f.write_char('{')?;
-
-                            let mut first = true;
-
-                            for (name, ty, _) in variant.fields.values() {
-                                if first {
-                                    first = false;
-                                } else {
-                                    f.write_str(", ")?;
+                            if !variant.fields.is_empty() {
+                                if variant.name.is_some() {
+                                    f.write_char(' ')?;
                                 }
 
-                                name.fmt(f)?;
+                                f.write_char('{')?;
+                                f.write_char(' ')?;
 
-                                f.write_str(": ")?;
+                                let mut first = true;
 
-                                self.fmt_field(f, ty, this, storage, generics)?;
+                                for (name, ty, _) in variant.fields.values() {
+                                    if first {
+                                        first = false;
+                                    } else {
+                                        f.write_str(", ")?;
+                                    }
+
+                                    name.fmt(f)?;
+
+                                    f.write_str(": ")?;
+
+                                    self.fmt_field(f, ty, this, storage, generics)?;
+                                }
+
+                                f.write_char(' ')?;
+                                f.write_char('}')?;
                             }
+                        }
 
-                            f.write_char('}')?;
+                        if !complex_type.variants.is_empty() {
+                            f.write_char(' ')?;
                         }
                     }
                 }
@@ -430,11 +525,15 @@ impl TypeSolver {
         }
     }
 
-    pub fn fmt_type(&self, f: &mut fmt::Formatter, ty: TypeInfoRef, this: Option<TypeInfoRef>, storage: &IndexVec<ComplexTypeRef, ComplexType>) -> fmt::Result {
+    pub fn fmt_type<S: TypeStorage>(&self, f: &mut fmt::Formatter, ty: TypeInfoRef, this: Option<TypeInfoRef>, storage: &S) -> fmt::Result {
         match &self.type_infos[ty] {
             TypeInfo::Unknown(fallback) => match fallback {
                 &Some(ty) => self.fmt_type(f, ty, this, storage),
-                None => f.write_str("<unknown>"),
+                None => write!(f, "<unknown: {ty:?}>"),
+            },
+            TypeInfo::Generic(idx, fallback) => match fallback {
+                &Some(ty) => self.fmt_type(f, ty, this, storage),
+                None => write!(f, "<generic({idx}): {ty:?}>"),
             },
             TypeInfo::Primitive(primitive_type) => primitive_type.fmt(f),
             &TypeInfo::Ref(ty) => self.fmt_type(f, ty, this, storage),
@@ -450,19 +549,24 @@ impl TypeSolver {
                         f.write_str(", ")?;
                     }
 
-                    self.fmt_type(f, ty, this, storage)?;
+                    self.fmt_type(f, ty.inner(), this, storage)?;
                 }
 
                 f.write_str(") -> ")?;
 
                 self.fmt_type(f, *returns, this, storage)
             }
-            TypeInfo::Trait(..) => todo!(),
+            TypeInfo::Trait(t, args) => match storage.get_trait_name(*t) {
+                Some(name) => name.fmt(f),
+                None => write!(f, "<trait: {}>", t.index()),
+            },
             TypeInfo::Complex(complex_type, kind, type_args) => {
-                let complex_type = &storage[*complex_type];
+                let complex_type = storage.get_complex_type(*complex_type);
 
                 if let Some(name) = &complex_type.name {
                     name.fmt(f)?;
+
+                    f.write_char(' ')?;
                 }
 
                 f.write_char('{')?;
@@ -471,39 +575,10 @@ impl TypeSolver {
                     ComplexTypeKind::Struct | ComplexTypeKind::Component => {
                         let mut first = true;
 
-                        for (name, ty, _) in complex_type.variants[ComplexTypeVariantRef::new(0)].fields.values() {
-                            if first {
-                                first = false;
-                            } else {
-                                f.write_str(", ")?;
-                            }
+                        f.write_char(' ')?;
 
-                            name.fmt(f)?;
-
-                            f.write_str(": ")?;
-
-                            self.fmt_field(f, ty, this, storage, &GenericFmt::TypeInfo(type_args.as_ref()))?;
-                        }
-                    }
-                    ComplexTypeKind::Enum => {
-                        let mut first = true;
-
-                        for variant in complex_type.variants.values() {
-                            if first {
-                                first = false;
-                            } else {
-                                f.write_str(", ")?;
-                            }
-
-                            if let Some(name) = &variant.name {
-                                name.fmt(f)?;
-                            }
-
-                            f.write_char('{')?;
-
-                            let mut first = true;
-
-                            for (name, ty, _) in variant.fields.values() {
+                        if !complex_type.variants[ComplexTypeVariantRef::new(0)].fields.is_empty() {
+                            for (name, ty, _) in complex_type.variants[ComplexTypeVariantRef::new(0)].fields.values() {
                                 if first {
                                     first = false;
                                 } else {
@@ -517,7 +592,193 @@ impl TypeSolver {
                                 self.fmt_field(f, ty, this, storage, &GenericFmt::TypeInfo(type_args.as_ref()))?;
                             }
 
-                            f.write_char('}')?;
+                            f.write_char(' ')?;
+                        }
+                    }
+                    ComplexTypeKind::Enum => {
+                        let mut first = true;
+
+                        f.write_char(' ')?;
+
+                        for variant in complex_type.variants.values() {
+                            if first {
+                                first = false;
+                            } else {
+                                f.write_str(", ")?;
+                            }
+
+                            if let Some(name) = &variant.name {
+                                name.fmt(f)?;
+                            }
+
+                            if !variant.fields.is_empty() {
+                                if variant.name.is_some() {
+                                    f.write_char(' ')?;
+                                }
+
+                                f.write_char('{')?;
+                                f.write_char(' ')?;
+
+                                let mut first = true;
+
+                                for (name, ty, _) in variant.fields.values() {
+                                    if first {
+                                        first = false;
+                                    } else {
+                                        f.write_str(", ")?;
+                                    }
+
+                                    name.fmt(f)?;
+
+                                    f.write_str(": ")?;
+
+                                    self.fmt_field(f, ty, this, storage, &GenericFmt::TypeInfo(type_args.as_ref()))?;
+                                }
+
+                                f.write_char(' ')?;
+                                f.write_char('}')?;
+                            }
+                        }
+
+                        if !complex_type.variants.is_empty() {
+                            f.write_char(' ')?;
+                        }
+                    }
+                }
+
+                f.write_char('}')
+            }
+            &TypeInfo::Array(element_type, size) => {
+                self.fmt_type(f, element_type, this, storage)?;
+
+                f.write_char('[')?;
+
+                if let Some(size) = size {
+                    size.fmt(f)?;
+                }
+
+                f.write_char(']')
+            }
+        }
+    }
+
+    pub fn fmt_type_info<S: TypeStorage>(&self, f: &mut fmt::Formatter, ty: &TypeInfo, this: Option<TypeInfoRef>, storage: &S) -> fmt::Result {
+        match ty {
+            TypeInfo::Unknown(fallback) => match fallback {
+                &Some(ty) => self.fmt_type(f, ty, this, storage),
+                None => write!(f, "<unknown>"),
+            },
+            TypeInfo::Generic(idx, fallback) => match fallback {
+                &Some(ty) => self.fmt_type(f, ty, this, storage),
+                None => write!(f, "<generic({idx})>"),
+            },
+            TypeInfo::Primitive(primitive_type) => primitive_type.fmt(f),
+            &TypeInfo::Ref(ty) => self.fmt_type(f, ty, this, storage),
+            TypeInfo::Func(args, returns) => {
+                f.write_str("fn(")?;
+
+                let mut first = true;
+
+                for &ty in args {
+                    if first {
+                        first = false;
+                    } else {
+                        f.write_str(", ")?;
+                    }
+
+                    self.fmt_type(f, ty.inner(), this, storage)?;
+                }
+
+                f.write_str(") -> ")?;
+
+                self.fmt_type(f, *returns, this, storage)
+            }
+            TypeInfo::Trait(t, args) => match storage.get_trait_name(*t) {
+                Some(name) => name.fmt(f),
+                None => write!(f, "<trait: {}>", t.index()),
+            },
+            TypeInfo::Complex(complex_type, kind, type_args) => {
+                let complex_type = storage.get_complex_type(*complex_type);
+
+                if let Some(name) = &complex_type.name {
+                    name.fmt(f)?;
+
+                    f.write_char(' ')?;
+                }
+
+                f.write_char('{')?;
+
+                match kind {
+                    ComplexTypeKind::Struct | ComplexTypeKind::Component => {
+                        let mut first = true;
+
+                        f.write_char(' ')?;
+
+                        if !complex_type.variants[ComplexTypeVariantRef::new(0)].fields.is_empty() {
+                            for (name, ty, _) in complex_type.variants[ComplexTypeVariantRef::new(0)].fields.values() {
+                                if first {
+                                    first = false;
+                                } else {
+                                    f.write_str(", ")?;
+                                }
+
+                                name.fmt(f)?;
+
+                                f.write_str(": ")?;
+
+                                self.fmt_field(f, ty, this, storage, &GenericFmt::TypeInfo(type_args.as_ref()))?;
+                            }
+
+                            f.write_char(' ')?;
+                        }
+                    }
+                    ComplexTypeKind::Enum => {
+                        let mut first = true;
+
+                        f.write_char(' ')?;
+
+                        for variant in complex_type.variants.values() {
+                            if first {
+                                first = false;
+                            } else {
+                                f.write_str(", ")?;
+                            }
+
+                            if let Some(name) = &variant.name {
+                                name.fmt(f)?;
+                            }
+
+                            if !variant.fields.is_empty() {
+                                if variant.name.is_some() {
+                                    f.write_char(' ')?;
+                                }
+
+                                f.write_char('{')?;
+                                f.write_char(' ')?;
+
+                                let mut first = true;
+
+                                for (name, ty, _) in variant.fields.values() {
+                                    if first {
+                                        first = false;
+                                    } else {
+                                        f.write_str(", ")?;
+                                    }
+
+                                    name.fmt(f)?;
+
+                                    f.write_str(": ")?;
+
+                                    self.fmt_field(f, ty, this, storage, &GenericFmt::TypeInfo(type_args.as_ref()))?;
+                                }
+
+                                f.write_char(' ')?;
+                                f.write_char('}')?;
+                            }
+                        }
+
+                        if !complex_type.variants.is_empty() {
+                            f.write_char(' ')?;
                         }
                     }
                 }

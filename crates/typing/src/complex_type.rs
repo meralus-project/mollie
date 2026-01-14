@@ -1,10 +1,11 @@
 use cranelift::{
     codegen::ir,
+    module::{Module, ModuleResult},
     prelude::{FunctionBuilder, InstBuilder as _, isa::TargetIsa},
 };
 use mollie_const::ConstantValue;
-use mollie_index::IndexBoxedSlice;
-use mollie_ir::{Field, stack_alloc};
+use mollie_index::{Idx, IndexBoxedSlice};
+use mollie_ir::{CodeGenerator, Field, MollieType, stack_alloc};
 
 use crate::{ComplexTypeVariantRef, CoreTypes, FieldRef, FieldType, PrimitiveType, TypeInfo, TypeInfoRef, TypeSolver};
 
@@ -21,20 +22,49 @@ pub struct CompiledComplexTypeVariant {
 }
 
 impl CompiledComplexType {
-    pub fn instance<T: IntoIterator<Item = ir::Value>>(
+    pub fn instance_struct_like<M: Module, T: IntoIterator<Item = ir::Value>>(
         &self,
-        variant: ComplexTypeVariantRef,
-        isa: &dyn TargetIsa,
+        codegen: &mut CodeGenerator<M>,
         fn_builder: &mut FunctionBuilder,
         values: T,
-    ) -> ir::Value {
-        let slot = stack_alloc(fn_builder, self.size);
+    ) -> ModuleResult<ir::Value> {
+        self.instance(ComplexTypeVariantRef::ZERO, codegen, fn_builder, values)
+    }
 
-        for ((field, _), value) in self.variants[variant].fields.values().zip(values) {
-            fn_builder.ins().stack_store(value, slot, field.offset);
+    pub fn instance<M: Module, T: IntoIterator<Item = ir::Value>>(
+        &self,
+        variant: ComplexTypeVariantRef,
+        codegen: &mut CodeGenerator<M>,
+        fn_builder: &mut FunctionBuilder,
+        values: T,
+    ) -> ModuleResult<ir::Value> {
+        codegen.data_desc.define_zeroinit(self.size as usize);
+
+        let id = codegen.module.declare_anonymous_data(true, false)?;
+
+        codegen.module.define_data(id, &codegen.data_desc)?;
+        codegen.data_desc.clear();
+
+        let data_id = codegen.module.declare_data_in_func(id, fn_builder.func);
+        let ptr = fn_builder.ins().global_value(codegen.module.isa().pointer_type(), data_id);
+
+        let mut values = values.into_iter();
+
+        for (field, _) in self.variants[variant].fields.values() {
+            if let MollieType::Fat(ty, _) = field.ty
+                && let Some(value) = values.next()
+                && let Some(metadata) = values.next()
+            {
+                fn_builder.ins().store(ir::MemFlags::trusted(), value, ptr, field.offset);
+                fn_builder
+                    .ins()
+                    .store(ir::MemFlags::trusted(), metadata, ptr, field.offset + ty.bytes().cast_signed());
+            } else if let Some(value) = values.next() {
+                fn_builder.ins().store(ir::MemFlags::trusted(), value, ptr, field.offset);
+            }
         }
 
-        fn_builder.ins().stack_addr(isa.pointer_type(), slot, 0)
+        Ok(ptr)
     }
 }
 
@@ -42,6 +72,12 @@ impl CompiledComplexType {
 pub struct CompiledComplexType {
     pub variants: IndexBoxedSlice<ComplexTypeVariantRef, CompiledComplexTypeVariant>,
     pub size: u32,
+}
+
+impl CompiledComplexType {
+    pub fn main_variant(&self) -> &CompiledComplexTypeVariant {
+        &self.variants[ComplexTypeVariantRef::ZERO]
+    }
 }
 
 #[derive(Debug)]
@@ -64,7 +100,11 @@ impl ComplexType {
         match field_type {
             FieldType::This => this.unwrap(),
             FieldType::Unknown(_) => panic!("what"),
-            &FieldType::Generic(generic) => args.get(generic).copied().unwrap_or_else(|| solver.add_info(TypeInfo::Unknown(None))),
+            &FieldType::Generic(generic, fallback) => args
+                .get(generic)
+                .copied()
+                .or(fallback)
+                .unwrap_or_else(|| solver.add_info(TypeInfo::Unknown(None))),
             FieldType::Primitive(primitive_type) => match primitive_type {
                 PrimitiveType::Any => core_types.any,
                 PrimitiveType::ISize => core_types.int_size,
@@ -90,7 +130,11 @@ impl ComplexType {
                 solver.add_info(TypeInfo::Array(element, *size))
             }
             FieldType::Func(params, output) => {
-                let params = params.iter().map(|param| Self::apply_args(param, this, core_types, solver, args)).collect();
+                let params = params
+                    .iter()
+                    .map(|param| param.as_ref().map(|param| Self::apply_args(param, this, core_types, solver, args)))
+                    .collect();
+
                 let output = Self::apply_args(output.as_ref(), this, core_types, solver, args);
 
                 solver.add_info(TypeInfo::Func(params, output))

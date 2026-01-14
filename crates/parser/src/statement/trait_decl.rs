@@ -24,7 +24,7 @@ impl Parse for TraitFuncArgument {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub struct TraitFunction {
     pub name: Positioned<Ident>,
     pub this: Option<Positioned<()>>,
@@ -74,7 +74,7 @@ impl Parse for TraitFunction {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub struct TraitDecl {
     pub name: Positioned<NameWithGenerics>,
     pub functions: Positioned<Vec<Positioned<TraitFunction>>>,

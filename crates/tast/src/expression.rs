@@ -1,19 +1,20 @@
-use std::iter;
+use std::{iter, mem::take};
 
-use indexmap::map::Entry;
+use indexmap::{IndexMap, map::Entry};
+use itertools::Itertools;
 use mollie_const::ConstantValue;
 use mollie_index::{Idx, IndexVec};
-use mollie_parser::IndexTarget;
+use mollie_parser::{IndexTarget, TypePattern};
 use mollie_shared::{Operator, Span};
 use mollie_typing::{
-    ComplexType, ComplexTypeKind, ComplexTypeRef, ComplexTypeVariant, ComplexTypeVariantRef, FieldRef, FieldType, PrimitiveType, TraitRef, TypeInfo,
+    ComplexType, ComplexTypeKind, ComplexTypeRef, ComplexTypeVariant, ComplexTypeVariantRef, FieldRef, FieldType, FuncArg, PrimitiveType, TraitRef, TypeInfo,
     TypeInfoRef, VFuncRef, VTableRef,
 };
 use serde::Serialize;
 
 use crate::{
-    BlockRef, ConstantContext, ExprRef, Func, IntoConstantValue, IntoPositionedTypedAST, IntoTypedAST, StmtRef, TraitFuncRef, TypeChecker, TypedAST,
-    VTableFunc, VTableFuncKind, statement::Stmt,
+    BlockRef, ConstantContext, ExprRef, Func, FuncRef, IntoConstantValue, IntoPositionedTypedAST, IntoTypedAST, ModuleId, ModuleItem, StmtRef, Trait,
+    TraitFuncRef, TypeChecker, TypedAST, VTableFunc, VTableFuncKind, VTableGenerator, statement::Stmt,
 };
 
 #[derive(Debug, Serialize)]
@@ -81,7 +82,7 @@ pub enum Expr {
     ConstructEnum {
         ty: TypeInfoRef,
         variant: usize,
-        fields: Option<Box<[(FieldRef, String, ExprRef)]>>,
+        fields: Option<Box<[(FieldRef, String, Option<ExprRef>)]>>,
     },
     ConstructComponent {
         ty: TypeInfoRef,
@@ -93,8 +94,8 @@ pub enum Expr {
         pattern: IsPattern,
     },
     TypeIndex {
-        target: TypeInfoRef,
-        func: VFunc,
+        ty: TypeInfoRef,
+        path: TypePath,
     },
     Nothing,
 }
@@ -108,7 +109,7 @@ pub enum IsPattern {
         target: ComplexTypeRef,
         target_args: Box<[TypeInfoRef]>,
         variant: ComplexTypeVariantRef,
-        values: Option<Box<[(FieldRef, String, Option<Self>)]>>,
+        values: Box<[(FieldRef, String, Option<Self>)]>,
     },
     TypeName {
         ty: TypeInfoRef,
@@ -164,14 +165,14 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
 
                 if let TypeInfo::Func(expected_args, returns) = checker.solver.get_info(ast[func].ty).clone() {
                     if let &Expr::VTableAccess { target, .. } = &ast[func].value {
-                        checker.solver.unify(ast[target].ty, expected_args[0]);
+                        checker.solver.unify(ast[target].ty, expected_args[0].inner());
 
                         for (arg, expected_arg) in args.iter().zip(expected_args.into_iter().skip(1)) {
-                            checker.solver.unify(ast[*arg].ty, expected_arg);
+                            checker.solver.unify(ast[*arg].ty, expected_arg.inner());
                         }
                     } else {
                         for (arg, expected_arg) in args.iter().zip(expected_args) {
-                            checker.solver.unify(ast[*arg].ty, expected_arg);
+                            checker.solver.unify(ast[*arg].ty, expected_arg.inner());
                         }
                     }
 
@@ -181,68 +182,91 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
                 }
             }
             Self::Node(mut node_expr) => {
-                let ty = node_expr.name.into_typed_ast(checker, ast)?;
-                let ty = ty.as_type_info(None, &checker.core_types, &mut checker.solver, &[]);
+                let path = node_expr.name.into_typed_ast(checker, ast)?;
                 let mut children = Some(node_expr.children);
 
-                if let TypeInfo::Complex(struct_ty, kind, args) = checker.solver.get_info(ty).clone() {
-                    let fields = checker.complex_types[struct_ty].variants[ComplexTypeVariantRef::new(0)]
-                        .fields
-                        .iter()
-                        .map(|(position, (name, field_type, _))| {
-                            let ty = field_type.as_type_info(None, &checker.core_types, &mut checker.solver, args.as_ref());
+                if let TypePath::ComplexType(ty, struct_ty, variant, None) = path
+                    && let TypeInfo::Complex(_, kind, args) = checker.solver.get_info(ty).clone()
+                {
+                    let fields: Box<[(FieldRef, String, Option<ExprRef>)]> = checker.complex_types[struct_ty].variants
+                        [variant.unwrap_or(ComplexTypeVariantRef::ZERO)]
+                    .fields
+                    .iter()
+                    .map(|(position, (name, field_type, _))| {
+                        let ty = field_type.as_type_info(None, &checker.core_types, &mut checker.solver, args.as_ref());
 
-                            let (name, value) = if matches!(kind, ComplexTypeKind::Component) && name == "children" {
-                                (
-                                    String::from("children"),
-                                    if let Some(mut children) = children.take() {
-                                        if matches!(checker.solver.get_info(ty), TypeInfo::Array(..)) {
-                                            Some(children.map(|elements| {
-                                                Self::Array(mollie_parser::ArrayExpr {
-                                                    elements: elements.into_iter().map(|node| node.map(Self::Node)).collect(),
-                                                })
-                                            }))
-                                        } else {
-                                            children.value.pop().map(|value| value.map(Self::Node))
-                                        }
+                        let (name, value) = if matches!(kind, ComplexTypeKind::Component) && name == "children" {
+                            (
+                                String::from("children"),
+                                if let Some(mut children) = children.take() {
+                                    if matches!(checker.solver.get_info(ty), TypeInfo::Array(..)) {
+                                        Some(children.map(|elements| {
+                                            Self::Array(mollie_parser::ArrayExpr {
+                                                elements: elements.into_iter().map(|node| node.map(Self::Node)).collect(),
+                                            })
+                                        }))
                                     } else {
-                                        None
-                                    },
-                                )
-                            } else {
-                                node_expr.properties.iter().position(|prop| &prop.value.name.value.0 == name).map_or_else(
-                                    || (name.clone(), None),
-                                    |prop| {
-                                        let prop = node_expr.properties.remove(prop);
+                                        children.value.pop().map(|value| value.map(Self::Node))
+                                    }
+                                } else {
+                                    None
+                                },
+                            )
+                        } else {
+                            node_expr.properties.iter().position(|prop| &prop.value.name.value.0 == name).map_or_else(
+                                || (name.clone(), None),
+                                |prop| {
+                                    let prop = node_expr.properties.remove(prop);
+                                    let value = prop
+                                        .value
+                                        .value
+                                        .unwrap_or_else(|| prop.value.name.wrap(Self::Ident(prop.value.name.value.clone())));
 
-                                        (prop.value.name.value.0, Some(prop.value.value))
-                                    },
-                                )
-                            };
+                                    (prop.value.name.value.0, Some(value))
+                                },
+                            )
+                        };
 
-                            (position, name, value, ty)
-                        })
-                        .collect::<Box<_>>()
-                        .into_iter()
-                        .map(|value| {
-                            let (position, name, value, ty) = value;
+                        (position, name, value, ty)
+                    })
+                    .collect::<Box<_>>()
+                    .into_iter()
+                    .map(|value| {
+                        let (position, name, value, ty) = value;
 
-                            let value = match value {
-                                Some(value) => {
-                                    let value = value.into_typed_ast(checker, ast)?;
+                        let value = match value {
+                            Some(value) => {
+                                let infer = checker.infer.replace(ty);
 
-                                    checker.solver.unify(ast[value].ty, ty);
+                                let value = value.into_typed_ast(checker, ast)?;
 
-                                    Some(value)
-                                }
-                                None => None,
-                            };
+                                checker.infer = infer;
+                                checker.solver.unify(ast[value].ty, ty);
 
-                            Ok((position, name, value))
-                        })
-                        .collect::<Result<_, _>>()?;
+                                Some(value)
+                            }
+                            None => None,
+                        };
 
-                    Ok(ast.add_expr(Expr::Construct { ty, fields }, ty, span))
+                        Ok((position, name, value))
+                    })
+                    .collect::<Result<_, _>>()?;
+
+                    ast.used_complex_types.push((struct_ty, args));
+
+                    if let Some(variant) = variant {
+                        Ok(ast.add_expr(
+                            Expr::ConstructEnum {
+                                ty,
+                                variant: variant.index(),
+                                fields: if fields.is_empty() { None } else { Some(fields) },
+                            },
+                            ty,
+                            span,
+                        ))
+                    } else {
+                        Ok(ast.add_expr(Expr::Construct { ty, fields }, ty, span))
+                    }
                 } else {
                     unimplemented!()
                 }
@@ -252,12 +276,18 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
 
                 match index_expr.index.value {
                     IndexTarget::Named(property_name) => {
-                        if let TypeInfo::Trait(trait_ref, type_args) = checker.solver.get_info(ast[target].ty).clone() {
-                            for (func, (name, args, returns)) in checker.traits[trait_ref].1.iter() {
+                        if let TypeInfo::Trait(trait_ref, type_args) = checker.solver.get_info(ast[target].ty) {
+                            let trait_ref = *trait_ref;
+                            let type_args = type_args.clone();
+
+                            for (func, (name, args, returns)) in checker.traits[trait_ref].functions.iter() {
                                 if name == &property_name.0 {
                                     let args = args
                                         .iter()
-                                        .map(|arg| arg.as_type_info(Some(ast[target].ty), &checker.core_types, &mut checker.solver, type_args.as_ref()))
+                                        .map(|arg| {
+                                            arg.as_ref()
+                                                .map(|arg| arg.as_type_info(Some(ast[target].ty), &checker.core_types, &mut checker.solver, type_args.as_ref()))
+                                        })
                                         .collect();
 
                                     let returns = returns.as_type_info(Some(ast[target].ty), &checker.core_types, &mut checker.solver, &[]);
@@ -273,20 +303,48 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
                                     ));
                                 }
                             }
-                        } else if let Some(vtables) = checker
-                            .solver
-                            .vtables
-                            .get(&FieldType::from_type_info(checker.solver.get_info(ast[target].ty), &checker.solver))
-                        {
-                            for &vtable in vtables.values() {
-                                for (func_ref, func) in checker.vtables[vtable].iter() {
-                                    if func.name == property_name.0 {
+                        } else {
+                            let info = checker.solver.get_info(ast[target].ty);
+                            let ty = FieldType::from_type_info(info, Some(ast[target].ty), &checker.solver);
+
+                            if let Some(vtables) = checker.solver.find_vtable(&ty) {
+                                for &vtable in vtables.values() {
+                                    let func = checker.vtables[vtable].functions.iter().find(|(_, func)| func.name == property_name.0);
+
+                                    if let Some((func_ref, func)) = func {
+                                        let func_ty = func.ty;
+
+                                        let args: Box<[TypeInfoRef]> = if let FieldType::Complex(_, _, args) = &ty {
+                                            args.iter()
+                                                .map(|arg| arg.as_type_info(Some(ast[target].ty), &checker.core_types, &mut checker.solver, &[]))
+                                                .collect()
+                                        } else if let FieldType::Array(element, _) = &ty {
+                                            Box::new([element.as_type_info(Some(ast[target].ty), &checker.core_types, &mut checker.solver, &[])])
+                                        } else {
+                                            Box::new([])
+                                        };
+
+                                        if !args.is_empty() {
+                                            checker.solver.solve_generic_args(func_ty, args.as_ref());
+                                        }
+
+                                        for (complex_ty, type_args) in &checker.vtables[vtable].used_complex_types {
+                                            ast.used_complex_types
+                                                .push((*complex_ty, if type_args.is_empty() { args.clone() } else { type_args.clone() }));
+                                        }
+
+                                        for (ty, vtable, type_args) in &checker.vtables[vtable].used_vtables {
+                                            ast.used_vtables.push((*ty, *vtable, type_args.clone()));
+                                        }
+
+                                        ast.used_vtables.push((ast[target].ty, vtable, args));
+
                                         return Ok(ast.add_expr(
                                             Expr::VTableAccess {
                                                 target,
                                                 func: VFunc::Known(vtable, func_ref),
                                             },
-                                            func.ty,
+                                            func_ty,
                                             span,
                                         ));
                                     }
@@ -354,34 +412,63 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
                 ))
             }
             Self::TypeIndex(type_index_expr) => {
-                let target_field = type_index_expr.target.into_typed_ast(checker, ast)?;
-                let target = target_field.as_type_info(None, &checker.core_types, &mut checker.solver, &[]);
+                let path = type_index_expr.into_typed_ast(checker, ast, span)?;
 
-                if let Some(vtables) = checker.solver.vtables.get(&target_field) {
-                    for &vtable in vtables.values() {
-                        for (func_ref, func) in checker.vtables[vtable].iter() {
-                            if func.name == type_index_expr.index.value.0 {
-                                return Ok(ast.add_expr(
-                                    Expr::TypeIndex {
-                                        target,
-                                        func: VFunc::Known(vtable, func_ref),
-                                    },
-                                    func.ty,
-                                    span,
-                                ));
-                            }
-                        }
-                    }
-                }
+                let (ty, resulting_ty) = match path {
+                    TypePath::ComplexType(type_info_ref, .., vfunc) => vfunc.map_or((type_info_ref, type_info_ref), |vfunc| (type_info_ref, checker[vfunc].ty)),
+                    TypePath::Trait(type_info_ref, _) | TypePath::Generic(type_info_ref, _) => (type_info_ref, type_info_ref),
+                    TypePath::Func(func_ref) => (checker.local_functions[func_ref].ty, checker.local_functions[func_ref].ty),
+                    TypePath::Module(_) => unimplemented!(),
+                };
 
-                unimplemented!()
+                Ok(ast.add_expr(Expr::TypeIndex { ty, path }, resulting_ty, span))
             }
             Self::Array(array_expr) => {
-                let element = checker.solver.add_info(TypeInfo::Unknown(None));
+                let element = if let Some(ty) = checker.infer.take_if(|ty| checker.solver.get_info(*ty).is_array()) {
+                    let &TypeInfo::Array(element, _) = checker.solver.get_info(ty) else {
+                        unreachable!()
+                    };
+
+                    element
+                } else {
+                    checker.solver.add_info(TypeInfo::Generic(0, None))
+                };
+
                 let mut elements = Vec::with_capacity(array_expr.elements.capacity());
 
                 for arr_element in array_expr.elements {
                     let arr_element = arr_element.into_typed_ast(checker, ast)?;
+
+                    if let &TypeInfo::Trait(t, _) = checker.solver.get_info(element)
+                        && let Some(vtables) = checker.solver.find_vtable(&FieldType::from_type_info(
+                            checker.solver.get_info(ast[arr_element].ty),
+                            Some(ast[arr_element].ty),
+                            &checker.solver,
+                        ))
+                        && let Some(&vtable) = vtables.get(&Some(t))
+                    {
+                        for (complex_ty, type_args) in &checker.vtables[vtable].used_complex_types {
+                            let complex_type = (*complex_ty, type_args.clone());
+
+                            if !ast.used_complex_types.contains(&complex_type) {
+                                ast.used_complex_types.push(complex_type);
+                            }
+                        }
+
+                        for (ty, vtable, type_args) in &checker.vtables[vtable].used_vtables {
+                            let vtable = (*ty, *vtable, type_args.clone());
+
+                            if !ast.used_vtables.contains(&vtable) {
+                                ast.used_vtables.push(vtable);
+                            }
+                        }
+
+                        let vtable = (ast[arr_element].ty, vtable, Box::new([]) as Box<[_]>);
+
+                        if !ast.used_vtables.contains(&vtable) {
+                            ast.used_vtables.push(vtable);
+                        }
+                    }
 
                     checker.solver.unify(element, ast[arr_element].ty);
 
@@ -389,12 +476,9 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
                 }
 
                 let size = elements.len();
+                let array_ty = checker.solver.add_info(TypeInfo::Array(element, Some(size)));
 
-                Ok(ast.add_expr(
-                    Expr::Array(elements.into_boxed_slice()),
-                    checker.solver.add_info(TypeInfo::Array(element, Some(size))),
-                    span,
-                ))
+                Ok(ast.add_expr(Expr::Array(elements.into_boxed_slice()), array_ty, span))
             }
             Self::IfElse(if_else_expr) => {
                 checker.solver.push_frame();
@@ -448,79 +532,6 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
 
                 Ok(ast.add_expr(Expr::Block(block), ty, span))
             }
-            Self::EnumPath(enum_path_expr) => {
-                let target = *checker.name_to_complex_type.get(&enum_path_expr.target.value.0).unwrap();
-                let mut applied_generics = enum_path_expr
-                    .index
-                    .value
-                    .generics
-                    .into_iter()
-                    .map(|generic| generic.into_typed_ast(checker, ast).ok())
-                    .collect::<Option<Vec<_>>>()
-                    .unwrap();
-
-                let target_ty = &checker.complex_types[target];
-                let mut current_variant = None;
-                let mut resulting_fields = None;
-                let generic_args = (0..target_ty.generics)
-                    .rev()
-                    .map(|generic| {
-                        applied_generics
-                            .pop()
-                            .unwrap_or(FieldType::Generic(generic))
-                            .as_type_info(None, &checker.core_types, &mut checker.solver, &[])
-                    })
-                    .rev()
-                    .collect::<Box<_>>();
-
-                if matches!(target_ty.kind, ComplexTypeKind::Enum) {
-                    for (variant, variant_value) in target_ty.variants.raw.iter().enumerate() {
-                        if variant_value.name.as_deref() == Some(enum_path_expr.index.value.name.value.0.as_str()) {
-                            current_variant.replace(ComplexTypeVariantRef::new(variant));
-
-                            break;
-                        }
-                    }
-
-                    if let Some(current_variant) = current_variant
-                        && let Some(fields) = enum_path_expr.properties
-                    {
-                        let mut new_fields = Vec::new();
-
-                        for value in fields.value {
-                            let name = value.value.name.value.0;
-
-                            let field = checker.complex_types[target].variants[current_variant]
-                                .fields
-                                .iter()
-                                .find(|(_, (field_name, ..))| field_name == &name)
-                                .map(|(field, (_, ty, _))| (field, ty.as_type_info(None, &checker.core_types, &mut checker.solver, &generic_args)));
-
-                            if let Some((field, ty)) = field {
-                                let value = value.value.value.into_typed_ast(checker, ast)?;
-
-                                checker.solver.unify(ast[value].ty, ty);
-
-                                new_fields.push((field, name, value));
-                            }
-                        }
-
-                        resulting_fields.replace(new_fields);
-                    }
-                }
-
-                let ty = checker.solver.add_info(TypeInfo::Complex(target, ComplexTypeKind::Enum, generic_args));
-
-                Ok(ast.add_expr(
-                    Expr::ConstructEnum {
-                        ty,
-                        variant: current_variant.unwrap().index(),
-                        fields: resulting_fields.map(|value| value.into_boxed_slice()),
-                    },
-                    ty,
-                    span,
-                ))
-            }
             Self::Is(is_expr) => {
                 let target = is_expr.target.into_typed_ast(checker, ast)?;
                 let pattern = is_expr
@@ -543,7 +554,7 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
                     checker.solver.add_var(&arg.value.0, ty);
 
                     args.push(arg.value.0);
-                    arg_types.push(ty);
+                    arg_types.push(FuncArg::Regular(ty));
                 }
 
                 let body = closure_expr.body.into_typed_ast(checker, ast)?;
@@ -561,36 +572,24 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
                 ))
             }
             Self::Ident(ident) => {
-                let ty = /*checker
-                    .types
-                    .get_named_type_ref(&ident.0)
-                    .map(|ty| match unsafe { checker.types.get_type(ty).unwrap_unchecked() }.variant.as_complex() {
-                        Some(mollie_typing::ComplexType::Array(arr)) => {
-                            let element = checker
-                                .solver
-                                .add_info(TypeInfo::Type(checker.types.ref_of_type(&arr.element).unwrap()));
+                if let Some(var) = checker.solver.get_var(&ident.0) {
+                    Ok(ast.add_expr(Expr::Var(ident.0), var.ty, span))
+                } else if let Some(&ModuleItem::Func(func_ref)) = checker.modules[ModuleId::ZERO].items.get(&ident.0) {
+                    let ty = checker.local_functions[func_ref].ty;
 
-                            checker.solver.add_info(TypeInfo::Array(element))
-                        }
-                        Some(mollie_typing::ComplexType::Function(func)) => {
-                            let args = func
-                                .args
-                                .iter()
-                                .map(|arg| checker.solver.add_info(TypeInfo::Type(checker.types.ref_of_type(arg).unwrap())))
-                                .collect();
+                    ast.used_functions.push(func_ref);
 
-                            let output = checker
-                                .solver
-                                .add_info(TypeInfo::Type(checker.types.ref_of_type(func.returns.as_ref()).unwrap()));
-
-                            checker.solver.add_info(TypeInfo::Func(args, output))
-                        }
-                        _ => checker.solver.add_info(TypeInfo::Type(ty)),
-                    })
-                    .or_else(|| */ checker.solver.get_var(&ident.0).map(|var| var.ty)/* ) */
-                    .unwrap();
-
-                Ok(ast.add_expr(Expr::Var(ident.0), ty, span))
+                    Ok(ast.add_expr(
+                        Expr::TypeIndex {
+                            ty,
+                            path: TypePath::Func(func_ref),
+                        },
+                        ty,
+                        span,
+                    ))
+                } else {
+                    Err(())
+                }
             }
             Self::This => Ok(ast.add_expr(Expr::Var("self".into()), checker.solver.get_var("self").unwrap().ty, span)),
         }
@@ -635,93 +634,66 @@ impl IntoTypedAST<IsPattern> for (TypeInfoRef, mollie_parser::IsPattern) {
     fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST, span: Span) -> Result<IsPattern, ()> {
         Ok(match self.1 {
             mollie_parser::IsPattern::Literal(literal_expr) => IsPattern::Literal(literal_expr.into_typed_ast(checker, ast, span)?),
-            mollie_parser::IsPattern::Enum { target, index, values } => {
-                let target = *checker.name_to_complex_type.get(&target.value.0).unwrap();
-                let mut current_variant = None;
-                let mut resulting_values = None;
-                let target_args = if matches!(checker.complex_types[target].kind, ComplexTypeKind::Enum) {
-                    for (variant, variant_data) in checker.complex_types[target].variants.iter() {
-                        if variant_data.name.as_ref() == Some(&index.value.name.value.0) {
-                            current_variant.replace(variant);
+            mollie_parser::IsPattern::Type { ty, pattern } => {
+                let path = ty.into_typed_ast(checker, ast)?;
 
-                            break;
-                        }
-                    }
+                match path {
+                    TypePath::ComplexType(target_ty, target, current_variant, None) => {
+                        let generic_args = if let TypeInfo::Complex(.., generic_args) = checker.solver.get_info(target_ty) {
+                            generic_args.clone()
+                        } else {
+                            Box::default()
+                        };
 
-                    let mut applied_generics = index
-                        .value
-                        .generics
-                        .into_iter()
-                        .map(|generic| generic.into_typed_ast(checker, ast).ok())
-                        .collect::<Option<Vec<_>>>()
-                        .unwrap();
-
-                    let ty = &checker.complex_types[target];
-                    let generic_args = (0..ty.generics)
-                        .rev()
-                        .map(|generic| {
-                            applied_generics
-                                .pop()
-                                .unwrap_or(FieldType::Generic(generic))
-                                .as_type_info(None, &checker.core_types, &mut checker.solver, &[])
-                        })
-                        .rev()
-                        .collect::<Box<_>>();
-
-                    if let Some(current_variant) = current_variant
-                        && let Some(values) = values
-                    {
-                        let fields = ty
-                            .instantiate(current_variant, None, &checker.core_types, &mut checker.solver, &generic_args)
-                            .map(|(field, name, ty)| (field, name.to_string(), ty))
-                            .collect::<Box<[_]>>();
-
-                        let mut new_values = Vec::new();
-
-                        for value in values.value {
-                            if let Some(prop) = fields.iter().find(|prop| prop.1 == value.value.name.value.0) {
-                                let pattern = if let Some(value) = value.value.value {
-                                    Some(value.span.wrap((prop.2, value.value)).into_typed_ast(checker, ast)?)
-                                } else {
-                                    None
-                                };
-
-                                if pattern.is_none() {
-                                    checker.solver.add_var(&prop.1, prop.2);
-                                }
-
-                                new_values.push((prop.0, value.value.name.value.0, pattern));
+                        if let TypeInfo::Complex(_, _, type_args) = checker.solver.get_info(self.0) {
+                            for (expected, got) in type_args.clone().into_iter().zip(&generic_args) {
+                                checker.solver.unify(*got, expected);
                             }
                         }
 
-                        resulting_values.replace(new_values);
-                    }
+                        match (current_variant, pattern.value) {
+                            (Some(variant), TypePattern::Values(values)) => {
+                                let fields = checker.complex_types[target]
+                                    .instantiate(variant, None, &checker.core_types, &mut checker.solver, generic_args.as_ref())
+                                    .map(|(field, name, ty)| (field, name.to_string(), ty))
+                                    .collect::<Box<[_]>>();
 
-                    if let TypeInfo::Complex(_, _, type_args) = checker.solver.get_info(self.0) {
-                        for (expected, got) in type_args.clone().into_iter().zip(&generic_args) {
-                            checker.solver.unify(*got, expected);
+                                let mut new_values = Vec::new();
+
+                                for value in values {
+                                    if let Some(prop) = fields.iter().find(|prop| prop.1 == value.value.name.value.0) {
+                                        let pattern = if let Some(value) = value.value.value {
+                                            Some(value.span.wrap((prop.2, value.value)).into_typed_ast(checker, ast)?)
+                                        } else {
+                                            None
+                                        };
+
+                                        if pattern.is_none() {
+                                            checker.solver.add_var(&prop.1, prop.2);
+                                        }
+
+                                        new_values.push((prop.0, value.value.name.value.0, pattern));
+                                    }
+                                }
+
+                                IsPattern::EnumVariant {
+                                    target,
+                                    target_args: generic_args,
+                                    variant,
+                                    values: new_values.into_boxed_slice(),
+                                }
+                            }
+                            (None, TypePattern::Name(name)) => {
+                                checker.solver.add_var(&name.0, target_ty);
+
+                                IsPattern::TypeName { ty: target_ty, name: name.0 }
+                            }
+                            _ => unimplemented!(),
                         }
                     }
-
-                    generic_args
-                } else {
-                    Box::default()
-                };
-
-                IsPattern::EnumVariant {
-                    target,
-                    target_args,
-                    variant: current_variant.unwrap(),
-                    values: resulting_values.map(|v| v.into_boxed_slice()),
+                    TypePath::Trait(..) => todo!(),
+                    TypePath::Module(_) | TypePath::ComplexType(.., Some(_)) | TypePath::Generic(..) | TypePath::Func(_) => unimplemented!(),
                 }
-            }
-            mollie_parser::IsPattern::TypeName { ty, name } => {
-                let ty = ty.into_typed_ast(checker, ast)?;
-                let ty = ty.as_type_info(None, &checker.core_types, &mut checker.solver, &[]);
-
-                checker.solver.add_var(&name.value.0, ty);
-
-                IsPattern::TypeName { ty, name: name.value.0 }
             }
         })
     }
@@ -758,7 +730,7 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
             }
             Self::StructDecl(struct_decl) => {
                 for (index, name) in struct_decl.name.value.generics.iter().enumerate() {
-                    checker.available_generics.insert(name.value.0.clone(), index);
+                    checker.available_generics.insert(name.value.0.clone(), (index, None));
                 }
 
                 let mut variants = IndexVec::new();
@@ -794,7 +766,10 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
 
                 let complex_type = ComplexTypeRef::new(checker.complex_types.len());
 
-                checker.name_to_complex_type.insert(struct_decl.name.value.name.value.0.clone(), complex_type);
+                checker.modules[ast.module]
+                    .items
+                    .insert(struct_decl.name.value.name.value.0.clone(), ModuleItem::ComplexType(complex_type));
+
                 checker.complex_types.push(ComplexType {
                     name: Some(struct_decl.name.value.name.value.0),
                     kind: ComplexTypeKind::Struct,
@@ -806,7 +781,7 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
             }
             Self::ComponentDecl(component_decl) => {
                 for (index, name) in component_decl.name.value.generics.iter().enumerate() {
-                    checker.available_generics.insert(name.value.0.clone(), index);
+                    checker.available_generics.insert(name.value.0.clone(), (index, None));
                 }
 
                 let mut variants = IndexVec::new();
@@ -842,9 +817,10 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
 
                 let complex_type = ComplexTypeRef::new(checker.complex_types.len());
 
-                checker
-                    .name_to_complex_type
-                    .insert(component_decl.name.value.name.value.0.clone(), complex_type);
+                checker.modules[ast.module]
+                    .items
+                    .insert(component_decl.name.value.name.value.0.clone(), ModuleItem::ComplexType(complex_type));
+
                 checker.complex_types.push(ComplexType {
                     name: Some(component_decl.name.value.name.value.0),
                     kind: ComplexTypeKind::Component,
@@ -856,7 +832,7 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
             }
             Self::TraitDecl(trait_decl) => {
                 for (index, name) in trait_decl.name.value.generics.iter().enumerate() {
-                    checker.available_generics.insert(name.value.0.clone(), index);
+                    checker.available_generics.insert(name.value.0.clone(), (index, None));
                 }
 
                 let mut functions = IndexVec::with_capacity(trait_decl.functions.value.len());
@@ -866,11 +842,11 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
                     let mut args = Vec::with_capacity(function.value.args.len() + usize::from(function.value.this.is_some()));
 
                     if function.value.this.is_some() {
-                        args.push(FieldType::This);
+                        args.push(FuncArg::This(FieldType::This));
                     }
 
                     for arg in function.value.args {
-                        args.push(arg.value.ty.into_typed_ast(checker, ast)?);
+                        args.push(FuncArg::Regular(arg.value.ty.into_typed_ast(checker, ast)?));
                     }
 
                     let output = function
@@ -887,14 +863,21 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
 
                 let trait_ref = TraitRef::new(checker.traits.len());
 
-                checker.name_to_trait.insert(trait_decl.name.value.name.value.0, trait_ref);
-                checker.traits.push((trait_decl.name.value.generics.len(), functions));
+                checker.traits.push(Trait {
+                    name: trait_decl.name.value.name.value.0.clone(),
+                    generics: trait_decl.name.value.generics.len(),
+                    functions,
+                });
+
+                checker.modules[ast.module]
+                    .items
+                    .insert(trait_decl.name.value.name.value.0, ModuleItem::Trait(trait_ref));
 
                 Ok(None)
             }
             Self::EnumDecl(enum_decl) => {
                 for (index, name) in enum_decl.name.value.generics.iter().enumerate() {
-                    checker.available_generics.insert(name.value.0.clone(), index);
+                    checker.available_generics.insert(name.value.0.clone(), (index, None));
                 }
 
                 let mut variants = IndexVec::new();
@@ -925,7 +908,10 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
 
                 let complex_type = ComplexTypeRef::new(checker.complex_types.len());
 
-                checker.name_to_complex_type.insert(enum_decl.name.value.name.value.0.clone(), complex_type);
+                checker.modules[ast.module]
+                    .items
+                    .insert(enum_decl.name.value.name.value.0.clone(), ModuleItem::ComplexType(complex_type));
+
                 checker.complex_types.push(ComplexType {
                     name: Some(enum_decl.name.value.name.value.0),
                     kind: ComplexTypeKind::Enum,
@@ -948,7 +934,7 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
                     checker.solver.add_var(&arg.value.name.value.0, ty);
 
                     arg_names.push(arg.value.name.value.0);
-                    args.push(ty);
+                    args.push(FuncArg::Regular(ty));
                 }
 
                 let returns = if let Some(returns) = func_decl.returns {
@@ -978,46 +964,42 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
             }
             Self::Impl(mut implementation) => {
                 for (index, name) in implementation.generics.iter().enumerate() {
-                    checker.available_generics.insert(name.value.0.clone(), index);
+                    checker.available_generics.insert(name.value.0.clone(), (index, None));
                 }
 
-                let mut applied_generics = Vec::new();
+                let mut applied_generics = Box::default();
 
                 let trait_ref = match implementation.trait_name {
                     Some(trait_name) => {
-                        applied_generics = trait_name
-                            .value
-                            .generics
-                            .into_iter()
-                            .map(|generic| {
-                                generic
-                                    .into_typed_ast(checker, ast)
-                                    .map(|v| v.as_type_info(None, &checker.core_types, &mut checker.solver, &[]))
-                            })
-                            .collect::<Result<_, _>>()?;
+                        if let TypePath::Trait(ty, trait_ref) = trait_name.into_typed_ast(checker, ast)? {
+                            if let TypeInfo::Trait(_, args) = checker.solver.get_info(ty) {
+                                applied_generics = args.clone();
+                            }
 
-                        checker
-                            .name_to_trait
-                            .get(&trait_name.value.name.value.0)
-                            .copied()
-                            .map(|t| (trait_name.value.name.value.0, t))
+                            Some((checker.traits[trait_ref].name.clone(), trait_ref))
+                        } else {
+                            None
+                        }
                     }
                     None => None,
                 };
 
                 let target = implementation.target.into_typed_ast(checker, ast)?;
-                let target_info = target.as_type_info(None, &checker.core_types, &mut checker.solver, &applied_generics);
+                let target_info = target.as_type_info(None, &checker.core_types, &mut checker.solver, &[]);
                 let mut functions = IndexVec::with_capacity(
                     implementation
                         .functions
                         .value
                         .capacity()
-                        .max(trait_ref.as_ref().map(|(_, t)| checker.traits[*t].1.len()).unwrap_or_default()),
+                        .max(trait_ref.as_ref().map(|(_, t)| checker.traits[*t].functions.len()).unwrap_or_default()),
                 );
+
+                let used_complex_types = ast.used_complex_types.len();
+                let used_vtables = ast.used_vtables.len();
 
                 if let Some((trait_name, trait_ref)) = &trait_ref {
                     let trait_functions = checker.traits[*trait_ref]
-                        .1
+                        .functions
                         .iter()
                         .map(|(k, (name, ..))| (k, name.clone()))
                         .collect::<Box<[_]>>();
@@ -1035,26 +1017,23 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
                                 checker.solver.add_var("self", target_info);
 
                                 arg_names.push("self".to_string());
-                                args.push(target_info);
+                                args.push(FuncArg::This(target_info));
                             }
 
                             for arg in function.value.args {
                                 let ty = arg.value.ty.into_typed_ast(checker, ast)?;
-                                let ty = ty.as_type_info(Some(target_info), &checker.core_types, &mut checker.solver, &applied_generics);
+                                let ty = ty.as_type_info(Some(target_info), &checker.core_types, &mut checker.solver, &[]);
 
                                 checker.solver.add_var(&arg.value.name.value.0, ty);
 
                                 arg_names.push(arg.value.name.value.0);
-                                args.push(ty);
+                                args.push(FuncArg::Regular(ty));
                             }
 
                             let returns = if let Some(returns) = function.value.returns {
-                                returns.into_typed_ast(checker, ast)?.as_type_info(
-                                    Some(target_info),
-                                    &checker.core_types,
-                                    &mut checker.solver,
-                                    &applied_generics,
-                                )
+                                returns
+                                    .into_typed_ast(checker, ast)?
+                                    .as_type_info(Some(target_info), &checker.core_types, &mut checker.solver, &[])
                             } else {
                                 checker.core_types.void
                             };
@@ -1091,23 +1070,23 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
                         checker.solver.add_var("self", target_info);
 
                         arg_names.push("self".to_string());
-                        args.push(target_info);
+                        args.push(FuncArg::This(target_info));
                     }
 
                     for arg in function.value.args {
                         let ty = arg.value.ty.into_typed_ast(checker, ast)?;
-                        let ty = ty.as_type_info(Some(target_info), &checker.core_types, &mut checker.solver, &applied_generics);
+                        let ty = ty.as_type_info(Some(target_info), &checker.core_types, &mut checker.solver, &[]);
 
                         checker.solver.add_var(&arg.value.name.value.0, ty);
 
                         arg_names.push(arg.value.name.value.0);
-                        args.push(ty);
+                        args.push(FuncArg::Regular(ty));
                     }
 
                     let returns = if let Some(returns) = function.value.returns {
                         returns
                             .into_typed_ast(checker, ast)?
-                            .as_type_info(Some(target_info), &checker.core_types, &mut checker.solver, &applied_generics)
+                            .as_type_info(Some(target_info), &checker.core_types, &mut checker.solver, &[])
                     } else {
                         checker.core_types.void
                     };
@@ -1130,6 +1109,9 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
                     checker.available_generics.remove(&name.value.0);
                 }
 
+                let used_complex_types = ast.used_complex_types.split_off(used_complex_types);
+                let used_vtables = ast.used_vtables.split_off(used_vtables);
+
                 let (trait_name, trait_ref) = match trait_ref {
                     Some((name, t_ref)) => (Some(name), Some(t_ref)),
                     None => (None, None),
@@ -1142,67 +1124,181 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
                                 println!("duplicate {trait_name} implementation!");
                             } else {
                                 for func in functions.into_values() {
-                                    checker.vtables[*entry.get()].push(func);
+                                    checker.vtables[*entry.get()].functions.push(func);
                                 }
                             }
                         }
                         Entry::Vacant(entry) => {
-                            entry.insert(checker.vtables.insert(functions));
+                            entry.insert(checker.vtables.insert(VTableGenerator {
+                                origin_trait: trait_ref,
+                                generics: applied_generics,
+                                used_complex_types,
+                                used_vtables,
+                                functions,
+                            }));
                         }
                     },
                     Entry::Vacant(entry) => {
-                        entry.insert(iter::once((trait_ref, checker.vtables.insert(functions))).collect());
+                        entry.insert(
+                            iter::once((
+                                trait_ref,
+                                checker.vtables.insert(VTableGenerator {
+                                    origin_trait: trait_ref,
+                                    generics: applied_generics,
+                                    used_complex_types,
+                                    used_vtables,
+                                    functions,
+                                }),
+                            ))
+                            .collect(),
+                        );
                     }
                 }
 
                 Ok(None)
             }
-            Self::Import(_) => todo!(),
+            Self::Import(import) => {
+                let path = import.path.into_typed_ast(checker, ast)?;
+
+                if let TypePath::Module(module) = path {
+                    match import.kind {
+                        mollie_parser::ImportKind::Partial(items) => {
+                            for item in items.value {
+                                let name = item.value.0;
+
+                                if let Some(item) = checker.modules[module].items.get(&name).copied() {
+                                    checker.modules[ModuleId::ZERO].items.insert(name, item);
+                                }
+                            }
+                        }
+                        mollie_parser::ImportKind::Named => {
+                            let name = checker.modules[module].name.clone();
+
+                            checker.modules[ModuleId::ZERO].items.insert(name, ModuleItem::SubModule(module));
+                        }
+                    }
+
+                    Ok(None)
+                } else {
+                    unimplemented!()
+                }
+            }
         }
     }
 }
 
-impl IntoTypedAST<FieldType> for mollie_parser::CustomType {
-    fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST, _: Span) -> Result<FieldType, ()> {
-        Ok(checker.available_generics.get(&self.name.value.0).copied().map_or_else(
-            || {
-                let mut applied_generics = self
-                    .generics
-                    .into_iter()
-                    .map(|generic| generic.into_typed_ast(checker, ast).ok())
-                    .collect::<Option<Vec<_>>>()
-                    .unwrap();
+impl IntoTypedAST<Vec<FieldType>> for mollie_parser::TypeArgs {
+    fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST, _: Span) -> Result<Vec<FieldType>, ()> {
+        self.0.into_iter().map(|generic| generic.into_typed_ast(checker, ast)).collect::<Result<_, _>>()
+    }
+}
 
-                checker
-                    .name_to_trait
-                    .get(&self.name.value.0)
-                    .map(|&ty| {
-                        FieldType::Trait(
-                            ty,
-                            (0..checker.traits[ty].0)
-                                .rev()
-                                .map(|generic| applied_generics.pop().unwrap_or(FieldType::Generic(generic)))
-                                .rev()
-                                .collect(),
-                        )
-                    })
-                    .or_else(|| {
-                        checker.name_to_complex_type.get(&self.name.value.0).map(|&ty| {
-                            FieldType::Complex(
-                                ty,
-                                checker.complex_types[ty].kind,
-                                (0..checker.complex_types[ty].generics)
-                                    .rev()
-                                    .map(|generic| applied_generics.pop().unwrap_or(FieldType::Generic(generic)))
-                                    .rev()
-                                    .collect(),
-                            )
-                        })
-                    })
-                    .unwrap()
-            },
-            FieldType::Generic,
-        ))
+#[derive(Debug, Clone, Copy, Serialize)]
+pub enum TypePath {
+    ComplexType(TypeInfoRef, ComplexTypeRef, Option<ComplexTypeVariantRef>, Option<(VTableRef, VFuncRef)>),
+    Trait(TypeInfoRef, TraitRef),
+    Func(FuncRef),
+    Generic(TypeInfoRef, usize),
+    Module(ModuleId),
+}
+
+impl IntoTypedAST<TypePath> for mollie_parser::TypePathExpr {
+    fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST, span: Span) -> Result<TypePath, ()> {
+        let mut result = TypePath::Module(ModuleId::ZERO);
+
+        for segment in self.segments {
+            if let TypePath::ComplexType(target, ty, ty_variant, vfunc) = &mut result {
+                if ty_variant.is_none() {
+                    for (variant_ref, variant) in checker.complex_types[*ty].variants.iter() {
+                        if variant.name.as_deref() == Some(segment.value.name.value.0.as_str()) {
+                            ty_variant.replace(variant_ref);
+
+                            break;
+                        }
+                    }
+                }
+
+                if vfunc.is_none() {
+                    let field_type = FieldType::from_type_info(checker.solver.get_info(*target), Some(*target), &checker.solver);
+
+                    if let Some(vtables) = checker.solver.find_vtable(&field_type) {
+                        for &vtable in vtables.values() {
+                            for (func_ref, func) in checker.vtables[vtable].functions.iter() {
+                                if func.name == segment.value.name.value.0 {
+                                    ast.used_vtables.push((*target, vtable, Box::new([])));
+
+                                    vfunc.replace((vtable, func_ref));
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if let Some((g, ty)) = checker.available_generics.get(&segment.value.name.value.0).copied() {
+                let ty = ty.unwrap_or_else(|| checker.solver.add_info(TypeInfo::Generic(g, None)));
+
+                checker.available_generics.insert(segment.value.name.value.0, (g, Some(ty)));
+
+                result = TypePath::Generic(ty, g);
+            } else if let &TypePath::Module(current_module) = &result
+                && let Some(item) = checker.modules[current_module].items.get(&segment.value.name.value.0)
+            {
+                match *item {
+                    ModuleItem::SubModule(module_id) => result = TypePath::Module(module_id),
+                    ModuleItem::ComplexType(complex_type_ref) => {
+                        let mut type_args = if let Some(type_args) = segment.value.args {
+                            type_args.into_typed_ast(checker, ast)?
+                        } else {
+                            Vec::default()
+                        };
+
+                        let args = (0..checker.complex_types[complex_type_ref].generics)
+                            .rev()
+                            .map(|generic| type_args.pop().unwrap_or(FieldType::Generic(generic, None)))
+                            .rev()
+                            .map(|arg| arg.as_type_info(None, &checker.core_types, &mut checker.solver, &[]))
+                            .collect();
+
+                        result = TypePath::ComplexType(
+                            checker
+                                .solver
+                                .add_info(TypeInfo::Complex(complex_type_ref, checker.complex_types[complex_type_ref].kind, args)),
+                            complex_type_ref,
+                            None,
+                            None,
+                        );
+                    }
+                    ModuleItem::Trait(trait_ref) => {
+                        let mut type_args = if let Some(type_args) = segment.value.args {
+                            type_args.into_typed_ast(checker, ast)?
+                        } else {
+                            Vec::default()
+                        };
+
+                        let args = (0..checker.traits[trait_ref].generics)
+                            .rev()
+                            .map(|generic| type_args.pop().unwrap_or(FieldType::Generic(generic, None)))
+                            .rev()
+                            .map(|arg| arg.as_type_info(None, &checker.core_types, &mut checker.solver, &[]))
+                            .collect();
+
+                        result = TypePath::Trait(checker.solver.add_info(TypeInfo::Trait(trait_ref, args)), trait_ref);
+                    }
+                    ModuleItem::Func(func_ref) => {
+                        ast.used_functions.push(func_ref);
+
+                        result = TypePath::Func(func_ref);
+                    },
+                }
+            }
+        }
+
+        if let &TypePath::ComplexType(info_ref, ..) = &result
+            && let TypeInfo::Complex(ty, _, args) = checker.solver.get_info(info_ref)
+        {
+            ast.used_complex_types.push((*ty, args.clone()));
+        }
+
+        Ok(result)
     }
 }
 
@@ -1232,7 +1328,6 @@ impl IntoTypedAST<FieldType> for mollie_parser::Type {
                     Void => FieldType::Primitive(PrimitiveType::Void),
                 }
             }
-            Self::Custom(custom_type) => custom_type.into_typed_ast(checker, ast, span)?,
             Self::Array(element, size) => {
                 let element = element.into_typed_ast(checker, ast)?;
 
@@ -1240,7 +1335,10 @@ impl IntoTypedAST<FieldType> for mollie_parser::Type {
             }
             Self::OneOf(_) => todo!(),
             Self::Func(args, output) => {
-                let args = args.into_iter().map(|arg| arg.into_typed_ast(checker, ast)).collect::<Result<_, _>>()?;
+                let args = args
+                    .into_iter()
+                    .map(|arg| arg.into_typed_ast(checker, ast).map(FuncArg::Regular))
+                    .collect::<Result<_, _>>()?;
                 let output = if let Some(output) = output {
                     output.into_typed_ast(checker, ast)?
                 } else {
@@ -1248,6 +1346,73 @@ impl IntoTypedAST<FieldType> for mollie_parser::Type {
                 };
 
                 FieldType::Func(args, Box::new(output))
+            }
+            Self::Path(path) => {
+                let mut result = None;
+                let mut current_module = ModuleId::ZERO;
+
+                // modules:
+                //   std
+                //   std::option
+                //   std::array
+                //   std::iter
+
+                for segment in path.segments {
+                    if let Some((g, ty)) = checker.available_generics.get(&segment.value.name.value.0).copied() {
+                        let ty = ty.unwrap_or_else(|| checker.solver.add_info(TypeInfo::Generic(g, None)));
+
+                        checker.available_generics.insert(segment.value.name.value.0, (g, Some(ty)));
+
+                        result = Some(FieldType::Generic(g, Some(ty)));
+                    } else if result.is_none()
+                        && let Some(item) = checker.modules[current_module].items.get(&segment.value.name.value.0)
+                    {
+                        match *item {
+                            ModuleItem::SubModule(module_id) => current_module = module_id,
+                            ModuleItem::ComplexType(complex_type_ref) => {
+                                let mut type_args = if let Some(type_args) = segment.value.args {
+                                    type_args.into_typed_ast(checker, ast)?
+                                } else {
+                                    Vec::default()
+                                };
+
+                                let args = (0..checker.complex_types[complex_type_ref].generics)
+                                    .rev()
+                                    .map(|generic| type_args.pop().unwrap_or(FieldType::Generic(generic, None)))
+                                    .rev()
+                                    .collect();
+
+                                result = Some(FieldType::Complex(complex_type_ref, checker.complex_types[complex_type_ref].kind, args));
+                            }
+                            ModuleItem::Trait(trait_ref) => {
+                                let mut type_args = if let Some(type_args) = segment.value.args {
+                                    type_args.into_typed_ast(checker, ast)?
+                                } else {
+                                    Vec::default()
+                                };
+
+                                let args = (0..checker.traits[trait_ref].generics)
+                                    .rev()
+                                    .map(|generic| type_args.pop().unwrap_or(FieldType::Generic(generic, None)))
+                                    .rev()
+                                    .collect();
+
+                                result = Some(FieldType::Trait(trait_ref, args));
+                            }
+                            ModuleItem::Func(func_ref) => {
+                                ast.used_functions.push(func_ref);
+
+                                result = Some(FieldType::from_type_info(
+                                    checker.solver.get_info(checker.local_functions[func_ref].ty),
+                                    Some(checker.local_functions[func_ref].ty),
+                                    &checker.solver,
+                                ));
+                            }
+                        }
+                    }
+                }
+
+                result.unwrap()
             }
         })
     }

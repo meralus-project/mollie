@@ -1,55 +1,38 @@
 use mollie_lexer::Token;
 use mollie_shared::Positioned;
 
-use crate::{Ident, Parse, ParseResult, Parser};
+use crate::{Ident, Parse, ParseResult, Parser, TypePathExpr, TypePathSegment};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub enum ImportKind {
     Partial(Positioned<Vec<Positioned<Ident>>>), // import { a, b } from "module";
-    Full(Positioned<Ident>),                     // import "module" as module;
-    Eval,                                        // import "module";
+    Named,                                       // import "module";
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub struct Import {
     pub kind: ImportKind,
-    pub path: Positioned<String>,
+    pub path: Positioned<TypePathExpr>,
 }
 
 impl Parse for Import {
     fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
         let start = parser.consume(&Token::Import)?;
 
-        if parser.check(&Token::BraceOpen) {
+        let kind = if parser.check(&Token::BraceOpen) {
             let values = parser.consume_separated_in(&Token::Comma, &Token::BraceOpen, &Token::BraceClose)?;
 
             parser.consume(&Token::From)?;
 
-            let path = parser.consume_if(Token::is_string).map(|token| match token.value {
-                Token::String(data) => token.span.wrap(data),
-                _ => unreachable!(),
-            })?;
-
-            Ok(start.between(&path).wrap(Self {
-                kind: ImportKind::Partial(values),
-                path,
-            }))
+            ImportKind::Partial(values)
         } else {
-            let path = parser.consume_if(Token::is_string).map(|token| match token.value {
-                Token::String(data) => token.span.wrap(data),
-                _ => unreachable!(),
-            })?;
+            ImportKind::Named
+        };
 
-            if parser.try_consume(&Token::As) {
-                let name = Ident::parse(parser)?;
+        let path = TypePathExpr::parse(TypePathSegment::parse_from(Ident::parse(parser)?, parser, false)?, parser, false)?;
 
-                Ok(start.between(&path).wrap(Self {
-                    kind: ImportKind::Full(name),
-                    path,
-                }))
-            } else {
-                Ok(start.between(&path).wrap(Self { kind: ImportKind::Eval, path }))
-            }
-        }
+        let end = parser.consume(&Token::Semi)?;
+
+        Ok(start.between(&end).wrap(Self { kind, path }))
     }
 }

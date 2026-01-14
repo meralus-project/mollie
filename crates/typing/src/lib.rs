@@ -10,8 +10,8 @@ pub use self::{
     complex_type::{CompiledComplexType, CompiledComplexTypeVariant, ComplexType, ComplexTypeKind, ComplexTypeVariant},
     field_type::FieldType,
     primitive_type::PrimitiveType,
-    solver::{TypeSolver, TypeUnificationError},
-    type_info::TypeInfo,
+    solver::{TypeSolver, TypeStorage, TypeUnificationError},
+    type_info::{FuncArg, TypeInfo},
 };
 
 new_idx_type!(TypeInfoRef);

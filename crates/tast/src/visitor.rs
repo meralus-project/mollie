@@ -152,7 +152,13 @@ mod default_visitors {
         }
     }
 
-    pub fn visit_construct_enum<T: Visitor + ?Sized>(visitor: &mut T, ast: &TypedAST, ty: TypeInfoRef, variant: usize, fields: Option<&[(FieldRef, String, ExprRef)]>) {
+    pub fn visit_construct_enum<T: Visitor + ?Sized>(
+        visitor: &mut T,
+        ast: &TypedAST,
+        ty: TypeInfoRef,
+        variant: usize,
+        fields: Option<&[(FieldRef, String, ExprRef)]>,
+    ) {
         if let Some(fields) = fields {
             for field in fields {
                 visitor.visit_expr(ast, field.2);
@@ -180,12 +186,15 @@ mod default_visitors {
         fn visit_is_pattern_inner<T: Visitor + ?Sized>(visitor: &mut T, ast: &TypedAST, pattern: &IsPattern) {
             match pattern {
                 &IsPattern::Literal(expr) => visitor.visit_expr(ast, expr),
-                IsPattern::EnumVariant { target, target_args, variant, values } => {
-                    if let Some(values) = values.as_deref() {
-                        for value in values {
-                            if let Some(value) = &value.2 {
-                                visit_is_pattern_inner(visitor, ast, value);
-                            }
+                IsPattern::EnumVariant {
+                    target,
+                    target_args,
+                    variant,
+                    values,
+                } => {
+                    for value in values {
+                        if let Some(value) = &value.2 {
+                            visit_is_pattern_inner(visitor, ast, value);
                         }
                     }
                 }
@@ -213,10 +222,10 @@ mod default_visitors {
             Expr::Call { func, args } => visitor.visit_call(ast, *func, args.as_ref()),
             Expr::Closure { args, body } => visitor.visit_closure(ast, args.as_ref(), *body),
             Expr::Construct { ty, fields } => visitor.visit_construct(ast, *ty, fields.as_ref()),
-            Expr::ConstructEnum { ty, variant, fields } => visitor.visit_construct_enum(ast, *ty, *variant, fields.as_deref()),
+            Expr::ConstructEnum { ty, variant, fields } => todo!(), // visitor.visit_construct_enum(ast, *ty, *variant, fields.as_deref()),
             Expr::ConstructComponent { ty, fields, children } => visitor.visit_construct_component(ast, *ty, fields.as_ref(), children.as_ref()),
             Expr::IsPattern { target, pattern } => visitor.visit_is_pattern(ast, *target, pattern),
-            &Expr::TypeIndex { target, func } => visitor.visit_type_index(ast, target, func),
+            Expr::TypeIndex { ty, path } => todo!(), // visitor.visit_type_index(ast, target, func),
             Expr::Nothing => (),
         }
     }
@@ -225,7 +234,7 @@ mod default_visitors {
         match &ast[stmt] {
             &Stmt::Expr(expr) => visitor.visit_expr(ast, expr),
             Stmt::VariableDecl { value, .. } => visitor.visit_expr(ast, *value),
-            _ => todo!()
+            _ => todo!(),
         }
     }
 

@@ -1,7 +1,7 @@
 use mollie_lexer::Token;
 use mollie_shared::Positioned;
 
-use crate::{Ident, Parse, ParseResult, Parser};
+use crate::{Ident, Parse, ParseResult, Parser, TypePathExpr, TypePathSegment};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub enum PrimitiveType {
@@ -72,35 +72,21 @@ impl Parse for NameWithGenerics {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
-pub struct CustomType {
-    pub name: Positioned<Ident>,
-    pub generics: Vec<Positioned<Type>>,
-}
+pub struct TypeArgs(pub Vec<Positioned<Type>>);
 
-impl Parse for CustomType {
+impl Parse for TypeArgs {
     fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
-        let name = Ident::parse(parser)?;
-
-        let (generics, end) = if parser.try_consume(&Token::Less) {
-            let generics = parser.consume_separated_until(&Token::Comma, &Token::Greater)?;
-            let end = parser.consume(&Token::Greater)?;
-
-            (generics, end.span)
-        } else {
-            (Vec::new(), name.span)
-        };
-
-        Ok(name.span.between(end).wrap(Self { name, generics }))
+        Ok(parser.consume_separated_in(&Token::Comma, &Token::Less, &Token::Greater)?.map(Self))
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub enum Type {
     Primitive(PrimitiveType),
-    Custom(CustomType),
     Array(Box<Positioned<Self>>, Option<Positioned<usize>>),
     OneOf(Vec<Positioned<Self>>),
     Func(Vec<Positioned<Self>>, Option<Box<Positioned<Self>>>),
+    Path(TypePathExpr),
 }
 
 impl Type {
@@ -123,7 +109,11 @@ impl Type {
                         .wrap(Self::Func(args.value, returns)),
                 )
             })
-            .or_else(|_| CustomType::parse(parser).map(|v| v.map(Self::Custom)))
+            .or_else(|_| {
+                let name = Ident::parse(parser)?;
+
+                TypePathExpr::parse(TypePathSegment::parse_from(name, parser, false)?, parser, false).map(|path| path.map(Self::Path))
+            })
     }
 }
 

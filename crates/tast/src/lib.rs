@@ -6,13 +6,16 @@ use std::{collections::HashMap, fmt, ops::Index};
 
 use indexmap::IndexMap;
 use mollie_const::ConstantValue;
-use mollie_index::{IndexVec, new_idx_type};
+use mollie_index::{Idx, IndexVec, new_idx_type};
 use mollie_shared::{Positioned, Span};
-use mollie_typing::{ComplexType, ComplexTypeRef, CoreTypes, FieldType, TraitRef, TypeInfoRef, TypeSolver, TypeUnificationError, VFuncRef, VTableRef};
+use mollie_typing::{
+    ComplexType, ComplexTypeRef, CoreTypes, FieldType, FuncArg, PrimitiveType, TraitRef, TypeInfo, TypeInfoRef, TypeSolver, TypeStorage, TypeUnificationError,
+    VFuncRef, VTableRef,
+};
 use serde::Serialize;
 
 pub use crate::{
-    expression::{Block, Expr, IsPattern, LiteralExpr, VFunc},
+    expression::{Block, Expr, IsPattern, LiteralExpr, TypePath, VFunc},
     statement::Stmt,
 };
 
@@ -21,12 +24,18 @@ new_idx_type!(StmtRef);
 new_idx_type!(ExprRef);
 new_idx_type!(FuncRef);
 new_idx_type!(TraitFuncRef);
+new_idx_type!(ModuleId);
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct TypedAST {
+    pub module: ModuleId,
     pub blocks: IndexVec<BlockRef, Typed<Block>>,
     pub statements: IndexVec<StmtRef, Stmt>,
     pub exprs: IndexVec<ExprRef, Typed<Expr>>,
+
+    pub used_vtables: Vec<(TypeInfoRef, VTableRef, Box<[TypeInfoRef]>)>,
+    pub used_complex_types: Vec<(ComplexTypeRef, Box<[TypeInfoRef]>)>,
+    pub used_functions: Vec<FuncRef>,
 }
 
 impl TypedAST {
@@ -79,7 +88,7 @@ impl Index<StmtRef> for TypedAST {
     }
 }
 
-pub type TraitFunc = (String, Vec<FieldType>, FieldType);
+pub type TraitFunc = (String, Vec<FuncArg<FieldType>>, FieldType);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VTableFuncKind {
@@ -103,33 +112,146 @@ pub struct VTableFunc<T = TypeInfoRef> {
     pub kind: VTableFuncKind,
 }
 
+#[derive(Debug)]
+pub struct VTableGenerator {
+    pub origin_trait: Option<TraitRef>,
+    pub generics: Box<[TypeInfoRef]>,
+    pub used_vtables: Vec<(TypeInfoRef, VTableRef, Box<[TypeInfoRef]>)>,
+    pub used_complex_types: Vec<(ComplexTypeRef, Box<[TypeInfoRef]>)>,
+    pub functions: IndexVec<VFuncRef, VTableFunc>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ModuleItem {
+    SubModule(ModuleId),
+    ComplexType(ComplexTypeRef),
+    Trait(TraitRef),
+    Func(FuncRef),
+}
+
+pub struct Module {
+    pub parent: Option<ModuleId>,
+    pub name: String,
+    pub id: ModuleId,
+    pub items: IndexMap<String, ModuleItem>,
+}
+
+impl Module {
+    pub fn new<T: Into<String>>(id: ModuleId, name: T) -> Self {
+        Self {
+            parent: None,
+            name: name.into(),
+            id,
+            items: IndexMap::new(),
+        }
+    }
+}
+
+pub struct Trait {
+    pub name: String,
+    pub generics: usize,
+    pub functions: IndexVec<TraitFuncRef, TraitFunc>,
+}
+
 pub struct TypeChecker {
     pub core_types: CoreTypes,
     pub solver: TypeSolver,
 
-    pub available_generics: HashMap<String, usize>,
+    pub infer: Option<TypeInfoRef>,
 
-    pub name_to_complex_type: HashMap<String, ComplexTypeRef>,
+    pub available_generics: HashMap<String, (usize, Option<TypeInfoRef>)>,
+
+    pub modules: IndexVec<ModuleId, Module>,
     pub complex_types: IndexVec<ComplexTypeRef, ComplexType>,
-
-    pub name_to_trait: HashMap<String, TraitRef>,
-    pub traits: IndexVec<TraitRef, (usize, IndexVec<TraitFuncRef, TraitFunc>)>,
-
-    pub vtables: IndexVec<VTableRef, IndexVec<VFuncRef, VTableFunc>>,
-
     pub local_functions: IndexVec<FuncRef, Func>,
+    pub traits: IndexVec<TraitRef, Trait>,
+    pub vtables: IndexVec<VTableRef, VTableGenerator>,
+}
+
+impl TypeChecker {
+    pub fn new() -> Self {
+        let mut solver = TypeSolver::default();
+
+        solver.push_frame();
+
+        let core_types = CoreTypes {
+            void: solver.add_info(TypeInfo::Primitive(PrimitiveType::Void)),
+            any: solver.add_info(TypeInfo::Primitive(PrimitiveType::Any)),
+            boolean: solver.add_info(TypeInfo::Primitive(PrimitiveType::Boolean)),
+            int8: solver.add_info(TypeInfo::Primitive(PrimitiveType::I8)),
+            int16: solver.add_info(TypeInfo::Primitive(PrimitiveType::I16)),
+            int32: solver.add_info(TypeInfo::Primitive(PrimitiveType::I32)),
+            int64: solver.add_info(TypeInfo::Primitive(PrimitiveType::I64)),
+            int_size: solver.add_info(TypeInfo::Primitive(PrimitiveType::ISize)),
+            uint8: solver.add_info(TypeInfo::Primitive(PrimitiveType::U8)),
+            uint16: solver.add_info(TypeInfo::Primitive(PrimitiveType::U16)),
+            uint32: solver.add_info(TypeInfo::Primitive(PrimitiveType::U32)),
+            uint64: solver.add_info(TypeInfo::Primitive(PrimitiveType::U64)),
+            uint_size: solver.add_info(TypeInfo::Primitive(PrimitiveType::USize)),
+            float: solver.add_info(TypeInfo::Primitive(PrimitiveType::Float)),
+            component: solver.add_info(TypeInfo::Primitive(PrimitiveType::Component)),
+            string: solver.add_info(TypeInfo::Primitive(PrimitiveType::String)),
+        };
+
+        Self {
+            core_types,
+            solver,
+            infer: None,
+            available_generics: HashMap::new(),
+            modules: IndexVec::from_iter([Module::new(ModuleId::ZERO, "<anonymous>")]),
+            complex_types: IndexVec::new(),
+            local_functions: IndexVec::new(),
+            traits: IndexVec::new(),
+            vtables: IndexVec::new(),
+        }
+    }
+}
+
+impl Default for TypeChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Index<(VTableRef, VFuncRef)> for TypeChecker {
+    type Output = VTableFunc;
+
+    fn index(&self, (vtable_ref, vfunc_ref): (VTableRef, VFuncRef)) -> &Self::Output {
+        &self.vtables[vtable_ref].functions[vfunc_ref]
+    }
+}
+
+impl TypeStorage for TypeChecker {
+    fn get_complex_type(&self, complex_type_ref: ComplexTypeRef) -> &ComplexType {
+        &self.complex_types[complex_type_ref]
+    }
+
+    fn get_trait_name(&self, trait_ref: TraitRef) -> Option<&str> {
+        Some(self.traits[trait_ref].name.as_str())
+    }
 }
 
 pub struct TypeDisplay<'a> {
     ty: TypeInfoRef,
     this: Option<TypeInfoRef>,
-    complex_types: &'a IndexVec<ComplexTypeRef, ComplexType>,
-    solver: &'a TypeSolver,
+    checker: &'a TypeChecker,
 }
 
 impl fmt::Display for TypeDisplay<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.solver.fmt_type(f, self.ty, self.this, self.complex_types)
+        self.checker.solver.fmt_type(f, self.ty, self.this, self.checker)
+    }
+}
+
+pub struct TypeInfoDisplay<'a, 'b> {
+    ty: &'a TypeInfo,
+    this: Option<TypeInfoRef>,
+    checker: &'b TypeChecker,
+}
+
+impl fmt::Display for TypeInfoDisplay<'_, '_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.checker.solver.fmt_type_info(f, self.ty, self.this, self.checker)
     }
 }
 
@@ -153,10 +275,7 @@ impl TypeChecker {
     }
 
     pub fn name_of_trait(&self, trait_ref: TraitRef) -> &str {
-        self.name_to_trait
-            .iter()
-            .find_map(|(name, actual_trait)| if actual_trait == &trait_ref { Some(name.as_str()) } else { None })
-            .unwrap_or_default()
+        self.traits[trait_ref].name.as_str()
     }
 
     pub const fn display_of_error(&self, error: TypeUnificationError) -> TypeErrorDisplay<'_> {
@@ -164,12 +283,11 @@ impl TypeChecker {
     }
 
     pub const fn display_of_type(&self, ty: TypeInfoRef, this: Option<TypeInfoRef>) -> TypeDisplay<'_> {
-        TypeDisplay {
-            ty,
-            this,
-            complex_types: &self.complex_types,
-            solver: &self.solver,
-        }
+        TypeDisplay { ty, this, checker: self }
+    }
+
+    pub const fn display_of_type_info<'a, 'b>(&'b self, ty: &'a TypeInfo, this: Option<TypeInfoRef>) -> TypeInfoDisplay<'a, 'b> {
+        TypeInfoDisplay { ty, this, checker: self }
     }
 }
 
