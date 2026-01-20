@@ -1,4 +1,4 @@
-mod complex_type;
+mod adt;
 mod field_type;
 mod primitive_type;
 mod solver;
@@ -7,16 +7,16 @@ mod type_info;
 use mollie_index::new_idx_type;
 
 pub use self::{
-    complex_type::{CompiledComplexType, CompiledComplexTypeVariant, ComplexType, ComplexTypeKind, ComplexTypeVariant},
+    adt::{Adt, AdtKind, AdtVariant, CompiledAdt, CompiledAdtVariant},
     field_type::FieldType,
-    primitive_type::PrimitiveType,
+    primitive_type::{IntType, PrimitiveType, UIntType},
     solver::{TypeSolver, TypeStorage, TypeUnificationError},
     type_info::{FuncArg, TypeInfo},
 };
 
 new_idx_type!(TypeInfoRef);
-new_idx_type!(ComplexTypeRef);
-new_idx_type!(ComplexTypeVariantRef);
+new_idx_type!(AdtRef);
+new_idx_type!(AdtVariantRef);
 new_idx_type!(FieldRef);
 new_idx_type!(TraitRef);
 new_idx_type!(VTableRef);

@@ -115,9 +115,9 @@ pub fn compile_constant<M: Module>(
 
             data_desc.define(value.clone().into_bytes().into_boxed_slice());
 
-            let id = module.declare_anonymous_data(true, false).unwrap();
+            let id = module.declare_anonymous_data(true, false).ok()?;
 
-            module.define_data(id, data_desc).unwrap();
+            module.define_data(id, data_desc).ok()?;
             data_desc.clear();
 
             let data_id = module.declare_data_in_func(id, fn_builder.func);

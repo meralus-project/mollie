@@ -1,39 +1,39 @@
 use cranelift::{
     codegen::ir,
     module::{Module, ModuleResult},
-    prelude::{FunctionBuilder, InstBuilder as _, isa::TargetIsa},
+    prelude::{FunctionBuilder, InstBuilder as _},
 };
 use mollie_const::ConstantValue;
 use mollie_index::{Idx, IndexBoxedSlice};
-use mollie_ir::{CodeGenerator, Field, MollieType, stack_alloc};
+use mollie_ir::{CodeGenerator, Field, MollieType};
 
-use crate::{ComplexTypeVariantRef, CoreTypes, FieldRef, FieldType, PrimitiveType, TypeInfo, TypeInfoRef, TypeSolver};
+use crate::{AdtVariantRef, CoreTypes, FieldRef, FieldType, IntType, PrimitiveType, TypeInfo, TypeInfoRef, TypeSolver, UIntType};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ComplexTypeKind {
+pub enum AdtKind {
     Struct,
     Component,
     Enum,
 }
 
 #[derive(Debug)]
-pub struct CompiledComplexTypeVariant {
+pub struct CompiledAdtVariant {
     pub fields: IndexBoxedSlice<FieldRef, (Field, TypeInfoRef)>,
 }
 
-impl CompiledComplexType {
+impl CompiledAdt {
     pub fn instance_struct_like<M: Module, T: IntoIterator<Item = ir::Value>>(
         &self,
         codegen: &mut CodeGenerator<M>,
         fn_builder: &mut FunctionBuilder,
         values: T,
     ) -> ModuleResult<ir::Value> {
-        self.instance(ComplexTypeVariantRef::ZERO, codegen, fn_builder, values)
+        self.instance(AdtVariantRef::ZERO, codegen, fn_builder, values)
     }
 
     pub fn instance<M: Module, T: IntoIterator<Item = ir::Value>>(
         &self,
-        variant: ComplexTypeVariantRef,
+        variant: AdtVariantRef,
         codegen: &mut CodeGenerator<M>,
         fn_builder: &mut FunctionBuilder,
         values: T,
@@ -69,33 +69,33 @@ impl CompiledComplexType {
 }
 
 #[derive(Debug)]
-pub struct CompiledComplexType {
-    pub variants: IndexBoxedSlice<ComplexTypeVariantRef, CompiledComplexTypeVariant>,
+pub struct CompiledAdt {
+    pub variants: IndexBoxedSlice<AdtVariantRef, CompiledAdtVariant>,
     pub size: u32,
 }
 
-impl CompiledComplexType {
-    pub fn main_variant(&self) -> &CompiledComplexTypeVariant {
-        &self.variants[ComplexTypeVariantRef::ZERO]
+impl CompiledAdt {
+    pub fn main_variant(&self) -> &CompiledAdtVariant {
+        &self.variants[AdtVariantRef::ZERO]
     }
 }
 
 #[derive(Debug)]
-pub struct ComplexTypeVariant {
+pub struct AdtVariant {
     pub name: Option<String>,
     pub discriminant: usize,
     pub fields: IndexBoxedSlice<FieldRef, (String, FieldType, Option<ConstantValue>)>,
 }
 
 #[derive(Debug)]
-pub struct ComplexType {
+pub struct Adt {
     pub name: Option<String>,
-    pub kind: ComplexTypeKind,
+    pub kind: AdtKind,
     pub generics: usize,
-    pub variants: IndexBoxedSlice<ComplexTypeVariantRef, ComplexTypeVariant>,
+    pub variants: IndexBoxedSlice<AdtVariantRef, AdtVariant>,
 }
 
-impl ComplexType {
+impl Adt {
     fn apply_args(field_type: &FieldType, this: Option<TypeInfoRef>, core_types: &CoreTypes, solver: &mut TypeSolver, args: &[TypeInfoRef]) -> TypeInfoRef {
         match field_type {
             FieldType::This => this.unwrap(),
@@ -107,16 +107,16 @@ impl ComplexType {
                 .unwrap_or_else(|| solver.add_info(TypeInfo::Unknown(None))),
             FieldType::Primitive(primitive_type) => match primitive_type {
                 PrimitiveType::Any => core_types.any,
-                PrimitiveType::ISize => core_types.int_size,
-                PrimitiveType::I64 => core_types.int64,
-                PrimitiveType::I32 => core_types.int32,
-                PrimitiveType::I16 => core_types.int16,
-                PrimitiveType::I8 => core_types.int8,
-                PrimitiveType::USize => core_types.uint_size,
-                PrimitiveType::U64 => core_types.uint64,
-                PrimitiveType::U32 => core_types.uint32,
-                PrimitiveType::U16 => core_types.uint16,
-                PrimitiveType::U8 => core_types.uint8,
+                PrimitiveType::Int(IntType::ISize) => core_types.int_size,
+                PrimitiveType::Int(IntType::I64) => core_types.int64,
+                PrimitiveType::Int(IntType::I32) => core_types.int32,
+                PrimitiveType::Int(IntType::I16) => core_types.int16,
+                PrimitiveType::Int(IntType::I8) => core_types.int8,
+                PrimitiveType::UInt(UIntType::USize) => core_types.uint_size,
+                PrimitiveType::UInt(UIntType::U64) => core_types.uint64,
+                PrimitiveType::UInt(UIntType::U32) => core_types.uint32,
+                PrimitiveType::UInt(UIntType::U16) => core_types.uint16,
+                PrimitiveType::UInt(UIntType::U8) => core_types.uint8,
                 PrimitiveType::Float => core_types.float,
                 PrimitiveType::Boolean => core_types.boolean,
                 PrimitiveType::String => core_types.string,
@@ -147,20 +147,20 @@ impl ComplexType {
 
                 solver.add_info(TypeInfo::Trait(*trait_ref, args))
             }
-            FieldType::Complex(complex_type, kind, field_types) => {
+            FieldType::Adt(adt_ref, kind, field_types) => {
                 let args = field_types
                     .iter()
                     .map(|field_type| Self::apply_args(field_type, this, core_types, solver, args))
                     .collect();
 
-                solver.add_info(TypeInfo::Complex(*complex_type, *kind, args))
+                solver.add_info(TypeInfo::Adt(*adt_ref, *kind, args))
             }
         }
     }
 
     pub fn instantiate(
         &self,
-        variant: ComplexTypeVariantRef,
+        variant: AdtVariantRef,
         this: Option<TypeInfoRef>,
         core_types: &CoreTypes,
         solver: &mut TypeSolver,

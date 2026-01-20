@@ -1,0 +1,170 @@
+
+import { Option, timestamp } from std;
+import { Size } from graphics;
+
+trait Iterable<T> {
+    fn iter(self) -> T;
+}
+
+trait Iterator<T> {
+    fn next(self) -> Option<T>;
+}
+
+struct ArrayIter<T> {
+    value: T[],
+    index: uint_size
+}
+
+impl<T> Iterator<T> for ArrayIter<T> {
+    fn next(self) -> Option<T> {
+        if self.index == get_size(self.value) {
+            Option::None
+        } else {
+            const value = self.value[self.index];
+
+            self.index = self.index + 1;
+
+            Option::Some { value }
+        }
+    }
+}
+
+impl<T> Iterable<ArrayIter<T>> for T[] {
+    fn iter(self) -> ArrayIter<T> {
+        ArrayIter {
+            value: self,
+            index: 0
+        }
+    }
+}
+
+trait Drawable {
+    fn measure(self, ctx: DrawContext) -> Size;
+    fn render(self, ctx: DrawContext);
+}
+
+declare Rectangle {
+    width: float,
+    height: float,
+    background: graphics::Color
+}
+
+declare Image {
+    width: float = 0.0,
+    height: float = 0.0,
+    image: graphics::Image
+}
+
+impl graphics::Color {
+    fn new(red: uint8, green: uint8, blue: uint8) -> graphics::Color {
+        graphics::Color { red, green, blue }
+    }
+}
+
+declare Column {
+    children: Drawable[]
+}
+
+impl Drawable for Image {
+    fn measure(self, ctx: DrawContext) -> Size {
+        const width = if self.width > 0.0 {
+            self.width
+        } else {
+            ctx.image_size(self.image).width
+        };
+
+        const height = if self.height > 0.0 {
+            self.height
+        } else {
+            ctx.image_size(self.image).height
+        };
+
+        self.width = width;
+        self.height = height;
+
+        Size { width, height }
+    }
+
+    fn render(self, ctx: DrawContext) {
+        ctx.draw_image(24.0, 32.0, self.width, self.height, self.image);
+    }
+}
+
+impl Drawable for Rectangle {
+    fn measure(self, ctx: DrawContext) -> Size {
+        Size {
+            width: self.width,
+            height: self.height
+        }
+    }
+
+    fn render(self, ctx: DrawContext) {
+        ctx.draw_rect(24.0, 32.0, self.width, self.height, self.background);
+    }
+}
+
+impl float {
+    fn max(self, other: float) -> float {
+        if self > other {
+            self
+        } else {
+            other
+        }
+    }
+}
+
+impl Drawable for Column {
+    fn measure(self, ctx: DrawContext) -> Size {
+        const width = 0.0;
+        const height = 0.0;
+
+        const iterator = self.children.iter();
+
+        while iterator.next() is Option::Some { value } {
+            const measured = value.measure(ctx);
+
+            width = measured.width.max(width);
+            height = height + measured.height;
+        }
+
+        Size { width, height }
+    }
+
+    fn render(self, ctx: DrawContext) {
+        const iterator = self.children.iter();
+
+        while iterator.next() is Option::Some { value } {
+            value.render(ctx);
+        }
+    }
+}
+
+impl graphics::Image {
+    fn path(value: string) -> graphics::Image {
+        graphics::Image::Path { value }
+    }
+}
+
+const width = 24.0;
+
+const column = Column {
+    Image {
+        image: graphics::Image::path("frustrating")
+    }
+
+    Rectangle {
+        width,
+        height: 48.0,
+        background: graphics::Color::new(255, 0, 0),
+    }
+
+    Rectangle {
+        width: 96.0,
+        height: 48.0,
+        background: graphics::Color::new(0, 0, 255),
+    }
+};
+
+const column_size = column.measure(context);
+
+column.render(context);

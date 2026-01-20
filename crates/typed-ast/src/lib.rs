@@ -9,8 +9,8 @@ use mollie_const::ConstantValue;
 use mollie_index::{Idx, IndexVec, new_idx_type};
 use mollie_shared::{Positioned, Span};
 use mollie_typing::{
-    ComplexType, ComplexTypeRef, CoreTypes, FieldType, FuncArg, PrimitiveType, TraitRef, TypeInfo, TypeInfoRef, TypeSolver, TypeStorage, TypeUnificationError,
-    VFuncRef, VTableRef,
+    Adt, AdtRef, CoreTypes, FieldType, FuncArg, IntType, PrimitiveType, TraitRef, TypeInfo, TypeInfoRef, TypeSolver, TypeStorage, TypeUnificationError,
+    UIntType, VFuncRef, VTableRef,
 };
 use serde::Serialize;
 
@@ -34,7 +34,7 @@ pub struct TypedAST {
     pub exprs: IndexVec<ExprRef, Typed<Expr>>,
 
     pub used_vtables: Vec<(TypeInfoRef, VTableRef, Box<[TypeInfoRef]>)>,
-    pub used_complex_types: Vec<(ComplexTypeRef, Box<[TypeInfoRef]>)>,
+    pub used_adt_types: Vec<(AdtRef, Box<[TypeInfoRef]>)>,
     pub used_functions: Vec<FuncRef>,
 }
 
@@ -103,6 +103,17 @@ pub struct Func {
     pub kind: VTableFuncKind,
 }
 
+impl Func {
+    pub fn external<T: Into<String>>(name: T, ty: TypeInfoRef, ext_name: &'static str) -> Self {
+        Self {
+            name: name.into(),
+            arg_names: Vec::new(),
+            ty,
+            kind: VTableFuncKind::External(ext_name),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VTableFunc<T = TypeInfoRef> {
     pub trait_func: Option<TraitFuncRef>,
@@ -117,14 +128,14 @@ pub struct VTableGenerator {
     pub origin_trait: Option<TraitRef>,
     pub generics: Box<[TypeInfoRef]>,
     pub used_vtables: Vec<(TypeInfoRef, VTableRef, Box<[TypeInfoRef]>)>,
-    pub used_complex_types: Vec<(ComplexTypeRef, Box<[TypeInfoRef]>)>,
+    pub used_adt_types: Vec<(AdtRef, Box<[TypeInfoRef]>)>,
     pub functions: IndexVec<VFuncRef, VTableFunc>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ModuleItem {
     SubModule(ModuleId),
-    ComplexType(ComplexTypeRef),
+    Adt(AdtRef),
     Trait(TraitRef),
     Func(FuncRef),
 }
@@ -162,7 +173,7 @@ pub struct TypeChecker {
     pub available_generics: HashMap<String, (usize, Option<TypeInfoRef>)>,
 
     pub modules: IndexVec<ModuleId, Module>,
-    pub complex_types: IndexVec<ComplexTypeRef, ComplexType>,
+    pub adt_types: IndexVec<AdtRef, Adt>,
     pub local_functions: IndexVec<FuncRef, Func>,
     pub traits: IndexVec<TraitRef, Trait>,
     pub vtables: IndexVec<VTableRef, VTableGenerator>,
@@ -178,16 +189,16 @@ impl TypeChecker {
             void: solver.add_info(TypeInfo::Primitive(PrimitiveType::Void)),
             any: solver.add_info(TypeInfo::Primitive(PrimitiveType::Any)),
             boolean: solver.add_info(TypeInfo::Primitive(PrimitiveType::Boolean)),
-            int8: solver.add_info(TypeInfo::Primitive(PrimitiveType::I8)),
-            int16: solver.add_info(TypeInfo::Primitive(PrimitiveType::I16)),
-            int32: solver.add_info(TypeInfo::Primitive(PrimitiveType::I32)),
-            int64: solver.add_info(TypeInfo::Primitive(PrimitiveType::I64)),
-            int_size: solver.add_info(TypeInfo::Primitive(PrimitiveType::ISize)),
-            uint8: solver.add_info(TypeInfo::Primitive(PrimitiveType::U8)),
-            uint16: solver.add_info(TypeInfo::Primitive(PrimitiveType::U16)),
-            uint32: solver.add_info(TypeInfo::Primitive(PrimitiveType::U32)),
-            uint64: solver.add_info(TypeInfo::Primitive(PrimitiveType::U64)),
-            uint_size: solver.add_info(TypeInfo::Primitive(PrimitiveType::USize)),
+            int8: solver.add_info(TypeInfo::Primitive(PrimitiveType::Int(IntType::I8))),
+            int16: solver.add_info(TypeInfo::Primitive(PrimitiveType::Int(IntType::I16))),
+            int32: solver.add_info(TypeInfo::Primitive(PrimitiveType::Int(IntType::I32))),
+            int64: solver.add_info(TypeInfo::Primitive(PrimitiveType::Int(IntType::I64))),
+            int_size: solver.add_info(TypeInfo::Primitive(PrimitiveType::Int(IntType::ISize))),
+            uint8: solver.add_info(TypeInfo::Primitive(PrimitiveType::UInt(UIntType::U8))),
+            uint16: solver.add_info(TypeInfo::Primitive(PrimitiveType::UInt(UIntType::U16))),
+            uint32: solver.add_info(TypeInfo::Primitive(PrimitiveType::UInt(UIntType::U32))),
+            uint64: solver.add_info(TypeInfo::Primitive(PrimitiveType::UInt(UIntType::U64))),
+            uint_size: solver.add_info(TypeInfo::Primitive(PrimitiveType::UInt(UIntType::USize))),
             float: solver.add_info(TypeInfo::Primitive(PrimitiveType::Float)),
             component: solver.add_info(TypeInfo::Primitive(PrimitiveType::Component)),
             string: solver.add_info(TypeInfo::Primitive(PrimitiveType::String)),
@@ -199,7 +210,7 @@ impl TypeChecker {
             infer: None,
             available_generics: HashMap::new(),
             modules: IndexVec::from_iter([Module::new(ModuleId::ZERO, "<anonymous>")]),
-            complex_types: IndexVec::new(),
+            adt_types: IndexVec::new(),
             local_functions: IndexVec::new(),
             traits: IndexVec::new(),
             vtables: IndexVec::new(),
@@ -222,8 +233,8 @@ impl Index<(VTableRef, VFuncRef)> for TypeChecker {
 }
 
 impl TypeStorage for TypeChecker {
-    fn get_complex_type(&self, complex_type_ref: ComplexTypeRef) -> &ComplexType {
-        &self.complex_types[complex_type_ref]
+    fn get_adt(&self, adt_ref: AdtRef) -> &Adt {
+        &self.adt_types[adt_ref]
     }
 
     fn get_trait_name(&self, trait_ref: TraitRef) -> Option<&str> {
@@ -235,11 +246,12 @@ pub struct TypeDisplay<'a> {
     ty: TypeInfoRef,
     this: Option<TypeInfoRef>,
     checker: &'a TypeChecker,
+    short: bool,
 }
 
 impl fmt::Display for TypeDisplay<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.checker.solver.fmt_type(f, self.ty, self.this, self.checker)
+        self.checker.solver.fmt_type(f, self.ty, self.this, self.checker, self.short)
     }
 }
 
@@ -251,7 +263,7 @@ pub struct TypeInfoDisplay<'a, 'b> {
 
 impl fmt::Display for TypeInfoDisplay<'_, '_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.checker.solver.fmt_type_info(f, self.ty, self.this, self.checker)
+        self.checker.solver.fmt_type_info(f, self.ty, self.this, self.checker, false)
     }
 }
 
@@ -259,7 +271,7 @@ impl TypeChecker {
     pub const fn save_state(&self) -> TypeCheckerState {
         TypeCheckerState {
             type_infos: self.solver.type_infos.len(),
-            complex_types: self.complex_types.len(),
+            adt_types: self.adt_types.len(),
             traits: self.traits.len(),
             vtables: self.vtables.len(),
             local_functions: self.local_functions.len(),
@@ -268,7 +280,7 @@ impl TypeChecker {
 
     pub fn load_state(&mut self, state: &TypeCheckerState) {
         self.solver.type_infos.truncate(state.type_infos);
-        self.complex_types.truncate(state.complex_types);
+        self.adt_types.truncate(state.adt_types);
         self.traits.truncate(state.traits);
         self.vtables.truncate(state.vtables);
         self.local_functions.truncate(state.local_functions);
@@ -283,7 +295,21 @@ impl TypeChecker {
     }
 
     pub const fn display_of_type(&self, ty: TypeInfoRef, this: Option<TypeInfoRef>) -> TypeDisplay<'_> {
-        TypeDisplay { ty, this, checker: self }
+        TypeDisplay {
+            ty,
+            this,
+            checker: self,
+            short: false,
+        }
+    }
+
+    pub const fn short_display_of_type(&self, ty: TypeInfoRef, this: Option<TypeInfoRef>) -> TypeDisplay<'_> {
+        TypeDisplay {
+            ty,
+            this,
+            checker: self,
+            short: true,
+        }
     }
 
     pub const fn display_of_type_info<'a, 'b>(&'b self, ty: &'a TypeInfo, this: Option<TypeInfoRef>) -> TypeInfoDisplay<'a, 'b> {
@@ -303,25 +329,25 @@ impl fmt::Display for TypeErrorDisplay<'_> {
                 let expected_str = self.checker.display_of_type(expected, None);
                 let got_str = self.checker.display_of_type(got, None);
 
-                write!(f, "type mismatch: `{expected_str}` was expected, found `{got_str}`")
+                write!(f, "Type mismatch: `{expected_str}` was expected, found `{got_str}`")
             }
             TypeUnificationError::UnimplementedTrait(trait_ref, ty) => {
                 let trait_name = self.checker.name_of_trait(trait_ref);
                 let ty_str = self.checker.display_of_type(ty, None);
 
-                write!(f, "trait cast error: `{trait_name}` is unimplemented for `{ty_str}`")
+                write!(f, "Trait cast error: `{trait_name}` is unimplemented for `{ty_str}`")
             }
             TypeUnificationError::ArraySizeMismatch(expected, got) => {
-                write!(f, "array type size mismatch: `{expected}` was expected, found `{got}`")
+                write!(f, "Array type size mismatch: `{expected}` was expected, found `{got}`")
             }
-            TypeUnificationError::UnknownType(ty) => write!(f, "type infer error: type of {ty:?} is <unknown>"),
+            TypeUnificationError::UnknownType(ty) => write!(f, "Type infer error: type of {ty:?} is <unknown>"),
         }
     }
 }
 
 pub struct TypeCheckerState {
     pub type_infos: usize,
-    pub complex_types: usize,
+    pub adt_types: usize,
     pub traits: usize,
     pub vtables: usize,
     pub local_functions: usize,

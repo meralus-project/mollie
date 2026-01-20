@@ -1,5 +1,5 @@
 [package]
-name = "mollie-tast"
+name = "mollie-typed-ast"
 version = "0.1.0"
 edition = "2024"
 

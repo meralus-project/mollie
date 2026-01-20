@@ -2,17 +2,17 @@ pub use mollie_compiler as compiler;
 pub use mollie_const as constants;
 pub use mollie_index as index;
 pub use mollie_ir as ir;
+pub use mollie_parser as parser;
 pub use mollie_shared as shared;
-pub use mollie_tast as tast;
-use mollie_tast::VTableGenerator;
+pub use mollie_typed_ast as typed_ast;
 pub use mollie_typing as typing;
-use mollie_typing::FuncArg;
+use mollie_typing::{IntType, UIntType};
 
 use self::{
     constants::ConstantValue,
     index::{IndexBoxedSlice, IndexVec},
-    tast::{TypeChecker, VTableFunc, VTableFuncKind},
-    typing::{ComplexType, ComplexTypeKind, ComplexTypeVariant, FieldType, PrimitiveType, TypeInfo, TypeInfoRef, VFuncRef, VTableRef},
+    typed_ast::{TypeChecker, VTableFunc, VTableFuncKind, VTableGenerator},
+    typing::{Adt, AdtKind, AdtVariant, FieldType, FuncArg, PrimitiveType, TypeInfo, TypeInfoRef, VFuncRef, VTableRef},
 };
 
 pub trait MollieTypeOf {
@@ -36,14 +36,16 @@ macro_rules! mollie_types {
 }
 
 mollie_types! {
-    i8 => FieldType::Primitive(PrimitiveType::I8),
-    u8 => FieldType::Primitive(PrimitiveType::U8),
-    i16 => FieldType::Primitive(PrimitiveType::I16),
-    u16 => FieldType::Primitive(PrimitiveType::U16),
-    i32 => FieldType::Primitive(PrimitiveType::I32),
-    u32 => FieldType::Primitive(PrimitiveType::U32),
-    i64 => FieldType::Primitive(PrimitiveType::I64),
-    u64 => FieldType::Primitive(PrimitiveType::U64),
+    i8 => FieldType::Primitive(PrimitiveType::Int(IntType::I8)),
+    u8 => FieldType::Primitive(PrimitiveType::UInt(UIntType::U8)),
+    i16 => FieldType::Primitive(PrimitiveType::Int(IntType::I16)),
+    u16 => FieldType::Primitive(PrimitiveType::UInt(UIntType::U16)),
+    i32 => FieldType::Primitive(PrimitiveType::Int(IntType::I32)),
+    u32 => FieldType::Primitive(PrimitiveType::UInt(UIntType::U32)),
+    i64 => FieldType::Primitive(PrimitiveType::Int(IntType::I64)),
+    u64 => FieldType::Primitive(PrimitiveType::UInt(UIntType::U64)),
+    isize => FieldType::Primitive(PrimitiveType::Int(IntType::ISize)),
+    usize => FieldType::Primitive(PrimitiveType::UInt(UIntType::USize)),
     f32 => FieldType::Primitive(PrimitiveType::Float),
     &str => FieldType::Primitive(PrimitiveType::String),
     String => FieldType::Primitive(PrimitiveType::String)
@@ -61,30 +63,32 @@ impl<const N: usize> MollieTypeOf for Generic<N> {
     }
 }
 
+type AdtBuilderVariant = Vec<(String, FieldType, Option<ConstantValue>)>;
+
 #[derive(Debug)]
-pub struct StructBuilder {
+pub struct AdtBuilder {
     name: Option<String>,
-    variants: Vec<(Option<String>, Vec<(String, FieldType, Option<ConstantValue>)>)>,
+    variants: Vec<(Option<String>, AdtBuilderVariant)>,
     generics: usize,
-    kind: ComplexTypeKind,
+    kind: AdtKind,
 }
 
-impl StructBuilder {
-    pub fn with_name<T: Into<String>>(name: T) -> Self {
+impl AdtBuilder {
+    pub fn new_struct<T: Into<String>>(name: T) -> Self {
         Self {
             name: Some(name.into()),
             variants: vec![(None, vec![])],
             generics: 0,
-            kind: ComplexTypeKind::Struct,
+            kind: AdtKind::Struct,
         }
     }
 
-    pub fn enum_with_name<T: Into<String>>(name: T) -> Self {
+    pub fn new_enum<T: Into<String>>(name: T) -> Self {
         Self {
             name: Some(name.into()),
             variants: vec![],
             generics: 0,
-            kind: ComplexTypeKind::Enum,
+            kind: AdtKind::Enum,
         }
     }
 
@@ -120,12 +124,12 @@ impl StructBuilder {
         self
     }
 
-    pub fn finish(self) -> ComplexType {
-        ComplexType {
+    pub fn finish(self) -> Adt {
+        Adt {
             name: self.name,
             kind: self.kind,
             generics: self.generics,
-            variants: IndexBoxedSlice::from_iter(self.variants.into_iter().enumerate().map(|(discriminant, (name, fields))| ComplexTypeVariant {
+            variants: IndexBoxedSlice::from_iter(self.variants.into_iter().enumerate().map(|(discriminant, (name, fields))| AdtVariant {
                 name,
                 discriminant,
                 fields: fields.into(),
@@ -184,7 +188,7 @@ impl VTableBuilder {
             origin_trait: None,
             generics: Box::new([]),
             used_vtables: Vec::new(),
-            used_complex_types: Vec::new(),
+            used_adt_types: Vec::new(),
             functions,
         });
 

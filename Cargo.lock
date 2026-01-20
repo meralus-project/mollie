@@ -398,8 +398,9 @@ dependencies = [
  "mollie-const",
  "mollie-index",
  "mollie-ir",
+ "mollie-parser",
  "mollie-shared",
- "mollie-tast",
+ "mollie-typed-ast",
  "mollie-typing",
 ]
 
@@ -416,12 +417,19 @@ dependencies = [
  "mollie-lexer",
  "mollie-parser",
  "mollie-shared",
- "mollie-tast",
+ "mollie-typed-ast",
  "mollie-typing",
 ]
 
 [[package]]
 name = "mollie-const"
+version = "0.1.0"
+dependencies = [
+ "mollie-parser",
+]
+
+[[package]]
+name = "mollie-fmt"
 version = "0.1.0"
 dependencies = [
  "mollie-parser",
@@ -469,7 +477,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "mollie-tast"
+name = "mollie-typed-ast"
 version = "0.1.0"
 dependencies = [
  "indexmap",

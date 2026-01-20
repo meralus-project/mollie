@@ -22,14 +22,15 @@ mollie-typing = { workspace = true }
 mollie-ir = { workspace = true }
 mollie-const = { workspace = true }
 mollie-index = { workspace = true }
-mollie-tast = { workspace = true }
+mollie-parser = { workspace = true }
+mollie-typed-ast = { workspace = true }
 
 [workspace.dependencies]
 mollie-shared = { path = "./crates/shared" }
 mollie-lexer = { path = "./crates/lexer" }
 mollie-const = { path = "./crates/const" }
 mollie-index = { path = "./crates/index" }
-mollie-tast = { path = "./crates/tast" }
+mollie-typed-ast = { path = "./crates/typed-ast" }
 mollie-ir = { path = "./crates/ir" }
 mollie-parser = { path = "./crates/parser" }
 mollie-compiler = { path = "./crates/compiler" }

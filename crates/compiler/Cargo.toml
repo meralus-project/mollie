@@ -10,7 +10,7 @@ mollie-index = { workspace = true }
 mollie-lexer = { workspace = true }
 mollie-parser = { workspace = true }
 mollie-typing = { workspace = true }
-mollie-tast = { workspace = true }
+mollie-typed-ast = { workspace = true }
 mollie-const = { workspace = true }
 indexmap = { workspace = true }
 cranelift = { workspace = true }

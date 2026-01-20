@@ -1,4 +1,4 @@
-use crate::{ComplexTypeKind, ComplexTypeRef, PrimitiveType, TraitRef, TypeInfoRef};
+use crate::{AdtKind, AdtRef, PrimitiveType, TraitRef, TypeInfoRef};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FuncArg<T> {
@@ -50,7 +50,7 @@ pub enum TypeInfo {
     Ref(TypeInfoRef),
     Func(Box<[FuncArg<TypeInfoRef>]>, TypeInfoRef),
     Trait(TraitRef, Box<[TypeInfoRef]>),
-    Complex(ComplexTypeRef, ComplexTypeKind, Box<[TypeInfoRef]>),
+    Adt(AdtRef, AdtKind, Box<[TypeInfoRef]>),
     Array(TypeInfoRef, Option<usize>),
 }
 
@@ -59,28 +59,24 @@ impl TypeInfo {
         matches!(self, Self::Func(..))
     }
 
-    pub const fn is_complex(&self) -> bool {
-        matches!(self, Self::Complex(..))
+    pub const fn is_adt(&self) -> bool {
+        matches!(self, Self::Adt(..))
     }
 
     pub const fn is_struct_like(&self) -> bool {
-        matches!(self, Self::Complex(_, ComplexTypeKind::Struct | ComplexTypeKind::Component, _))
+        matches!(self, Self::Adt(_, AdtKind::Struct | AdtKind::Component, _))
     }
 
     pub const fn is_struct(&self) -> bool {
-        matches!(self, Self::Complex(_, ComplexTypeKind::Struct, _))
+        matches!(self, Self::Adt(_, AdtKind::Struct, _))
     }
 
     pub const fn is_component(&self) -> bool {
-        matches!(self, Self::Complex(_, ComplexTypeKind::Component, _))
+        matches!(self, Self::Adt(_, AdtKind::Component, _))
     }
 
     pub const fn is_enum(&self) -> bool {
-        matches!(self, Self::Complex(_, ComplexTypeKind::Enum, _))
-    }
-
-    pub const fn is_any_component(&self) -> bool {
-        matches!(self, Self::Primitive(PrimitiveType::Component))
+        matches!(self, Self::Adt(_, AdtKind::Enum, _))
     }
 
     pub const fn is_trait(&self) -> bool {
@@ -91,39 +87,23 @@ impl TypeInfo {
         matches!(self, Self::Array(..))
     }
 
+    pub const fn is_any_component(&self) -> bool {
+        matches!(self, Self::Primitive(primitive) if primitive.is_component())
+    }
+
     pub const fn is_integer(&self) -> bool {
-        matches!(
-            self,
-            Self::Primitive(
-                PrimitiveType::I8
-                    | PrimitiveType::I16
-                    | PrimitiveType::I32
-                    | PrimitiveType::I64
-                    | PrimitiveType::ISize
-                    | PrimitiveType::U8
-                    | PrimitiveType::U16
-                    | PrimitiveType::U32
-                    | PrimitiveType::U64
-                    | PrimitiveType::USize
-            )
-        )
+        matches!(self, Self::Primitive(primitive) if primitive.is_integer())
     }
 
     pub const fn is_signed_integer(&self) -> bool {
-        matches!(
-            self,
-            Self::Primitive(PrimitiveType::I8 | PrimitiveType::I16 | PrimitiveType::I32 | PrimitiveType::I64)
-        )
+        matches!(self, Self::Primitive(primitive) if primitive.is_signed_integer())
     }
 
     pub const fn is_unsigned_integer(&self) -> bool {
-        matches!(
-            self,
-            Self::Primitive(PrimitiveType::U8 | PrimitiveType::U16 | PrimitiveType::U32 | PrimitiveType::U64)
-        )
+        matches!(self, Self::Primitive(primitive) if primitive.is_unsigned_integer())
     }
 
     pub const fn is_float(&self) -> bool {
-        matches!(self, Self::Primitive(PrimitiveType::Float))
+        matches!(self, Self::Primitive(primitive) if primitive.is_float())
     }
 }

@@ -58,10 +58,6 @@ pub trait Visitor {
         visit_construct_enum(self, ast, ty, variant, fields);
     }
 
-    fn visit_construct_component(&mut self, ast: &TypedAST, ty: TypeInfoRef, fields: &[(String, ExprRef)], children: &[ExprRef]) {
-        visit_construct_component(self, ast, ty, fields, children);
-    }
-
     fn visit_is_pattern(&mut self, ast: &TypedAST, target: ExprRef, pattern: &IsPattern) {
         visit_is_pattern(self, ast, target, pattern);
     }
@@ -166,22 +162,6 @@ mod default_visitors {
         }
     }
 
-    pub fn visit_construct_component<T: Visitor + ?Sized>(
-        visitor: &mut T,
-        ast: &TypedAST,
-        ty: TypeInfoRef,
-        fields: &[(String, ExprRef)],
-        children: &[ExprRef],
-    ) {
-        for field in fields {
-            visitor.visit_expr(ast, field.1);
-        }
-
-        for &child in children {
-            visitor.visit_expr(ast, child);
-        }
-    }
-
     pub fn visit_is_pattern<T: Visitor + ?Sized>(visitor: &mut T, ast: &TypedAST, target: ExprRef, pattern: &IsPattern) {
         fn visit_is_pattern_inner<T: Visitor + ?Sized>(visitor: &mut T, ast: &TypedAST, pattern: &IsPattern) {
             match pattern {
@@ -223,7 +203,6 @@ mod default_visitors {
             Expr::Closure { args, body } => visitor.visit_closure(ast, args.as_ref(), *body),
             Expr::Construct { ty, fields } => visitor.visit_construct(ast, *ty, fields.as_ref()),
             Expr::ConstructEnum { ty, variant, fields } => todo!(), // visitor.visit_construct_enum(ast, *ty, *variant, fields.as_deref()),
-            Expr::ConstructComponent { ty, fields, children } => visitor.visit_construct_component(ast, *ty, fields.as_ref(), children.as_ref()),
             Expr::IsPattern { target, pattern } => visitor.visit_is_pattern(ast, *target, pattern),
             Expr::TypeIndex { ty, path } => todo!(), // visitor.visit_type_index(ast, target, func),
             Expr::Nothing => (),

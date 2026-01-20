@@ -19,7 +19,7 @@ pub struct CommentWriter {
 
 impl CommentWriter {
     pub(crate) fn new() -> Self {
-        CommentWriter {
+        Self {
             enabled: true,
             global_comments: vec![],
             entity_comments: HashMap::default(),
@@ -29,19 +29,17 @@ impl CommentWriter {
 }
 
 impl CommentWriter {
-    pub(crate) fn enabled(&self) -> bool {
-        self.enabled
-    }
-
     pub(crate) fn add_global_comment<S: Into<String>>(&mut self, comment: S) {
         debug_assert!(self.enabled);
+
         self.global_comments.push(comment.into());
     }
 
     pub(crate) fn add_comment<S: Into<String> + AsRef<str>, E: Into<AnyEntity>>(&mut self, entity: E, comment: S) {
+        use std::collections::hash_map::Entry;
+
         debug_assert!(self.enabled);
 
-        use std::collections::hash_map::Entry;
         match self.entity_comments.entry(entity.into()) {
             Entry::Occupied(mut occ) => {
                 occ.get_mut().push('\n');
@@ -54,9 +52,10 @@ impl CommentWriter {
     }
 
     pub(crate) fn add_post_comment<S: Into<String> + AsRef<str>>(&mut self, entity: ir::Inst, comment: S) {
+        use std::collections::hash_map::Entry;
+
         debug_assert!(self.enabled);
 
-        use std::collections::hash_map::Entry;
         match self.inst_post_comments.entry(entity) {
             Entry::Occupied(mut occ) => {
                 occ.get_mut().push('\n');
@@ -72,10 +71,10 @@ impl CommentWriter {
 impl FuncWriter for &'_ CommentWriter {
     fn write_preamble(&mut self, w: &mut dyn fmt::Write, func: &ir::Function) -> Result<bool, fmt::Error> {
         for comment in &self.global_comments {
-            if !comment.is_empty() {
-                writeln!(w, "; {}", comment)?;
-            } else {
+            if comment.is_empty() {
                 writeln!(w)?;
+            } else {
+                writeln!(w, "; {comment}")?;
             }
         }
         if !self.global_comments.is_empty() {
@@ -94,9 +93,9 @@ impl FuncWriter for &'_ CommentWriter {
         maybe_fact: Option<&ir::Fact>,
     ) -> fmt::Result {
         if let Some(fact) = maybe_fact {
-            write!(w, "    {} ! {} = {}", entity, fact, value)?;
+            write!(w, "    {entity} ! {fact} = {value}")?;
         } else {
-            write!(w, "    {} = {}", entity, value)?;
+            write!(w, "    {entity} = {value}")?;
         }
 
         if let Some(comment) = self.entity_comments.get(&entity) {

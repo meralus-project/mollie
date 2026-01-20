@@ -1,4 +1,4 @@
-use crate::{ComplexTypeKind, ComplexTypeRef, CoreTypes, PrimitiveType, TraitRef, TypeInfo, TypeInfoRef, TypeSolver, type_info::FuncArg};
+use crate::{AdtKind, AdtRef, CoreTypes, IntType, PrimitiveType, TraitRef, TypeInfo, TypeInfoRef, TypeSolver, UIntType, type_info::FuncArg};
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum FieldType {
@@ -9,7 +9,7 @@ pub enum FieldType {
     Array(Box<Self>, Option<usize>),
     Func(Box<[FuncArg<Self>]>, Box<Self>),
     Trait(TraitRef, Box<[Self]>),
-    Complex(ComplexTypeRef, ComplexTypeKind, Box<[Self]>),
+    Adt(AdtRef, AdtKind, Box<[Self]>),
 }
 
 impl FieldType {
@@ -41,17 +41,14 @@ impl FieldType {
                         .all(|(field_type, other_field_type)| field_type.try_unify(other_field_type))
                     && trait_ref == other_trait_ref
             }
-            (
-                Self::Complex(complex_type_ref, complex_type_kind, field_types),
-                Self::Complex(other_complex_type_ref, other_complex_type_kind, other_field_types),
-            ) => {
+            (Self::Adt(adt_ref, adt_kind, field_types), Self::Adt(other_adt_ref, other_adt_kind, other_field_types)) => {
                 field_types.len() == other_field_types.len()
                     && field_types
                         .iter()
                         .zip(other_field_types)
                         .all(|(field_type, other_field_type)| field_type.try_unify(other_field_type))
-                    && complex_type_ref == other_complex_type_ref
-                    && complex_type_kind == other_complex_type_kind
+                    && adt_ref == other_adt_ref
+                    && adt_kind == other_adt_kind
             }
             _ => false,
         }
@@ -77,9 +74,9 @@ impl FieldType {
                     .map(|ty| Self::from_type_info(solver.get_info(*ty), Some(*ty), solver))
                     .collect(),
             ),
-            TypeInfo::Complex(complex_type_ref, complex_type_kind, type_info_refs) => Self::Complex(
-                *complex_type_ref,
-                *complex_type_kind,
+            TypeInfo::Adt(adt_ref, adt_kind, type_info_refs) => Self::Adt(
+                *adt_ref,
+                *adt_kind,
                 type_info_refs
                     .iter()
                     .map(|ty| Self::from_type_info(solver.get_info(*ty), Some(*ty), solver))
@@ -104,16 +101,16 @@ impl FieldType {
                 .unwrap_or_else(|| solver.add_info(TypeInfo::Generic(generic, None))),
             Self::Primitive(primitive_type) => match primitive_type {
                 PrimitiveType::Any => core_types.any,
-                PrimitiveType::ISize => core_types.int_size,
-                PrimitiveType::I64 => core_types.int64,
-                PrimitiveType::I32 => core_types.int32,
-                PrimitiveType::I16 => core_types.int16,
-                PrimitiveType::I8 => core_types.int8,
-                PrimitiveType::USize => core_types.uint_size,
-                PrimitiveType::U64 => core_types.uint64,
-                PrimitiveType::U32 => core_types.uint32,
-                PrimitiveType::U16 => core_types.uint16,
-                PrimitiveType::U8 => core_types.uint8,
+                PrimitiveType::Int(IntType::ISize) => core_types.int_size,
+                PrimitiveType::Int(IntType::I64) => core_types.int64,
+                PrimitiveType::Int(IntType::I32) => core_types.int32,
+                PrimitiveType::Int(IntType::I16) => core_types.int16,
+                PrimitiveType::Int(IntType::I8) => core_types.int8,
+                PrimitiveType::UInt(UIntType::USize) => core_types.uint_size,
+                PrimitiveType::UInt(UIntType::U64) => core_types.uint64,
+                PrimitiveType::UInt(UIntType::U32) => core_types.uint32,
+                PrimitiveType::UInt(UIntType::U16) => core_types.uint16,
+                PrimitiveType::UInt(UIntType::U8) => core_types.uint8,
                 PrimitiveType::Float => core_types.float,
                 PrimitiveType::Boolean => core_types.boolean,
                 PrimitiveType::String => core_types.string,
@@ -143,13 +140,13 @@ impl FieldType {
 
                 solver.add_info(TypeInfo::Trait(*trait_ref, args))
             }
-            Self::Complex(complex_type, kind, field_types) => {
+            Self::Adt(adt_ref, kind, field_types) => {
                 let args = field_types
                     .iter()
                     .map(|field_type| field_type.as_type_info(this, core_types, solver, args))
                     .collect();
 
-                solver.add_info(TypeInfo::Complex(*complex_type, *kind, args))
+                solver.add_info(TypeInfo::Adt(*adt_ref, *kind, args))
             }
         }
     }
