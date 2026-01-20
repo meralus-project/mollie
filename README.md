@@ -4,7 +4,7 @@
 
 [![License: MIT or Apache 2.0](https://img.shields.io/badge/License-MIT_or_Apache_2.0-634f7d.svg?style=for-the-badge)](LICENSE-APACHE)
 
-A strictly typed scripting language for creating GUIs. Uses [`cranelift`](https://github.com/bytecodealliance/wasmtime/tree/main/cranelift) for JIT compilation.
+A strictly typed scripting language for creating GUIs (but can also be used for anything else!). Uses [`cranelift`](https://github.com/bytecodealliance/wasmtime/tree/main/cranelift) for JIT compilation.
 
 It is still at a fairly early stage of development.
 
