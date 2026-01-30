@@ -4,7 +4,6 @@ mod binary;
 mod block;
 mod call;
 mod closure_expr;
-mod enum_path;
 mod for_in_expr;
 mod ident;
 mod if_else;

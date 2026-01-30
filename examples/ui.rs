@@ -1,7 +1,10 @@
 use core::fmt;
 
 use mollie::{
-    AdtBuilder, GcPtr, Generic, VTableBuilder, compiler::{Compiler, FuncCompiler}, typed_ast::Func, typing::{AdtKind, FieldType, FuncArg, TypeInfo}
+    AdtBuilder, GcPtr, Generic, VTableBuilder,
+    compiler::{Compiler, FuncCompiler},
+    typed_ast::Func,
+    typing::{AdtKind, FieldType, FuncArg, TypeInfo},
 };
 use mollie_compiler::allocator::GARBAGE_COLLECTOR;
 use mollie_typing::TypeInfoRef;
@@ -45,7 +48,10 @@ pub struct DrawContext {
 
 impl DrawContext {
     pub fn draw_rect(&mut self, x: f32, y: f32, width: f32, height: f32, color: GcPtr<Color>) {
-        println!("[DrawContext/draw_rect ] origin = {x}x{y}, size = {width}x{height}, color = {color} ({:?})", color.type_layout());
+        println!(
+            "[DrawContext/draw_rect ] origin = {x}x{y}, size = {width}x{height}, color = {color} ({:?})",
+            color.type_layout()
+        );
 
         self.actions.push(Action::DrawRect {
             x,

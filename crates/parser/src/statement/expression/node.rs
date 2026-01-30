@@ -91,7 +91,10 @@ impl NodeExpr {
                 } else {
                     let name = Ident::parse(parser)?;
 
-                    children.push(Self::parse(TypePathExpr::parse(TypePathSegment::parse_from(name, parser, false)?, parser, false)?, parser)?);
+                    children.push(Self::parse(
+                        TypePathExpr::parse(TypePathSegment::parse_from(name, parser, false)?, parser, false)?,
+                        parser,
+                    )?);
                 }
             } else {
                 break;

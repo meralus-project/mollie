@@ -164,7 +164,9 @@ impl Array {
             MollieType::Fat(ty, _) => {
                 for (index, (value, metadata)) in values.tuples::<(ir::Value, ir::Value)>().enumerate() {
                     fn_builder.ins().stack_store(value, slot, self.get_offset_of(index));
-                    fn_builder.ins().stack_store(metadata, slot, self.get_offset_of(index) + ty.bytes().cast_signed());
+                    fn_builder
+                        .ins()
+                        .stack_store(metadata, slot, self.get_offset_of(index) + ty.bytes().cast_signed());
                 }
             }
         }
