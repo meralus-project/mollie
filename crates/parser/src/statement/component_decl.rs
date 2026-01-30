@@ -1,7 +1,7 @@
 use mollie_lexer::Token;
 use mollie_shared::Positioned;
 
-use crate::{Expr, Ident, NameWithGenerics, NodeExpr, Parse, ParseResult, Parser, Type};
+use crate::{Attribute, Expr, Ident, NameWithGenerics, NodeExpr, Parse, ParseResult, Parser, Type};
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct ComponentProperty {
@@ -36,14 +36,15 @@ impl Parse for ComponentProperty {
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct ComponentDecl {
+    pub attributes: Vec<Positioned<Attribute>>,
     pub name: Positioned<NameWithGenerics>,
     pub inherits: Option<Positioned<Ident>>,
     pub properties: Vec<Positioned<ComponentProperty>>,
     pub view: Option<Positioned<NodeExpr>>,
 }
 
-impl Parse for ComponentDecl {
-    fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
+impl ComponentDecl {
+    pub fn parse(parser: &mut Parser, attributes: Vec<Positioned<Attribute>>) -> ParseResult<Positioned<Self>> {
         parser.consume(&Token::Declare)?;
 
         let name = NameWithGenerics::parse(parser)?;
@@ -69,8 +70,8 @@ impl Parse for ComponentDecl {
             }
         }
 
-        // let view = if (parser.try_consume(&Token::Comma) || properties.is_empty()) && parser.check_if(Token::is_ident) {
-        //     Some(NodeExpr::parse(parser)?)
+        // let view = if (parser.try_consume(&Token::Comma) || properties.is_empty()) &&
+        // parser.check_if(Token::is_ident) {     Some(NodeExpr::parse(parser)?)
         // } else {
         //     None
         // };
@@ -78,6 +79,7 @@ impl Parse for ComponentDecl {
         let end = parser.consume(&Token::BraceClose)?;
 
         Ok(name.span.between(end.span).wrap(Self {
+            attributes,
             name,
             inherits,
             properties,

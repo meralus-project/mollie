@@ -201,8 +201,7 @@ mod default_visitors {
             &Expr::Binary { operator, lhs, rhs } => visitor.visit_binary(ast, lhs, rhs, operator),
             Expr::Call { func, args } => visitor.visit_call(ast, *func, args.as_ref()),
             Expr::Closure { args, body } => visitor.visit_closure(ast, args.as_ref(), *body),
-            Expr::Construct { ty, fields } => visitor.visit_construct(ast, *ty, fields.as_ref()),
-            Expr::ConstructEnum { ty, variant, fields } => todo!(), // visitor.visit_construct_enum(ast, *ty, *variant, fields.as_deref()),
+            Expr::Construct { ty, variant, fields } => visitor.visit_construct(ast, *ty, fields.as_ref()),
             Expr::IsPattern { target, pattern } => visitor.visit_is_pattern(ast, *target, pattern),
             Expr::TypeIndex { ty, path } => todo!(), // visitor.visit_type_index(ast, target, func),
             Expr::Nothing => (),
@@ -213,7 +212,7 @@ mod default_visitors {
         match &ast[stmt] {
             &Stmt::Expr(expr) => visitor.visit_expr(ast, expr),
             Stmt::VariableDecl { value, .. } => visitor.visit_expr(ast, *value),
-            _ => todo!(),
+            Stmt::Import(_) => todo!(),
         }
     }
 

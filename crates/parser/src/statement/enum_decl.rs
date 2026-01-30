@@ -1,7 +1,7 @@
 use mollie_lexer::Token;
 use mollie_shared::Positioned;
 
-use crate::{Ident, NameWithGenerics, Parse, ParseResult, Parser, Property};
+use crate::{Attribute, Ident, NameWithGenerics, Parse, ParseResult, Parser, Property};
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct EnumVariant {
@@ -27,18 +27,19 @@ impl Parse for EnumVariant {
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct EnumDecl {
+    pub attributes: Vec<Positioned<Attribute>>,
     pub name: Positioned<NameWithGenerics>,
     pub variants: Positioned<Vec<Positioned<EnumVariant>>>,
 }
 
-impl Parse for EnumDecl {
-    fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
+impl EnumDecl {
+    pub fn parse(parser: &mut Parser, attributes: Vec<Positioned<Attribute>>) -> ParseResult<Positioned<Self>> {
         parser.consume(&Token::Enum)?;
 
         let name = NameWithGenerics::parse(parser)?;
 
         let variants = parser.consume_separated_in(&Token::Comma, &Token::BraceOpen, &Token::BraceClose)?;
 
-        Ok(name.span.between(variants.span).wrap(Self { name, variants }))
+        Ok(name.span.between(variants.span).wrap(Self { name, variants, attributes }))
     }
 }

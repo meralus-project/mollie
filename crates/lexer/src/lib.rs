@@ -139,6 +139,7 @@ impl Lexer {
                 }
             }
             // '#' => Token::Pound,
+            '@' => Some(Token::Attr),
             '?' => Some(Token::Question),
             '>' => Some(Token::Greater),
             '<' => Some(Token::Less),
@@ -150,8 +151,6 @@ impl Lexer {
         let mut size = 0;
         let mut utf8size = 0;
         let mut data = String::new();
-        // let mut datas = Vec::new();
-        // let mut formatted = Vec::new();
 
         while let Some(character) = chars.next_if(|character| character != &'"') {
             size += 1;
@@ -166,48 +165,12 @@ impl Lexer {
                 data.push(character);
             }
 
-            //         if character == '{' {
-            //             datas.push(mem::take(&mut data));
-
-            //             formatted.push(
-            //                 iter::from_fn(|| {
-            //                     chars.next_if(|&s| s != '{' && s != '}').inspect(|value|
-            // {                         size += 1;
-            //                         utf8size += value.len_utf8();
-            //                     })
-            //                 })
-            //                 .collect::<String>(),
-            //             );
-
-            //             size += 1;
-            //             utf8size += 1;
-
-            //             chars.next_if_eq(&'}');
-            //         } else {
             data.push(character);
-            // }
         }
 
         chars.next_if_eq(&'"');
 
-        // if datas.is_empty() && formatted.is_empty() {
         (Token::String(data), size, utf8size)
-        //     } else {
-        //         let mut parts = datas
-        //             .into_iter()
-        //             .map(StringPart::String)
-        //             .zip(formatted.into_iter().map(|value|
-        // StringPart::Formatted(Self::parse(value))))
-        // .fold(Vec::new(), |mut parts, tuple| {
-        // parts.extend(<[StringPart; 2]>::from(tuple));
-
-        //                 parts
-        //             });
-
-        //         parts.push(StringPart::String(data));
-
-        //         (Token::FormattedString(parts), size, utf8size)
-        //     }
     }
 
     fn lex_number(chars: &mut Peekable<Chars>, tokens: &mut Vec<Positioned<Token>>, span: &mut Span, character: char, neg: bool) {

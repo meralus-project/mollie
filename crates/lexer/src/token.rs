@@ -69,6 +69,8 @@ pub enum Token {
     // Infix,
     #[display("fn")]
     Fn,
+    #[display("@")]
+    Attr,
     // #[display("match")]
     // Match,
     // #[display("is")]

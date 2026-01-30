@@ -10,8 +10,8 @@ trait Iterator<T> {
 }
 
 struct ArrayIter<T> {
-    value: T[],
-    index: uint_size
+    index: uint_size,
+    value: T[]
 }
 
 impl<T> Iterator<T> for ArrayIter<T> {
@@ -49,9 +49,9 @@ declare Rectangle {
 }
 
 declare Image {
+    image: graphics::Image,
     width: float = 0.0,
-    height: float = 0.0,
-    image: graphics::Image
+    height: float = 0.0
 }
 
 impl graphics::Color {
@@ -69,13 +69,15 @@ impl Drawable for Image {
         const width = if self.width > 0.0 {
             self.width
         } else {
-            ctx.image_size(self.image).width
+            // ctx.image_size(self.image).width
+            24.0
         };
 
         const height = if self.height > 0.0 {
             self.height
         } else {
-            ctx.image_size(self.image).height
+            // ctx.image_size(self.image).height
+            24.0
         };
 
         self.width = width;

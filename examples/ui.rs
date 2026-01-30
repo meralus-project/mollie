@@ -1,11 +1,10 @@
 use core::fmt;
 
 use mollie::{
-    AdtBuilder, Generic, VTableBuilder,
-    compiler::{Compiler, FuncCompiler, cranelift::module::Module},
-    typed_ast::{Func, VTableFuncKind},
-    typing::{AdtKind, FieldType, FuncArg, TypeInfo},
+    AdtBuilder, GcPtr, Generic, VTableBuilder, compiler::{Compiler, FuncCompiler}, typed_ast::Func, typing::{AdtKind, FieldType, FuncArg, TypeInfo}
 };
+use mollie_compiler::allocator::GARBAGE_COLLECTOR;
+use mollie_typing::TypeInfoRef;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Color {
@@ -27,28 +26,17 @@ pub struct Size {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum ImageKind {
-    Path,
-    Url,
+#[repr(usize)]
+pub enum Image<'a> {
+    Path { path: &'a str },
+    Url { url: &'a str },
 }
 
 #[derive(Debug)]
 #[allow(dead_code)]
 pub enum Action {
-    DrawRect {
-        x: f32,
-        y: f32,
-        width: f32,
-        height: f32,
-        color: Color,
-    },
-    DrawImage {
-        x: f32,
-        y: f32,
-        width: f32,
-        height: f32,
-        image: (String, ImageKind),
-    },
+    DrawRect { x: f32, y: f32, width: f32, height: f32, color: Color },
+    DrawImage { x: f32, y: f32, width: f32, height: f32, image: String },
 }
 
 pub struct DrawContext {
@@ -56,8 +44,8 @@ pub struct DrawContext {
 }
 
 impl DrawContext {
-    pub fn draw_rect(&mut self, x: f32, y: f32, width: f32, height: f32, color: &Color) {
-        println!("[DrawContext/draw_rect ] origin = {x}x{y}, size = {width}x{height}, color = {color}");
+    pub fn draw_rect(&mut self, x: f32, y: f32, width: f32, height: f32, color: GcPtr<Color>) {
+        println!("[DrawContext/draw_rect ] origin = {x}x{y}, size = {width}x{height}, color = {color} ({:?})", color.type_layout());
 
         self.actions.push(Action::DrawRect {
             x,
@@ -68,20 +56,20 @@ impl DrawContext {
         });
     }
 
-    pub fn draw_image(&mut self, x: f32, y: f32, width: f32, height: f32, (value, image): (&&str, ImageKind)) {
-        println!("[DrawContext/draw_image] origin = {x}x{y}, size = {width}x{height}, image_path = {value:?}, image_variant = {image:?}");
+    pub fn draw_image(&mut self, x: f32, y: f32, width: f32, height: f32, image: &Image) {
+        println!("[DrawContext/draw_image] origin = {x}x{y}, size = {width}x{height}, image = {image:?}");
 
-        self.actions.push(Action::DrawImage {
-            x,
-            y,
-            width,
-            height,
-            image: (value.to_string(), image),
-        });
+        // self.actions.push(Action::DrawImage {
+        //     x,
+        //     y,
+        //     width,
+        //     height,
+        //     image: (value.to_string(), image),
+        // });
     }
 
-    pub fn image_size(&self, (value, image): (&&str, ImageKind)) -> *mut Size {
-        println!("[DrawContext/image_size] image_path = {value:?}, image_variant = {image:?}");
+    pub fn image_size(&self, image: &Image) -> *mut Size {
+        println!("[DrawContext/image_size] image = {image:?}");
 
         Box::into_raw(Box::new(Size { width: 24.0, height: 24.0 }))
     }
@@ -99,11 +87,16 @@ pub fn get_timestamp() -> usize {
         .as_secs() as usize
 }
 
-fn init_compiler(func_compiler: &mut FuncCompiler) {
+fn init_compiler(func_compiler: &mut FuncCompiler) -> TypeInfoRef {
     let core_types = &func_compiler.checker.core_types;
 
     for (name, args, returns) in [
-        ("println", Box::new([FuncArg::Regular(core_types.uint_size)]), core_types.void),
+        (
+            "println",
+            Box::new([FuncArg::Regular(core_types.uint_size)]) as Box<[FuncArg<TypeInfoRef>]>,
+            core_types.void,
+        ),
+        ("println_frame_addr", Box::new([]), core_types.void),
         ("println_fat", Box::new([FuncArg::Regular(core_types.string)]), core_types.void),
         ("println_str", Box::new([FuncArg::Regular(core_types.string)]), core_types.void),
         ("println_bool", Box::new([FuncArg::Regular(core_types.boolean)]), core_types.void),
@@ -119,10 +112,12 @@ fn init_compiler(func_compiler: &mut FuncCompiler) {
 
     let func = func_compiler.checker.solver.add_info(TypeInfo::Func(Box::new([]), core_types.uint_size));
 
-    let module = func_compiler.register_module("std");
+    let module = func_compiler.checker.register_module("std");
 
-    func_compiler.register_func_in_module(module, Func::external("timestamp", func, "ext__get_timestamp"));
-    func_compiler.register_adt_in_module(
+    func_compiler
+        .checker
+        .register_func_in_module(module, Func::external("timestamp", func, "ext__get_timestamp"));
+    func_compiler.checker.register_adt_in_module(
         module,
         AdtBuilder::new_enum("Option")
             .add_generic()
@@ -132,8 +127,8 @@ fn init_compiler(func_compiler: &mut FuncCompiler) {
             .finish(),
     );
 
-    let module = func_compiler.register_module("graphics");
-    let image_ty = func_compiler.register_adt_in_module(
+    let module = func_compiler.checker.register_module("graphics");
+    let image_ty = func_compiler.checker.register_adt_in_module(
         module,
         AdtBuilder::new_enum("Image")
             .variant("Path")
@@ -143,7 +138,7 @@ fn init_compiler(func_compiler: &mut FuncCompiler) {
             .finish(),
     );
 
-    let color_ty = func_compiler.register_adt_in_module(
+    let color_ty = func_compiler.checker.register_adt_in_module(
         module,
         AdtBuilder::new_struct("Color")
             .field::<u8>("red")
@@ -152,13 +147,15 @@ fn init_compiler(func_compiler: &mut FuncCompiler) {
             .finish(),
     );
 
-    let size_ty = func_compiler.register_adt_in_module(module, AdtBuilder::new_struct("Size").field::<f32>("width").field::<f32>("height").finish());
+    let size_ty = func_compiler
+        .checker
+        .register_adt_in_module(module, AdtBuilder::new_struct("Size").field::<f32>("width").field::<f32>("height").finish());
 
-    let color_info = func_compiler.instantiate_adt(color_ty, []);
-    let image_info = func_compiler.instantiate_adt(image_ty, []);
-    let size_info = func_compiler.instantiate_adt(size_ty, []);
-    let draw_ctx_ty = func_compiler.register_adt(AdtBuilder::new_struct("DrawContext").finish());
-    let draw_ctx_info = func_compiler.instantiate_adt(draw_ctx_ty, []);
+    let color_info = func_compiler.checker.instantiate_adt(color_ty, &[]);
+    let image_info = func_compiler.checker.instantiate_adt(image_ty, &[]);
+    let size_info = func_compiler.checker.instantiate_adt(size_ty, &[]);
+    let draw_ctx_ty = func_compiler.checker.register_adt(AdtBuilder::new_struct("DrawContext").finish());
+    let draw_ctx_info = func_compiler.checker.instantiate_adt(draw_ctx_ty, &[]);
 
     func_compiler.checker.solver.add_var("context", draw_ctx_info);
 
@@ -191,6 +188,8 @@ fn init_compiler(func_compiler: &mut FuncCompiler) {
         )
         .func("image_size", "DrawContext_image_size", [draw_ctx_info, image_info], size_info)
         .finish(&mut func_compiler.checker);
+
+    draw_ctx_info
 }
 
 fn main() {
@@ -211,42 +210,60 @@ fn main() {
     .unwrap();
     let mut provider = compiler.start_compiling();
 
-    init_compiler(&mut provider);
+    let draw_ctx_info = init_compiler(&mut provider);
 
-    let pointer_type = provider.compiler.codegen().module.isa().pointer_type();
+    let pointer_type = provider.compiler.ptr_type();
     let mut draw_context = DrawContext { actions: Vec::new() };
 
-    let dump = matches!(command, Command::Dump);
+    let _dump = matches!(command, Command::Dump);
 
-    provider.compile("<main>", vec![(String::from("context"), pointer_type)], source, dump).unwrap();
+    provider
+        .compile("<main>", vec![(String::from("context"), pointer_type, draw_ctx_info)], source)
+        .unwrap();
 
-    for error in provider.type_errors() {
+    for error in provider.checker.type_errors() {
         println!("[Compiler/TypeErrors   ] {error}");
     }
 
     match command {
         Command::Run => {
             if let Some(main_func) = unsafe { provider.compiler.get_func::<fn(*const DrawContext)>("<main>") } {
-                main_func(&raw mut draw_context);
+                for _ in 0..1 {
+                    main_func(&raw mut draw_context);
+                }
+
+                let allocator = GARBAGE_COLLECTOR.lock().unwrap();
+
+                println!(
+                    "Allocated objects: {} ({} bytes allocated, {} bytes dealloacted)",
+                    allocator.objects.len(),
+                    allocator.allocated_bytes,
+                    allocator.deallocated_bytes
+                );
+                println!("Root objects: {}", allocator.roots.len());
             }
         }
         Command::Dump => {
             println!(">> Dumping functions");
 
-            let longest_name = provider.compiler.func_names.values().map(|name| name.len()).max().unwrap_or(1);
-            let longest_func_id = provider.compiler.func_names.keys().map(|id| id.to_string().len()).max().unwrap_or(7);
-
-            for (func_id, name) in &provider.compiler.func_names {
-                let length = if longest_name >= name.len() { longest_name - name.len() + 1 } else { 1 };
-                let func_length = longest_func_id - func_id.to_string().len() + 1;
-
-                println!(
-                    "Function `{name}`{:length$}signature: {func_id}{:func_length$}{}",
-                    " ",
-                    " ",
-                    provider.compiler.codegen().module.declarations().get_function_decl(*func_id).signature,
-                )
-            }
+            // let longest_name =
+            // provider.compiler.func_names.values().map(|name|
+            // name.len()).max().unwrap_or(1); let longest_func_id =
+            // provider.compiler.func_names.keys().map(|id|
+            // id.to_string().len()).max().unwrap_or(7);
+            //
+            // for (func_id, name) in &provider.compiler.func_names {
+            //    let length = if longest_name >= name.len() { longest_name -
+            // name.len() + 1 } else { 1 };    let func_length =
+            // longest_func_id - func_id.to_string().len() + 1;
+            //
+            //    println!(
+            //        "Function `{name}`{:length$}signature:
+            // {func_id}{:func_length$}{}",        " ",
+            //        " ",
+            //        provider.compiler.codegen().module.declarations().
+            // get_function_decl(*func_id).signature,    )
+            //}
         }
     }
 }

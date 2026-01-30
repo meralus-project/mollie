@@ -25,7 +25,7 @@ pub use self::{
     block::{BlockExpr, parse_statements_until},
     call::FuncCallExpr,
     closure_expr::ClosureExpr,
-    // enum_path::EnumPathExpr,
+    for_in_expr::ForInExpr,
     ident::Ident,
     if_else::IfElseExpr,
     index::{IndexExpr, IndexTarget},
@@ -123,7 +123,7 @@ pub enum Expr {
     IfElse(IfElseExpr),
     While(WhileExpr),
     Block(BlockExpr),
-    // EnumPath(EnumPathExpr),
+    ForIn(ForInExpr),
     Is(IsExpr),
     Closure(ClosureExpr),
     Ident(Ident),
@@ -148,7 +148,7 @@ impl Expr {
                 .or_else(|_| IfElseExpr::parse(parser).map(|v| v.map(Self::IfElse)))
                 .or_else(|_| WhileExpr::parse(parser).map(|v| v.map(Self::While)))
                 .or_else(|_| ArrayExpr::parse(parser).map(|v| v.map(Self::Array)))
-                // .or_else(|_| EnumPathExpr::parse(parser).map(|v| v.map(Self::EnumPath)))
+                .or_else(|_| ForInExpr::parse(parser).map(|v| v.map(Self::ForIn)))
                 .or_else(|_| ClosureExpr::parse(parser).map(|v| v.map(Self::Closure)))
                 .or_else(|_| {
                     Ident::parse(parser).and_then(|name| {
@@ -167,7 +167,7 @@ impl Expr {
                 .or_else(|_| IfElseExpr::parse(parser).map(|v| v.map(Self::IfElse)))
                 .or_else(|_| WhileExpr::parse(parser).map(|v| v.map(Self::While)))
                 .or_else(|_| ArrayExpr::parse(parser).map(|v| v.map(Self::Array)))
-                // .or_else(|_| EnumPathExpr::parse(parser).map(|v| v.map(Self::EnumPath)))
+                .or_else(|_| ForInExpr::parse(parser).map(|v| v.map(Self::ForIn)))
                 .or_else(|_| ClosureExpr::parse(parser).map(|v| v.map(Self::Closure)))
                 .or_else(|_| {
                     Ident::parse(parser).and_then(|name| {

@@ -76,12 +76,8 @@ pub enum Expr {
     },
     Construct {
         ty: TypeInfoRef,
+        variant: AdtVariantRef,
         fields: Box<[(FieldRef, String, Option<ExprRef>)]>,
-    },
-    ConstructEnum {
-        ty: TypeInfoRef,
-        variant: usize,
-        fields: Option<Box<[(FieldRef, String, Option<ExprRef>)]>>,
     },
     IsPattern {
         target: ExprRef,
@@ -248,17 +244,17 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
                     ast.used_adt_types.push((struct_ty, args));
 
                     if let Some(variant) = variant {
+                        Ok(ast.add_expr(Expr::Construct { ty, variant, fields }, ty, span))
+                    } else {
                         Ok(ast.add_expr(
-                            Expr::ConstructEnum {
+                            Expr::Construct {
                                 ty,
-                                variant: variant.index(),
-                                fields: if fields.is_empty() { None } else { Some(fields) },
+                                variant: AdtVariantRef::ZERO,
+                                fields,
                             },
                             ty,
                             span,
                         ))
-                    } else {
-                        Ok(ast.add_expr(Expr::Construct { ty, fields }, ty, span))
                     }
                 } else {
                     unimplemented!()
@@ -581,6 +577,7 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
                 }
             }
             Self::This => Ok(ast.add_expr(Expr::Var("self".into()), checker.solver.get_var("self").unwrap().ty, span)),
+            Self::ForIn(_for_in_expr) => todo!(),
         }
     }
 }
@@ -874,6 +871,8 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
                 for (discriminant, variant) in enum_decl.variants.value.into_iter().enumerate() {
                     let name = Some(variant.value.name.value.0);
                     let mut fields = IndexVec::with_capacity(variant.value.properties.as_ref().map(|value| value.value.len()).unwrap_or_default());
+
+                    fields.push((String::from("<discriminant>"), FieldType::Primitive(PrimitiveType::UInt(UIntType::USize)), None));
 
                     if let Some(properties) = variant.value.properties {
                         for property in properties.value {
@@ -1590,7 +1589,6 @@ impl IntoConstantValue for ExprRef {
             Expr::Call { .. } => todo!(),
             Expr::Closure { .. } => todo!(),
             Expr::Construct { .. } => todo!(),
-            Expr::ConstructEnum { .. } => todo!(),
             Expr::IsPattern { .. } => todo!(),
             Expr::TypeIndex { .. } => todo!(),
             Expr::Nothing => ConstantValue::Nothing,

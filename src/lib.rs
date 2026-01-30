@@ -1,4 +1,7 @@
+use std::{fmt, ops::Deref};
+
 pub use mollie_compiler as compiler;
+use mollie_compiler::allocator::unmark_root;
 pub use mollie_const as constants;
 pub use mollie_index as index;
 pub use mollie_ir as ir;
@@ -9,11 +12,47 @@ pub use mollie_typing as typing;
 use mollie_typing::{IntType, UIntType};
 
 use self::{
+    compiler::allocator::{GcValue, TypeLayout},
     constants::ConstantValue,
     index::{IndexBoxedSlice, IndexVec},
     typed_ast::{TypeChecker, VTableFunc, VTableFuncKind, VTableGenerator},
     typing::{Adt, AdtKind, AdtVariant, FieldType, FuncArg, PrimitiveType, TypeInfo, TypeInfoRef, VFuncRef, VTableRef},
 };
+
+#[repr(transparent)]
+pub struct GcPtr<T>(*mut GcValue<T>);
+
+impl<T> GcPtr<T> {
+    pub fn type_layout(&self) -> &'static TypeLayout {
+        unsafe { self.0.byte_sub(std::mem::offset_of!(GcValue<()>, value)).read().layout }
+    }
+}
+
+impl<T: fmt::Display> fmt::Display for GcPtr<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.deref().fmt(f)
+    }
+}
+
+impl<T: fmt::Debug> fmt::Debug for GcPtr<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.deref().fmt(f)
+    }
+}
+
+impl<T> Deref for GcPtr<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*self.0.cast::<T>() }
+    }
+}
+
+impl<T> Drop for GcPtr<T> {
+    fn drop(&mut self) {
+        unsafe { unmark_root(self.0.cast()) };
+    }
+}
 
 pub trait MollieTypeOf {
     fn generic_index() -> Option<usize> {
@@ -36,19 +75,20 @@ macro_rules! mollie_types {
 }
 
 mollie_types! {
-    i8 => FieldType::Primitive(PrimitiveType::Int(IntType::I8)),
-    u8 => FieldType::Primitive(PrimitiveType::UInt(UIntType::U8)),
-    i16 => FieldType::Primitive(PrimitiveType::Int(IntType::I16)),
-    u16 => FieldType::Primitive(PrimitiveType::UInt(UIntType::U16)),
-    i32 => FieldType::Primitive(PrimitiveType::Int(IntType::I32)),
-    u32 => FieldType::Primitive(PrimitiveType::UInt(UIntType::U32)),
-    i64 => FieldType::Primitive(PrimitiveType::Int(IntType::I64)),
-    u64 => FieldType::Primitive(PrimitiveType::UInt(UIntType::U64)),
-    isize => FieldType::Primitive(PrimitiveType::Int(IntType::ISize)),
-    usize => FieldType::Primitive(PrimitiveType::UInt(UIntType::USize)),
-    f32 => FieldType::Primitive(PrimitiveType::Float),
-    &str => FieldType::Primitive(PrimitiveType::String),
-    String => FieldType::Primitive(PrimitiveType::String)
+    i8     => FieldType::Primitive(PrimitiveType::Int (IntType ::   I8)),
+    u8     => FieldType::Primitive(PrimitiveType::UInt(UIntType::   U8)),
+    i16    => FieldType::Primitive(PrimitiveType::Int (IntType ::  I16)),
+    u16    => FieldType::Primitive(PrimitiveType::UInt(UIntType::  U16)),
+    i32    => FieldType::Primitive(PrimitiveType::Int (IntType ::  I32)),
+    u32    => FieldType::Primitive(PrimitiveType::UInt(UIntType::  U32)),
+    i64    => FieldType::Primitive(PrimitiveType::Int (IntType ::  I64)),
+    u64    => FieldType::Primitive(PrimitiveType::UInt(UIntType::  U64)),
+    isize  => FieldType::Primitive(PrimitiveType::Int (IntType ::ISize)),
+    usize  => FieldType::Primitive(PrimitiveType::UInt(UIntType::USize)),
+    f32    => FieldType::Primitive(PrimitiveType::Float                ),
+    bool   => FieldType::Primitive(PrimitiveType::Boolean              ),
+    &str   => FieldType::Primitive(PrimitiveType::String               ),
+    String => FieldType::Primitive(PrimitiveType::String               )
 }
 
 pub struct Generic<const N: usize>;
@@ -93,13 +133,29 @@ impl AdtBuilder {
     }
 
     pub fn variant<T: Into<String>>(mut self, name: T) -> Self {
-        self.variants.push((Some(name.into()), Vec::new()));
+        self.variants.push((Some(name.into()), vec![(
+            String::from("<discriminant>"),
+            FieldType::Primitive(PrimitiveType::UInt(UIntType::USize)),
+            None,
+        )]));
 
         self
     }
 
     pub const fn add_generic(mut self) -> Self {
         self.generics += 1;
+
+        self
+    }
+
+    pub fn field_default<T: MollieTypeOf + Into<ConstantValue>>(mut self, name: impl Into<String>, default: T) -> Self {
+        if let Some(index) = T::generic_index() {
+            assert!(self.generics > index, "pls add generic param");
+        }
+
+        if let Some((_, variant)) = self.variants.last_mut() {
+            variant.push((name.into(), T::mollie_type_of(), Some(default.into())));
+        }
 
         self
     }

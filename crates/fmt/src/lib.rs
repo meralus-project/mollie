@@ -227,7 +227,9 @@ impl<'a, 'b> Formatter<'a, 'b> {
     }
 
     pub fn fmt_expr(&mut self, expr: &mollie_parser::Expr) -> fmt::Result {
-        use mollie_parser::Expr::{Array, Binary, Block, Closure, FunctionCall, Ident, IfElse, Index, Is, Literal, Node, Nothing, This, TypeIndex, While};
+        use mollie_parser::Expr::{
+            Array, Binary, Block, Closure, ForIn, FunctionCall, Ident, IfElse, Index, Is, Literal, Node, Nothing, This, TypeIndex, While,
+        };
 
         match expr {
             Literal(literal_expr) => self.fmt_literal(literal_expr),
@@ -242,6 +244,7 @@ impl<'a, 'b> Formatter<'a, 'b> {
             Block(_) => todo!(),
             Is(_) => todo!(),
             Closure(_) => todo!(),
+            ForIn(_) => todo!(),
             Ident(ident) => ident.0.fmt(self.f),
             This => self.f.write_str("self"),
             Nothing => todo!(),

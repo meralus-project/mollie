@@ -2,7 +2,7 @@ mod expression;
 mod statement;
 pub mod visitor;
 
-use std::{collections::HashMap, fmt, ops::Index};
+use std::{collections::HashMap, fmt, iter, mem, ops::Index};
 
 use indexmap::IndexMap;
 use mollie_const::ConstantValue;
@@ -215,6 +215,62 @@ impl TypeChecker {
             traits: IndexVec::new(),
             vtables: IndexVec::new(),
         }
+    }
+
+    pub fn type_errors(&mut self) -> impl Iterator<Item = TypeErrorDisplay<'_>> {
+        mem::take(&mut self.solver.errors).into_iter().map(|error| self.display_of_error(error))
+    }
+
+    pub fn register_module<T: Into<String>>(&mut self, name: T) -> ModuleId {
+        let id = self.modules.next_index();
+        let name = name.into();
+
+        self.modules[ModuleId::ZERO].items.insert(name.clone(), ModuleItem::SubModule(id));
+        self.modules.insert(Module {
+            parent: Some(ModuleId::ZERO),
+            name,
+            id,
+            items: IndexMap::new(),
+        })
+    }
+
+    pub fn register_adt(&mut self, ty: Adt) -> AdtRef {
+        self.register_adt_in_module(ModuleId::ZERO, ty)
+    }
+
+    pub fn register_adt_in_module(&mut self, module: ModuleId, ty: Adt) -> AdtRef {
+        let type_ref = self.adt_types.insert(ty);
+
+        if let Some(name) = self.adt_types[type_ref].name.clone() {
+            self.modules[module].items.insert(name, ModuleItem::Adt(type_ref));
+        }
+
+        type_ref
+    }
+
+    pub fn register_func_in_module(&mut self, module: ModuleId, func: Func) -> FuncRef {
+        let func = self.local_functions.insert(func);
+
+        self.modules[module]
+            .items
+            .insert(self.local_functions[func].name.clone(), ModuleItem::Func(func));
+
+        func
+    }
+
+    pub fn instantiate_adt(&mut self, ty: AdtRef, generic_args: &[TypeInfoRef]) -> TypeInfoRef {
+        let kind = self.adt_types[ty].kind;
+        let generics = self.adt_types[ty].generics;
+        let args = generic_args
+            .iter()
+            .copied()
+            .map(Some)
+            .chain(iter::repeat(None))
+            .take(generics)
+            .map(|arg| arg.unwrap_or_else(|| self.solver.add_info(TypeInfo::Unknown(None))))
+            .collect();
+
+        self.solver.add_info(TypeInfo::Adt(ty, kind, args))
     }
 }
 

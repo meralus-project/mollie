@@ -1,11 +1,6 @@
-use cranelift::{
-    codegen::ir,
-    module::{Module, ModuleResult},
-    prelude::{FunctionBuilder, InstBuilder as _},
-};
 use mollie_const::ConstantValue;
 use mollie_index::{Idx, IndexBoxedSlice};
-use mollie_ir::{CodeGenerator, Field, MollieType};
+use mollie_ir::Field;
 
 use crate::{AdtVariantRef, CoreTypes, FieldRef, FieldType, IntType, PrimitiveType, TypeInfo, TypeInfoRef, TypeSolver, UIntType};
 
@@ -21,57 +16,11 @@ pub struct CompiledAdtVariant {
     pub fields: IndexBoxedSlice<FieldRef, (Field, TypeInfoRef)>,
 }
 
-impl CompiledAdt {
-    pub fn instance_struct_like<M: Module, T: IntoIterator<Item = ir::Value>>(
-        &self,
-        codegen: &mut CodeGenerator<M>,
-        fn_builder: &mut FunctionBuilder,
-        values: T,
-    ) -> ModuleResult<ir::Value> {
-        self.instance(AdtVariantRef::ZERO, codegen, fn_builder, values)
-    }
-
-    pub fn instance<M: Module, T: IntoIterator<Item = ir::Value>>(
-        &self,
-        variant: AdtVariantRef,
-        codegen: &mut CodeGenerator<M>,
-        fn_builder: &mut FunctionBuilder,
-        values: T,
-    ) -> ModuleResult<ir::Value> {
-        codegen.data_desc.define_zeroinit(self.size as usize);
-
-        let id = codegen.module.declare_anonymous_data(true, false)?;
-
-        codegen.module.define_data(id, &codegen.data_desc)?;
-        codegen.data_desc.clear();
-
-        let data_id = codegen.module.declare_data_in_func(id, fn_builder.func);
-        let ptr = fn_builder.ins().global_value(codegen.module.isa().pointer_type(), data_id);
-
-        let mut values = values.into_iter();
-
-        for (field, _) in self.variants[variant].fields.values() {
-            if let MollieType::Fat(ty, _) = field.ty
-                && let Some(value) = values.next()
-                && let Some(metadata) = values.next()
-            {
-                fn_builder.ins().store(ir::MemFlags::trusted(), value, ptr, field.offset);
-                fn_builder
-                    .ins()
-                    .store(ir::MemFlags::trusted(), metadata, ptr, field.offset + ty.bytes().cast_signed());
-            } else if let Some(value) = values.next() {
-                fn_builder.ins().store(ir::MemFlags::trusted(), value, ptr, field.offset);
-            }
-        }
-
-        Ok(ptr)
-    }
-}
-
 #[derive(Debug)]
 pub struct CompiledAdt {
     pub variants: IndexBoxedSlice<AdtVariantRef, CompiledAdtVariant>,
     pub size: u32,
+    pub align: u32,
 }
 
 impl CompiledAdt {

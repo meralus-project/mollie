@@ -7,7 +7,7 @@ use std::fmt;
 use cranelift::{
     codegen::ir,
     jit::{JITBuilder, JITModule},
-    module::{DataDescription, Module, default_libcall_names},
+    module::{DataDescription, DataId, Module, ModuleResult, default_libcall_names},
     native,
     prelude::settings,
 };
@@ -42,6 +42,32 @@ impl CodeGenerator<JITModule> {
             module: JITModule::new(builder),
             data_desc: DataDescription::new(),
         }
+    }
+}
+
+impl<M: Module> CodeGenerator<M> {
+    pub fn static_data<T: Into<Box<[u8]>>>(&mut self, data: T) -> ModuleResult<DataId> {
+        let data = data.into();
+
+        self.data_desc.define(data);
+
+        let id = self.module.declare_anonymous_data(false, false).unwrap();
+
+        self.module.define_data(id, &self.data_desc).unwrap();
+        self.data_desc.clear();
+
+        Ok(id)
+    }
+
+    pub fn static_zeroed(&mut self, size: usize) -> ModuleResult<DataId> {
+        self.data_desc.define_zeroinit(size);
+
+        let id = self.module.declare_anonymous_data(true, false)?;
+
+        self.module.define_data(id, &self.data_desc)?;
+        self.data_desc.clear();
+
+        Ok(id)
     }
 }
 

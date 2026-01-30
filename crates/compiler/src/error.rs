@@ -1,33 +1,25 @@
-use std::{error::Error, fmt, num::TryFromIntError};
-
 use cranelift::module::ModuleError;
 use mollie_parser::ParseError;
 
-pub type CompileResult<T = ()> = Result<T, CompileError>;
+pub type CompileResult<T> = Result<T, CompileError>;
 
 #[derive(Debug)]
 pub enum CompileError {
+    ExpectedAdt,
+    AdtArgsCount { expected: usize, found: usize },
+
     Parse(ParseError),
-    VariableNotFound { name: String },
-    IntCast(TryFromIntError),
     Module(ModuleError),
 }
 
-impl fmt::Display for CompileError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Parse(error) => error.fmt(f),
-            Self::VariableNotFound { name } => write!(f, "there's no variable called {name}"),
-            Self::IntCast(error) => error.fmt(f),
-            Self::Module(error) => error.fmt(f),
-        }
+impl From<ParseError> for CompileError {
+    fn from(error: ParseError) -> Self {
+        Self::Parse(error)
     }
 }
 
-impl Error for CompileError {}
-
-impl From<TryFromIntError> for CompileError {
-    fn from(value: TryFromIntError) -> Self {
-        Self::IntCast(value)
+impl From<ModuleError> for CompileError {
+    fn from(error: ModuleError) -> Self {
+        Self::Module(error)
     }
 }

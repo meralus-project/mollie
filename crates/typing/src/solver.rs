@@ -6,7 +6,7 @@ use std::{
 use indexmap::IndexMap;
 use mollie_index::{Idx, IndexVec};
 
-use crate::{Adt, AdtKind, AdtRef, AdtVariantRef, FieldRef, FieldType, PrimitiveType, TraitRef, TypeInfo, TypeInfoRef, VTableRef};
+use crate::{Adt, AdtKind, AdtRef, AdtVariantRef, FieldType, PrimitiveType, TraitRef, TypeInfo, TypeInfoRef, VTableRef};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Variable {
