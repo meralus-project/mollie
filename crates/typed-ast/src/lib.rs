@@ -10,7 +10,7 @@ use mollie_index::{Idx, IndexVec, new_idx_type};
 use mollie_shared::{Positioned, Span};
 use mollie_typing::{
     Adt, AdtRef, CoreTypes, FieldType, FuncArg, IntType, PrimitiveType, TraitRef, TypeInfo, TypeInfoRef, TypeSolver, TypeStorage, TypeUnificationError,
-    UIntType, VFuncRef, VTableRef,
+    UIntType, VFuncRef, VTableRef, Variable,
 };
 use serde::Serialize;
 
@@ -171,6 +171,7 @@ pub struct TypeChecker {
     pub infer: Option<TypeInfoRef>,
 
     pub available_generics: HashMap<String, (usize, Option<TypeInfoRef>)>,
+    pub captures: Vec<(String, Variable)>,
 
     pub modules: IndexVec<ModuleId, Module>,
     pub adt_types: IndexVec<AdtRef, Adt>,
@@ -209,6 +210,7 @@ impl TypeChecker {
             solver,
             infer: None,
             available_generics: HashMap::new(),
+            captures: Vec::new(),
             modules: IndexVec::from_iter([Module::new(ModuleId::ZERO, "<anonymous>")]),
             adt_types: IndexVec::new(),
             local_functions: IndexVec::new(),

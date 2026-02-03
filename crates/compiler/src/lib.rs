@@ -7,7 +7,7 @@ pub mod func;
 
 use std::{
     hash::{DefaultHasher, Hash, Hasher},
-    mem,
+    iter, mem,
 };
 
 pub use cranelift;
@@ -20,21 +20,36 @@ use cranelift::{
 pub use indexmap::IndexMap;
 pub use itertools;
 use itertools::Itertools;
-use mollie_index::IndexVec;
+use mollie_index::{Idx, IndexBoxedSlice, IndexVec};
 use mollie_ir::{Array, CodeGenerator, Field, MollieType, Symbol, VTablePtr};
 use mollie_lexer::{Lexer, Token};
 use mollie_parser::{BlockExpr, Parser, parse_statements_until};
 use mollie_shared::Span;
 use mollie_typed_ast::{BlockRef, FuncRef, IntoTypedAST, Stmt, StmtRef, TypeChecker, TypedAST, VTableFuncKind};
-use mollie_typing::{
-    AdtVariantRef, CompiledAdt, CompiledAdtVariant, FieldRef, IntType, PrimitiveType, TraitRef, TypeInfo, TypeInfoRef, TypeSolver, UIntType, VFuncRef,
-    VTableRef,
-};
+use mollie_typing::{AdtVariantRef, FieldRef, IntType, PrimitiveType, TraitRef, TypeInfo, TypeInfoRef, TypeSolver, UIntType, VFuncRef, VTableRef};
 
 use crate::{
+    allocator::{GcManagedFieldType, TypeLayout},
     error::{CompileError, CompileResult},
     func::{FuncKey, FunctionCompiler},
 };
+
+#[derive(Debug)]
+pub struct CompiledAdtVariant {
+    pub fields: IndexBoxedSlice<FieldRef, (Field, TypeInfoRef)>,
+}
+
+#[derive(Debug)]
+pub struct CompiledAdt {
+    pub type_layout: &'static TypeLayout,
+    pub variants: IndexBoxedSlice<AdtVariantRef, CompiledAdtVariant>,
+}
+
+impl CompiledAdt {
+    pub fn main_variant(&self) -> &CompiledAdtVariant {
+        &self.variants[AdtVariantRef::ZERO]
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum Var {
@@ -357,58 +372,91 @@ impl FuncCompiler<'_> {
             let mut size = 0;
             let mut align = 0;
 
-            self.compiler.adt_types.insert(hash, CompiledAdt {
-                variants: self.checker.adt_types[*adt_ref]
-                    .variants
-                    .values()
-                    .map(|variant| {
-                        let mut fields = <IndexVec<FieldRef, (Field, TypeInfoRef)>>::with_capacity(variant.fields.len());
-                        let mut offset = 0;
-                        let mut variant_size = 0;
-                        let mut self_align = 0;
+            let variants: IndexBoxedSlice<AdtVariantRef, CompiledAdtVariant> = self.checker.adt_types[*adt_ref]
+                .variants
+                .values()
+                .map(|variant| {
+                    let mut fields = <IndexVec<FieldRef, (Field, TypeInfoRef)>>::with_capacity(variant.fields.len());
+                    let mut offset = 0;
+                    let mut variant_size = 0;
+                    let mut self_align = 0;
 
-                        for (_, field, default_value) in variant.fields.values() {
-                            let type_info = field.as_type_info(None, &self.checker.core_types, &mut self.checker.solver, args.as_ref());
-                            let ty = type_info.as_ir_type(&self.checker.solver, self.compiler.codegen.module.isa());
-                            let ty_size = ty.bytes();
+                    for (_, field, default_value) in variant.fields.values() {
+                        let type_info = field.as_type_info(None, &self.checker.core_types, &mut self.checker.solver, args.as_ref());
+                        let ty = type_info.as_ir_type(&self.checker.solver, self.compiler.codegen.module.isa());
+                        let ty_size = ty.bytes();
 
-                            variant_size += ty_size;
+                        variant_size += ty_size;
 
-                            let align = ty_size;
-                            let padding = (align - variant_size % align) % align;
+                        let align = ty_size;
+                        let padding = (align - variant_size % align) % align;
 
-                            variant_size += padding;
+                        variant_size += padding;
 
-                            fields.push((
-                                Field {
-                                    ty,
-                                    offset,
-                                    default_value: default_value.clone(),
-                                },
-                                type_info,
-                            ));
+                        fields.push((
+                            Field {
+                                ty,
+                                offset,
+                                default_value: default_value.clone(),
+                            },
+                            type_info,
+                        ));
 
-                            offset += ty_size.cast_signed();
+                        offset += ty_size.cast_signed();
 
-                            let align = ty_size.cast_signed();
-                            let padding = (align - offset % align) % align;
+                        let align = ty_size.cast_signed();
+                        let padding = (align - offset % align) % align;
 
-                            offset += padding;
-                            self_align = self_align.max(ty_size);
-                        }
+                        offset += padding;
+                        self_align = self_align.max(ty_size);
+                    }
 
-                        if !variant.fields.is_empty() {
-                            size = size.max(variant_size + (self_align - variant_size % self_align) % self_align);
-                            align = align.max(self_align);
-                        }
+                    if !variant.fields.is_empty() {
+                        size = size.max(variant_size + (self_align - variant_size % self_align) % self_align);
+                        align = align.max(self_align);
+                    }
 
-                        CompiledAdtVariant {
-                            fields: fields.into_boxed_slice(),
+                    CompiledAdtVariant {
+                        fields: fields.into_boxed_slice(),
+                    }
+                })
+                .collect();
+
+            let gc_managed_fields = variants
+                .iter()
+                .flat_map(|(variant_ref, variant)| {
+                    iter::repeat(variant_ref).zip(variant.fields.values()).filter_map(|(variant_ref, field)| {
+                        let info = self.checker.solver.get_info(field.1);
+
+                        if info.is_adt() {
+                            Some((variant_ref, field.0.offset.cast_unsigned(), GcManagedFieldType::Regular))
+                        } else if let &TypeInfo::Array(element, _) = info {
+                            let info = self.checker.solver.get_info(element);
+
+                            if info.is_adt() {
+                                Some((variant_ref, field.0.offset.cast_unsigned(), GcManagedFieldType::ArrayOfRegular))
+                            } else if info.is_trait() {
+                                Some((variant_ref, field.0.offset.cast_unsigned(), GcManagedFieldType::ArrayOfFat))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
                         }
                     })
-                    .collect(),
-                size,
-                align,
+                })
+                .collect::<Vec<_>>();
+
+            let gc_managed_fields = Vec::leak::<'static>(gc_managed_fields) as &[_];
+
+            self.compiler.adt_types.insert(hash, CompiledAdt {
+                variants,
+                type_layout: Box::leak(Box::new(TypeLayout {
+                    size: size as usize,
+                    align: align as usize,
+                    kind,
+                    gc_managed_fields,
+                })),
             });
 
             tracing::debug!(
@@ -502,7 +550,9 @@ impl FuncCompiler<'_> {
                                             .current_frame_mut()
                                             .insert(name.clone(), func::Variable::new(Var::Regular(var), args[arg].inner()));
 
-                                        if compiler.checker.solver.get_info(args[arg].inner()).is_adt() {
+                                        if let &TypeInfo::Adt(adt_ref, ..) = compiler.checker.solver.get_info(args[arg].inner())
+                                            && compiler.checker.adt_types[adt_ref].collectable
+                                        {
                                             compiler.fn_builder.ins().call(compiler.context.mark_root, &[value]);
                                         }
 
@@ -641,6 +691,7 @@ pub enum MolValue {
     Value(ir::Value),
     Values(Vec<ir::Value>),
     FuncRef(ir::FuncRef),
+    CaptureFuncRef(ir::FuncRef, ir::Value),
     FatPtr(ir::Value, ir::Value),
     Nothing,
 }
@@ -701,6 +752,16 @@ impl<M: Module> CompileTypedAST<M, MolValue> for StmtRef {
                         if compiler.checker.solver.get_info(type_info).is_adt() {
                             compiler.fn_builder.ins().call(compiler.context.mark_root, &[value]);
                         }
+                    }
+                    (MollieType::Regular(ty), MolValue::FuncRef(value)) => {
+                        let value = compiler.fn_builder.ins().func_addr(ty, value);
+
+                        compiler.var(name, ty, type_info, value);
+                    }
+                    (MollieType::Regular(ty), MolValue::CaptureFuncRef(value, metadata)) => {
+                        let value = compiler.fn_builder.ins().func_addr(ty, value);
+
+                        compiler.fat_var(name, ty, ty, type_info, value, metadata);
                     }
                     (MollieType::Fat(ty, fat_ty), MolValue::FatPtr(value, metadata)) => compiler.fat_var(name, ty, fat_ty, type_info, value, metadata),
                     (ty, val) => panic!("can't create variable called {name} with type {ty:?} and value = {val:?}"),

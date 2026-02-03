@@ -5,14 +5,13 @@ use cranelift::{
     prelude::{Block, FunctionBuilder, FunctionBuilderContext, InstBuilder},
 };
 use indexmap::{IndexMap, map::Entry};
-use mollie_index::Idx;
 use mollie_ir::MollieType;
 use mollie_typed_ast::{ExprRef, FuncRef, TypeChecker};
-use mollie_typing::{AdtVariantRef, IntType, PrimitiveType, TypeInfo, TypeInfoRef, UIntType, VFuncRef, VTableRef};
+use mollie_typing::{AdtVariantRef, TypeInfoRef, VFuncRef, VTableRef};
 
 use crate::{
     Compiler, FuncCompilerError, MolValue, Var,
-    allocator::{GcManagedFieldType, TypeLayout},
+    allocator::TypeLayout,
     error::{CompileError, CompileResult},
 };
 
@@ -71,7 +70,7 @@ impl Frames {
     pub fn get_var<T: AsRef<str>>(&self, name: T) -> Option<Var> {
         let name = name.as_ref();
 
-        for frame in &self.frames {
+        for frame in self.frames.iter().rev() {
             if let Some(var) = frame.get(name) {
                 return Some(var.value);
             }
@@ -238,99 +237,15 @@ impl<'a, M: Module> FunctionCompiler<'a, M> {
     }
 
     pub fn unmark_variables(&mut self) {
-        for (name, &var) in self.frames.current() {
+        for (_, &var) in self.frames.current() {
             if self.checker.solver.get_info(var.ty).is_adt()
                 && let Var::Regular(ptr) = var.value
                 && !var.captured
             {
                 let ptr = self.fn_builder.use_var(ptr);
 
-                println!("{name} is no longer root");
-
                 self.fn_builder.ins().call(self.context.unmark_root, &[ptr]);
             }
-        }
-    }
-
-    pub fn type_layout_of(&self, ty: TypeInfoRef, adt_variant: Option<AdtVariantRef>) -> TypeLayout {
-        match self.checker.solver.get_info(ty) {
-            TypeInfo::Unknown(_) => todo!(),
-            TypeInfo::Generic(..) => todo!(),
-            TypeInfo::Primitive(primitive_type) => match primitive_type {
-                PrimitiveType::Any => todo!(),
-                PrimitiveType::Int(int_type) => match int_type {
-                    IntType::ISize => TypeLayout::of::<isize>(),
-                    IntType::I64 => TypeLayout::of::<i64>(),
-                    IntType::I32 => TypeLayout::of::<i32>(),
-                    IntType::I16 => TypeLayout::of::<i16>(),
-                    IntType::I8 => TypeLayout::of::<i8>(),
-                },
-                PrimitiveType::UInt(uint_type) => match uint_type {
-                    UIntType::USize => TypeLayout::of::<usize>(),
-                    UIntType::U64 => TypeLayout::of::<u64>(),
-                    UIntType::U32 => TypeLayout::of::<u32>(),
-                    UIntType::U16 => TypeLayout::of::<u16>(),
-                    UIntType::U8 => TypeLayout::of::<u8>(),
-                },
-                PrimitiveType::Float => TypeLayout::of::<f32>(),
-                PrimitiveType::Boolean => TypeLayout::of::<bool>(),
-                PrimitiveType::String => todo!(),
-                PrimitiveType::Component => todo!(),
-                PrimitiveType::Void => TypeLayout::of::<()>(),
-                PrimitiveType::Null => todo!(),
-            },
-            TypeInfo::Ref(_) => unreachable!(),
-            TypeInfo::Func(..) => TypeLayout::of::<*const ()>(),
-            TypeInfo::Trait(..) => todo!(),
-            TypeInfo::Adt(..) => {
-                let hash = self.hash_of(ty);
-
-                self.type_layout_of_adt(hash, adt_variant.unwrap_or(AdtVariantRef::ZERO))
-            }
-            &TypeInfo::Array(element, size) => {
-                let element_layout = self.type_layout_of(element, None);
-
-                TypeLayout {
-                    size: element_layout.size * size.unwrap_or(1),
-                    align: element_layout.align,
-                    gc_managed_fields: &[],
-                }
-            }
-        }
-    }
-
-    pub fn type_layout_of_adt(&self, hash: u64, variant: AdtVariantRef) -> TypeLayout {
-        let adt = self.compiler.get_adt(hash);
-        let gc_managed_fields = adt.variants[variant]
-            .fields
-            .values()
-            .filter_map(|field| {
-                let info = self.checker.solver.get_info(field.1);
-
-                if info.is_adt() {
-                    Some((field.0.offset.cast_unsigned(), GcManagedFieldType::Regular))
-                } else if let &TypeInfo::Array(element, _) = info {
-                    let info = self.checker.solver.get_info(element);
-
-                    if info.is_adt() {
-                        Some((field.0.offset.cast_unsigned(), GcManagedFieldType::ArrayOfRegular))
-                    } else if info.is_trait() {
-                        Some((field.0.offset.cast_unsigned(), GcManagedFieldType::ArrayOfFat))
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-
-        let gc_managed_fields = Vec::leak::<'static>(gc_managed_fields) as &[_];
-
-        TypeLayout {
-            size: adt.size as usize,
-            align: adt.align as usize,
-            gc_managed_fields,
         }
     }
 
@@ -338,8 +253,7 @@ impl<'a, M: Module> FunctionCompiler<'a, M> {
         self.checker.solver.hash_of(ty)
     }
 
-    pub fn alloc(&mut self, type_layout: TypeLayout) -> ir::Value {
-        let type_layout = Box::into_raw(Box::new(type_layout));
+    pub fn alloc(&mut self, type_layout: *const TypeLayout) -> ir::Value {
         let type_layout_ptr = self.fn_builder.ins().iconst(self.compiler.ptr_type(), type_layout as i64);
         let alloc_call = self.fn_builder.ins().call(self.context.alloc, &[type_layout_ptr]);
 
@@ -372,6 +286,12 @@ impl<'a, M: Module> FunctionCompiler<'a, M> {
 
                 self.fn_builder.ins().return_(&[func_addr])
             }
+            MolValue::CaptureFuncRef(func_ref, _captures) => {
+                let ptr_type = self.compiler.ptr_type();
+                let func_addr = self.fn_builder.ins().func_addr(ptr_type, func_ref);
+
+                self.fn_builder.ins().return_(&[func_addr])
+            }
             MolValue::FatPtr(ptr, metadata) => self.fn_builder.ins().return_(&[ptr, metadata]),
             MolValue::Nothing => self.fn_builder.ins().return_(&[]),
         }
@@ -381,7 +301,7 @@ impl<'a, M: Module> FunctionCompiler<'a, M> {
         let mut values = values.iter().copied();
 
         let hash = self.hash_of(ty);
-        let type_layout = self.type_layout_of_adt(hash, variant);
+        let type_layout = &raw const *self.compiler.adt_types[&hash].type_layout;
         let ptr = self.alloc(type_layout);
 
         let variant = self.compiler.get_adt_variant(hash, variant);

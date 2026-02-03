@@ -12,6 +12,7 @@ macro_rules! new_idx_type {
     ($name:ident) => {
         #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
         #[cfg_attr(feature = "serde", derive(serde::Serialize))]
+        #[repr(transparent)]
         pub struct $name(usize);
 
         impl $crate::Idx for $name {

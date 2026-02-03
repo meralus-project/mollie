@@ -169,3 +169,8 @@ const column = Column {
 const column_size = column.measure(context);
 
 column.render(context);
+
+const da = 10;
+const cl = || { println_float(96.0); };
+
+cl();

@@ -1,7 +1,7 @@
 use std::{fmt, ops::Deref};
 
 pub use mollie_compiler as compiler;
-use mollie_compiler::allocator::unmark_root;
+use mollie_compiler::allocator::{alloc, unmark_root};
 pub use mollie_const as constants;
 pub use mollie_index as index;
 pub use mollie_ir as ir;
@@ -23,18 +23,31 @@ use self::{
 pub struct GcPtr<T>(*mut GcValue<T>);
 
 impl<T> GcPtr<T> {
+    pub fn from(value: T) -> Self {
+        let layout = Box::leak::<'static>(Box::new(TypeLayout::of::<T>()));
+        let result_value = unsafe { alloc(layout) };
+
+        unsafe {
+            *result_value.cast::<T>() = value;
+        }
+
+        Self(result_value.cast())
+    }
+
     pub fn type_layout(&self) -> &'static TypeLayout {
         unsafe { self.0.byte_sub(std::mem::offset_of!(GcValue<()>, value)).read().layout }
     }
 }
 
 impl<T: fmt::Display> fmt::Display for GcPtr<T> {
+    #[track_caller]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.deref().fmt(f)
     }
 }
 
 impl<T: fmt::Debug> fmt::Debug for GcPtr<T> {
+    #[track_caller]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.deref().fmt(f)
     }
@@ -43,6 +56,7 @@ impl<T: fmt::Debug> fmt::Debug for GcPtr<T> {
 impl<T> Deref for GcPtr<T> {
     type Target = T;
 
+    #[track_caller]
     fn deref(&self) -> &Self::Target {
         unsafe { &*self.0.cast::<T>() }
     }
@@ -108,6 +122,7 @@ type AdtBuilderVariant = Vec<(String, FieldType, Option<ConstantValue>)>;
 #[derive(Debug)]
 pub struct AdtBuilder {
     name: Option<String>,
+    collectable: bool,
     variants: Vec<(Option<String>, AdtBuilderVariant)>,
     generics: usize,
     kind: AdtKind,
@@ -117,6 +132,7 @@ impl AdtBuilder {
     pub fn new_struct<T: Into<String>>(name: T) -> Self {
         Self {
             name: Some(name.into()),
+            collectable: true,
             variants: vec![(None, vec![])],
             generics: 0,
             kind: AdtKind::Struct,
@@ -126,10 +142,17 @@ impl AdtBuilder {
     pub fn new_enum<T: Into<String>>(name: T) -> Self {
         Self {
             name: Some(name.into()),
+            collectable: true,
             variants: vec![],
             generics: 0,
             kind: AdtKind::Enum,
         }
+    }
+
+    pub fn non_gc_collectable(mut self) -> Self {
+        self.collectable = false;
+
+        self
     }
 
     pub fn variant<T: Into<String>>(mut self, name: T) -> Self {
@@ -183,6 +206,7 @@ impl AdtBuilder {
     pub fn finish(self) -> Adt {
         Adt {
             name: self.name,
+            collectable: self.collectable,
             kind: self.kind,
             generics: self.generics,
             variants: IndexBoxedSlice::from_iter(self.variants.into_iter().enumerate().map(|(discriminant, (name, fields))| AdtVariant {

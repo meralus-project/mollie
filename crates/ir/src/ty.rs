@@ -19,6 +19,7 @@ pub struct Field {
 pub struct Struct {
     pub fields: Vec<Field>,
     pub size: u32,
+    pub align: u32,
 }
 
 impl Struct {
@@ -49,7 +50,12 @@ impl Struct {
 
         Self {
             fields,
-            size: size + (self_align - size % self_align) % self_align,
+            size: if size > 0 {
+                size + (self_align - size % self_align) % self_align
+            } else {
+                size
+            },
+            align: self_align,
         }
     }
 
@@ -59,16 +65,6 @@ impl Struct {
             .default_value
             .as_ref()
             .and_then(|default| compile_constant(default, module, data_desc, fn_builder))
-    }
-
-    pub fn instance<T: IntoIterator<Item = ir::Value>>(&self, isa: &dyn TargetIsa, fn_builder: &mut FunctionBuilder, values: T) -> ir::Value {
-        let slot = stack_alloc(fn_builder, self.size);
-
-        for (field, value) in self.fields.iter().zip(values) {
-            fn_builder.ins().stack_store(value, slot, field.offset);
-        }
-
-        fn_builder.ins().stack_addr(isa.pointer_type(), slot, 0)
     }
 }
 

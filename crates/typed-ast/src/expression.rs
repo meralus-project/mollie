@@ -1,4 +1,4 @@
-use std::iter;
+use std::{iter, mem};
 
 use indexmap::map::Entry;
 use mollie_const::ConstantValue;
@@ -7,7 +7,7 @@ use mollie_parser::{IndexTarget, TypePattern};
 use mollie_shared::{Operator, Span};
 use mollie_typing::{
     Adt, AdtKind, AdtRef, AdtVariant, AdtVariantRef, FieldRef, FieldType, FuncArg, IntType, PrimitiveType, TraitRef, TypeInfo, TypeInfoRef, UIntType, VFuncRef,
-    VTableRef,
+    VTableRef, Variable,
 };
 use serde::Serialize;
 
@@ -72,6 +72,7 @@ pub enum Expr {
     },
     Closure {
         args: Box<[String]>,
+        captures: Box<[(String, Variable)]>,
         body: BlockRef,
     },
     Construct {
@@ -168,7 +169,7 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
 
                     Ok(ast.add_expr(Expr::Call { func, args }, returns, span))
                 } else {
-                    unreachable!()
+                    unreachable!("unexpected type: {}", checker.display_of_type(ast[func].ty, None))
                 }
             }
             Self::Node(mut node_expr) => {
@@ -528,6 +529,7 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
                 Ok(ast.add_expr(Expr::IsPattern { target, pattern }, checker.core_types.boolean, span))
             }
             Self::Closure(closure_expr) => {
+                let prev_captures = mem::take(&mut checker.captures);
                 let mut args = Vec::with_capacity(closure_expr.args.value.capacity());
                 let mut arg_types = Vec::with_capacity(closure_expr.args.value.capacity());
 
@@ -547,9 +549,12 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
 
                 checker.solver.pop_frame();
 
+                let captures = mem::replace(&mut checker.captures, prev_captures);
+
                 Ok(ast.add_expr(
                     Expr::Closure {
                         args: args.into_boxed_slice(),
+                        captures: captures.into_boxed_slice(),
                         body,
                     },
                     ty,
@@ -558,6 +563,10 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
             }
             Self::Ident(ident) => {
                 if let Some(var) = checker.solver.get_var(&ident.0) {
+                    if var.frame != checker.solver.current_frame() && !checker.solver.get_info(var.ty).is_func() {
+                        checker.captures.push((ident.0.clone(), var));
+                    }
+
                     Ok(ast.add_expr(Expr::Var(ident.0), var.ty, span))
                 } else if let Some(&ModuleItem::Func(func_ref)) = checker.modules[ModuleId::ZERO].items.get(&ident.0) {
                     let ty = checker.local_functions[func_ref].ty;
@@ -758,6 +767,7 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
 
                 checker.adt_types.push(Adt {
                     name: Some(struct_decl.name.value.name.value.0),
+                    collectable: true,
                     kind: AdtKind::Struct,
                     generics: struct_decl.name.value.generics.len(),
                     variants: variants.into_boxed_slice(),
@@ -809,6 +819,7 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
 
                 checker.adt_types.push(Adt {
                     name: Some(component_decl.name.value.name.value.0),
+                    collectable: true,
                     kind: AdtKind::Component,
                     generics: component_decl.name.value.generics.len(),
                     variants: variants.into_boxed_slice(),
@@ -902,6 +913,7 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
 
                 checker.adt_types.push(Adt {
                     name: Some(enum_decl.name.value.name.value.0),
+                    collectable: true,
                     kind: AdtKind::Enum,
                     generics: enum_decl.name.value.generics.len(),
                     variants: variants.into_boxed_slice(),

@@ -200,7 +200,7 @@ mod default_visitors {
             Expr::Array(elements) => visitor.visit_array(ast, elements.as_ref()),
             &Expr::Binary { operator, lhs, rhs } => visitor.visit_binary(ast, lhs, rhs, operator),
             Expr::Call { func, args } => visitor.visit_call(ast, *func, args.as_ref()),
-            Expr::Closure { args, body } => visitor.visit_closure(ast, args.as_ref(), *body),
+            Expr::Closure { args, captures, body } => visitor.visit_closure(ast, args.as_ref(), *body),
             Expr::Construct { ty, variant, fields } => visitor.visit_construct(ast, *ty, fields.as_ref()),
             Expr::IsPattern { target, pattern } => visitor.visit_is_pattern(ast, *target, pattern),
             Expr::TypeIndex { ty, path } => todo!(), // visitor.visit_type_index(ast, target, func),

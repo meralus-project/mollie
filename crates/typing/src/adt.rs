@@ -1,6 +1,5 @@
 use mollie_const::ConstantValue;
-use mollie_index::{Idx, IndexBoxedSlice};
-use mollie_ir::Field;
+use mollie_index::IndexBoxedSlice;
 
 use crate::{AdtVariantRef, CoreTypes, FieldRef, FieldType, IntType, PrimitiveType, TypeInfo, TypeInfoRef, TypeSolver, UIntType};
 
@@ -9,24 +8,6 @@ pub enum AdtKind {
     Struct,
     Component,
     Enum,
-}
-
-#[derive(Debug)]
-pub struct CompiledAdtVariant {
-    pub fields: IndexBoxedSlice<FieldRef, (Field, TypeInfoRef)>,
-}
-
-#[derive(Debug)]
-pub struct CompiledAdt {
-    pub variants: IndexBoxedSlice<AdtVariantRef, CompiledAdtVariant>,
-    pub size: u32,
-    pub align: u32,
-}
-
-impl CompiledAdt {
-    pub fn main_variant(&self) -> &CompiledAdtVariant {
-        &self.variants[AdtVariantRef::ZERO]
-    }
 }
 
 #[derive(Debug)]
@@ -39,6 +20,7 @@ pub struct AdtVariant {
 #[derive(Debug)]
 pub struct Adt {
     pub name: Option<String>,
+    pub collectable: bool,
     pub kind: AdtKind,
     pub generics: usize,
     pub variants: IndexBoxedSlice<AdtVariantRef, AdtVariant>,

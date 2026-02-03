@@ -6,6 +6,9 @@ use std::{
     sync::Mutex,
 };
 
+use mollie_index::Idx;
+use mollie_typing::{AdtKind, AdtVariantRef};
+
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub enum GcManagedFieldType {
@@ -17,9 +20,10 @@ pub enum GcManagedFieldType {
 #[derive(Debug)]
 #[repr(C)]
 pub struct TypeLayout {
+    pub gc_managed_fields: &'static [(AdtVariantRef, u32, GcManagedFieldType)],
     pub size: usize,
     pub align: usize,
-    pub gc_managed_fields: &'static [(u32, GcManagedFieldType)],
+    pub kind: AdtKind,
 }
 
 impl TypeLayout {
@@ -30,15 +34,13 @@ impl TypeLayout {
         Self {
             size,
             align,
+            kind: AdtKind::Struct,
             gc_managed_fields: &[],
         }
     }
-
-    pub fn as_layout(&self) -> Result<alloc::Layout, alloc::LayoutError> {
-        alloc::Layout::from_size_align(self.size, self.align)
-    }
 }
 
+#[derive(Debug)]
 #[repr(C)]
 pub struct GcValue<T> {
     pub layout: &'static TypeLayout,
@@ -58,43 +60,53 @@ impl GarbageCollector {
     /// # Safety
     ///
     /// Provided [`GcValue`] pointer should point to valid data.
+    #[track_caller]
     pub unsafe fn mark(ptr: *mut GcValue<()>) {
         let root = unsafe { &mut *ptr };
 
         root.marked = true;
 
         let value_ptr = unsafe { ptr.byte_add(mem::offset_of!(GcValue<()>, value)) };
+        let current_variant = if matches!(root.layout.kind, AdtKind::Enum) {
+            unsafe { value_ptr.cast::<AdtVariantRef>().read() }
+        } else {
+            AdtVariantRef::ZERO
+        };
 
-        for &(offset, ty) in root.layout.gc_managed_fields {
-            match ty {
-                GcManagedFieldType::Regular => {
-                    let node = unsafe {
-                        value_ptr
-                            .byte_add(offset as usize)
-                            .cast::<*mut ()>()
-                            .read()
-                            .byte_sub(mem::offset_of!(GcValue<()>, value))
-                    }
-                    .cast::<GcValue<()>>();
+        for &(variant, offset, ty) in root.layout.gc_managed_fields {
+            if variant == current_variant {
+                println!("Marking {variant:?}:{offset}:{ty:?} of {root:?}");
 
-                    unsafe { Self::mark(node) };
-                }
-                GcManagedFieldType::ArrayOfRegular => {
-                    let elements = unsafe { value_ptr.byte_add(offset as usize).cast::<&[*mut GcValue<()>]>().read() };
-
-                    for &value_ptr in elements {
-                        let node = unsafe { value_ptr.byte_sub(mem::offset_of!(GcValue<()>, value)) };
-
-                        unsafe { Self::mark(node) };
-                    }
-                }
-                GcManagedFieldType::ArrayOfFat => {
-                    let elements = unsafe { value_ptr.byte_add(offset as usize).cast::<&[(*mut GcValue<()>, usize)]>().read() };
-
-                    for &(value_ptr, _) in elements {
-                        let node = unsafe { value_ptr.byte_sub(mem::offset_of!(GcValue<()>, value)) };
+                match ty {
+                    GcManagedFieldType::Regular => {
+                        let node = unsafe {
+                            value_ptr
+                                .byte_add(offset as usize)
+                                .cast::<*mut ()>()
+                                .read()
+                                .byte_sub(mem::offset_of!(GcValue<()>, value))
+                        }
+                        .cast::<GcValue<()>>();
 
                         unsafe { Self::mark(node) };
+                    }
+                    GcManagedFieldType::ArrayOfRegular => {
+                        let elements = unsafe { value_ptr.byte_add(offset as usize).cast::<&[*mut GcValue<()>]>().read() };
+
+                        for &value_ptr in elements {
+                            let node = unsafe { value_ptr.byte_sub(mem::offset_of!(GcValue<()>, value)) };
+
+                            unsafe { Self::mark(node) };
+                        }
+                    }
+                    GcManagedFieldType::ArrayOfFat => {
+                        let elements = unsafe { value_ptr.byte_add(offset as usize).cast::<&[(*mut GcValue<()>, usize)]>().read() };
+
+                        for &(value_ptr, _) in elements {
+                            let node = unsafe { value_ptr.byte_sub(mem::offset_of!(GcValue<()>, value)) };
+
+                            unsafe { Self::mark(node) };
+                        }
                     }
                 }
             }
@@ -133,6 +145,8 @@ impl GarbageCollector {
     /// All objects in [`GarbageCollector::roots`] should point to valid data.
     pub unsafe fn collect(&mut self) {
         for &root in &self.roots {
+            println!("Marking root");
+
             unsafe { Self::mark(root) };
         }
 
@@ -142,7 +156,7 @@ impl GarbageCollector {
     /// # Safety
     ///
     /// Provided [`TypeLayout`] should be valid.
-    pub unsafe fn alloc(&mut self, type_layout: &'static TypeLayout) -> *const () {
+    pub unsafe fn alloc(&mut self, type_layout: &'static TypeLayout) -> *mut () {
         let size = type_layout.size + const { mem::size_of::<GcValue<()>>() };
         let align = type_layout.align.max(const { mem::align_of::<GcValue<()>>() });
 
@@ -180,7 +194,7 @@ pub static GARBAGE_COLLECTOR: Mutex<GarbageCollector> = Mutex::new(GarbageCollec
 /// # Safety
 ///
 /// Provided [`TypeLayout`] should be valid.
-pub unsafe fn alloc(type_layout: &'static TypeLayout) -> *const () {
+pub unsafe fn alloc(type_layout: &'static TypeLayout) -> *mut () {
     let mut allocator = unsafe { GARBAGE_COLLECTOR.lock().unwrap_unchecked() };
 
     unsafe { allocator.alloc(type_layout) }

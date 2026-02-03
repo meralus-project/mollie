@@ -7,10 +7,10 @@ mod type_info;
 use mollie_index::new_idx_type;
 
 pub use self::{
-    adt::{Adt, AdtKind, AdtVariant, CompiledAdt, CompiledAdtVariant},
+    adt::{Adt, AdtKind, AdtVariant},
     field_type::FieldType,
     primitive_type::{IntType, PrimitiveType, UIntType},
-    solver::{TypeSolver, TypeStorage, TypeUnificationError},
+    solver::{TypeSolver, TypeStorage, TypeUnificationError, Variable},
     type_info::{FuncArg, TypeInfo},
 };
 

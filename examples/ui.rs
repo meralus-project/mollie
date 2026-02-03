@@ -1,13 +1,12 @@
 use core::fmt;
+use std::time::{Duration, Instant};
 
 use mollie::{
     AdtBuilder, GcPtr, Generic, VTableBuilder,
-    compiler::{Compiler, FuncCompiler},
+    compiler::{Compiler, FuncCompiler, allocator::GARBAGE_COLLECTOR},
     typed_ast::Func,
-    typing::{AdtKind, FieldType, FuncArg, TypeInfo},
+    typing::{AdtKind, FieldType, FuncArg, TypeInfo, TypeInfoRef},
 };
-use mollie_compiler::allocator::GARBAGE_COLLECTOR;
-use mollie_typing::TypeInfoRef;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Color {
@@ -74,15 +73,15 @@ impl DrawContext {
         // });
     }
 
-    pub fn image_size(&self, image: &Image) -> *mut Size {
+    pub fn image_size(&self, image: GcPtr<Image>) -> GcPtr<Size> {
         println!("[DrawContext/image_size] image = {image:?}");
 
-        Box::into_raw(Box::new(Size { width: 24.0, height: 24.0 }))
+        GcPtr::from(Size { width: 24.0, height: 24.0 })
     }
 }
 
 pub enum Command {
-    Run,
+    Run { name: Option<String> },
     Dump,
 }
 
@@ -160,7 +159,9 @@ fn init_compiler(func_compiler: &mut FuncCompiler) -> TypeInfoRef {
     let color_info = func_compiler.checker.instantiate_adt(color_ty, &[]);
     let image_info = func_compiler.checker.instantiate_adt(image_ty, &[]);
     let size_info = func_compiler.checker.instantiate_adt(size_ty, &[]);
-    let draw_ctx_ty = func_compiler.checker.register_adt(AdtBuilder::new_struct("DrawContext").finish());
+    let draw_ctx_ty = func_compiler
+        .checker
+        .register_adt(AdtBuilder::new_struct("DrawContext").non_gc_collectable().finish());
     let draw_ctx_info = func_compiler.checker.instantiate_adt(draw_ctx_ty, &[]);
 
     func_compiler.checker.solver.add_var("context", draw_ctx_info);
@@ -200,10 +201,11 @@ fn init_compiler(func_compiler: &mut FuncCompiler) -> TypeInfoRef {
 
 fn main() {
     let source = include_str!("./ui.mol");
+    let mut args = std::env::args();
 
-    let command = match std::env::args().nth(1).as_deref() {
+    let command = match args.nth(1).as_deref() {
         Some("dump") => Command::Dump,
-        Some("run") | None => Command::Run,
+        Some("run") | None => Command::Run { name: args.next() },
         Some(command) => panic!("unknown command: {command}"),
     };
 
@@ -232,21 +234,42 @@ fn main() {
     }
 
     match command {
-        Command::Run => {
+        Command::Run { name } => {
             if let Some(main_func) = unsafe { provider.compiler.get_func::<fn(*const DrawContext)>("<main>") } {
-                for _ in 0..1 {
+                if name.as_deref() == Some("stress") {
+                    let mut taken = Duration::ZERO;
+                    let mut highest = Duration::ZERO;
+                    let mut lowest = Duration::MAX;
+
+                    for _ in 0..200_000 {
+                        let instant = Instant::now();
+
+                        main_func(&raw mut draw_context);
+
+                        let current_taken = instant.elapsed();
+
+                        taken += current_taken;
+                        highest = highest.max(current_taken);
+                        lowest = lowest.min(current_taken);
+                    }
+
+                    let mid_execution_time = taken / 200_000;
+                    let gc = &*GARBAGE_COLLECTOR.lock().unwrap();
+
+                    println!("Root objects: {}", gc.roots.len());
+                    println!("Allocated objects: {}", gc.objects.len());
+                    println!("Bytes allocated: {}", gc.allocated_bytes);
+                    println!("Bytes dealloacted: {}", gc.deallocated_bytes);
+
+                    println!("Execution time (sum): {taken:?} for 200k calls");
+                    println!("Execution time (avg): ~{mid_execution_time:?}");
+                    println!("Execution time (max): ~{highest:?}");
+                    println!("Execution time (min): ~{lowest:?}");
+
+                    println!("Calls per sec: ~{:.2}", 1.0 / mid_execution_time.as_secs_f32());
+                } else {
                     main_func(&raw mut draw_context);
                 }
-
-                let allocator = GARBAGE_COLLECTOR.lock().unwrap();
-
-                println!(
-                    "Allocated objects: {} ({} bytes allocated, {} bytes dealloacted)",
-                    allocator.objects.len(),
-                    allocator.allocated_bytes,
-                    allocator.deallocated_bytes
-                );
-                println!("Root objects: {}", allocator.roots.len());
             }
         }
         Command::Dump => {

@@ -5,12 +5,15 @@ use std::{
 
 use indexmap::IndexMap;
 use mollie_index::{Idx, IndexVec};
+use serde::Serialize;
 
 use crate::{Adt, AdtKind, AdtRef, AdtVariantRef, FieldType, PrimitiveType, TraitRef, TypeInfo, TypeInfoRef, VTableRef};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct Variable {
     pub id: usize,
+    pub frame: usize,
     pub ty: TypeInfoRef,
 }
 
@@ -125,6 +128,10 @@ impl TypeSolver {
         state.finish()
     }
 
+    pub const fn current_frame(&self) -> usize {
+        self.frames.len() - 1
+    }
+
     pub fn push_frame(&mut self) {
         self.frames.push(IndexMap::new());
     }
@@ -146,11 +153,12 @@ impl TypeSolver {
     }
 
     pub fn add_var<T: Into<String>>(&mut self, name: T, ty: TypeInfoRef) -> Variable {
-        let Some(frame) = self.frames.last_mut() else { unreachable!() };
+        let frame = self.current_frame();
+        let vars = &mut self.frames[frame];
 
-        let var = Variable { id: frame.len(), ty };
+        let var = Variable { id: vars.len(), frame, ty };
 
-        frame.insert(name.into(), var);
+        vars.insert(name.into(), var);
 
         var
     }
@@ -596,7 +604,7 @@ impl TypeSolver {
 
                 self.fmt_type(f, *returns, this, storage, short)
             }
-            TypeInfo::Trait(t, args) => match storage.get_trait_name(*t) {
+            TypeInfo::Trait(t, _args) => match storage.get_trait_name(*t) {
                 Some(name) => name.fmt(f),
                 None => write!(f, "<trait: {}>", t.index()),
             },

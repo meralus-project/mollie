@@ -60,11 +60,6 @@ impl NodeExpr {
         let mut is_property_parsing = true;
         let mut last_comma = None;
 
-        // first: parse properties
-        //  - (name: value)
-        //  - (name)
-        // if property fails to parse (name<, name from, name {) then start parsing
-        // nodes until end of current node
         loop {
             if parser.check_if(Token::is_ident) {
                 if is_property_parsing {
