@@ -25,6 +25,11 @@ mollie-index = { workspace = true }
 mollie-parser = { workspace = true }
 mollie-typed-ast = { workspace = true }
 
+[dev-dependencies]
+tiny-skia = "0.12.0"
+tracing.workspace = true
+tracing-subscriber = "0.3.22"
+
 [workspace.dependencies]
 mollie-shared = { path = "./crates/shared" }
 mollie-lexer = { path = "./crates/lexer" }

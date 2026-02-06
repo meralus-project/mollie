@@ -1,5 +1,5 @@
 use std::{
-    fmt::Debug,
+    fmt,
     hash::Hash,
     marker::PhantomData,
     ops::{Index, IndexMut},
@@ -29,7 +29,7 @@ macro_rules! new_idx_type {
     };
 }
 
-pub trait Idx: Debug + Copy + PartialEq + Eq + Hash + 'static {
+pub trait Idx: fmt::Debug + Copy + PartialEq + Eq + Hash + 'static {
     const ZERO: Self;
 
     fn new(idx: usize) -> Self;
@@ -37,7 +37,7 @@ pub trait Idx: Debug + Copy + PartialEq + Eq + Hash + 'static {
     fn index(self) -> usize;
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(bound = "T: Serialize")]
 pub struct IndexBoxedSlice<I: Idx, T> {
     #[serde(flatten)]
@@ -88,6 +88,12 @@ impl<I: Idx, T> IndexBoxedSlice<I, T> {
     }
 }
 
+impl<I: Idx, T: fmt::Debug> fmt::Debug for IndexBoxedSlice<I, T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Debug::fmt(&self.raw, f)
+    }
+}
+
 impl<I: Idx, T> Default for IndexBoxedSlice<I, T> {
     fn default() -> Self {
         Self {
@@ -120,7 +126,7 @@ impl<I: Idx, T> From<Vec<T>> for IndexBoxedSlice<I, T> {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(bound = "T: Serialize")]
 pub struct IndexVec<I: Idx, T> {
     #[serde(flatten)]
@@ -209,6 +215,12 @@ impl<I: Idx, T> IndexVec<I, T> {
             raw: self.raw.into_boxed_slice(),
             _phantom: PhantomData,
         }
+    }
+}
+
+impl<I: Idx, T: fmt::Debug> fmt::Debug for IndexVec<I, T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Debug::fmt(&self.raw, f)
     }
 }
 

@@ -172,7 +172,8 @@ impl<M: Module> FunctionCompiler<'_, M> {
             let ptr = self.alloc(Box::leak(Box::new(TypeLayout {
                 size: captures_tuple.size as usize,
                 align: captures_tuple.align as usize,
-                kind: AdtKind::Struct,
+                kind: Some(AdtKind::Struct),
+                adt_ty: None,
                 gc_managed_fields,
             })));
 

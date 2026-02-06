@@ -272,6 +272,19 @@ impl Parser {
         Ok(values)
     }
 
+    /// # Errors
+    ///
+    /// Returns error if parsing failed
+    pub fn consume_while<T: Parse, F: Fn(&mut Self) -> bool>(&mut self, func: F) -> ParseResult<Vec<Positioned<T>>> {
+        let mut values = Vec::new();
+
+        while func(self) {
+            values.push(T::parse(self)?);
+        }
+
+        Ok(values)
+    }
+
     /// Consumes the current token if it exists and is equal to `value`,
     /// otherwise returning `ParseError`.
     ///

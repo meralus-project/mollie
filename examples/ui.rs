@@ -1,12 +1,18 @@
 use core::fmt;
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant},
+};
 
 use mollie::{
-    AdtBuilder, GcPtr, Generic, VTableBuilder,
+    AdtBuilder, GcPtr, Generic, TraitBuilder, VTableBuilder,
     compiler::{Compiler, FuncCompiler, allocator::GARBAGE_COLLECTOR},
     typed_ast::Func,
     typing::{AdtKind, FieldType, FuncArg, TypeInfo, TypeInfoRef},
 };
+use mollie_compiler::allocator::TypeLayout;
+use mollie_typing::PrimitiveType;
+use tiny_skia::{FilterQuality, Paint, Pattern, Pixmap, Rect, SpreadMode, Transform};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Color {
@@ -41,8 +47,24 @@ pub enum Action {
     DrawImage { x: f32, y: f32, width: f32, height: f32, image: String },
 }
 
+#[derive(Default)]
+struct ImageStorage {
+    images: HashMap<String, Pixmap>,
+}
+
+impl ImageStorage {
+    fn get_image(&mut self, image: GcPtr<Image>) -> &Pixmap {
+        match &*image {
+            Image::Path { path } => self.images.entry(path.to_string()).or_insert_with(|| Pixmap::load_png(path).unwrap()),
+            Image::Url { .. } => todo!(),
+        }
+    }
+}
+
 pub struct DrawContext {
-    actions: Vec<Action>,
+    root: Pixmap,
+    images: ImageStorage,
+    size_layout: &'static TypeLayout,
 }
 
 impl DrawContext {
@@ -52,31 +74,43 @@ impl DrawContext {
             color.type_layout()
         );
 
-        self.actions.push(Action::DrawRect {
-            x,
-            y,
-            width,
-            height,
-            color: *color,
-        });
+        let mut paint = Paint::default();
+
+        paint.set_color_rgba8(color.red, color.green, color.blue, 255);
+
+        self.root
+            .fill_rect(Rect::from_xywh(x, y, width, height).unwrap(), &paint, Transform::identity(), None);
     }
 
-    pub fn draw_image(&mut self, x: f32, y: f32, width: f32, height: f32, image: &Image) {
+    pub fn draw_image(&mut self, x: f32, y: f32, width: f32, height: f32, image: GcPtr<Image>) {
         println!("[DrawContext/draw_image] origin = {x}x{y}, size = {width}x{height}, image = {image:?}");
 
-        // self.actions.push(Action::DrawImage {
-        //     x,
-        //     y,
-        //     width,
-        //     height,
-        //     image: (value.to_string(), image),
-        // });
+        let image = self.images.get_image(image);
+        let image_width = image.width() as f32;
+        let image_height = image.height() as f32;
+        let paint = Paint {
+            shader: Pattern::new(
+                image.as_ref(),
+                SpreadMode::Pad,
+                FilterQuality::Nearest,
+                1.0,
+                Transform::from_scale(width / image_width, height / image_height),
+            ),
+            ..Paint::default()
+        };
+
+        self.root
+            .fill_rect(Rect::from_xywh(x, y, width, height).unwrap(), &paint, Transform::identity(), None);
     }
 
-    pub fn image_size(&self, image: GcPtr<Image>) -> GcPtr<Size> {
+    pub fn image_size(&mut self, image: GcPtr<Image>) -> GcPtr<Size> {
         println!("[DrawContext/image_size] image = {image:?}");
 
-        GcPtr::from(Size { width: 24.0, height: 24.0 })
+        let image = self.images.get_image(image);
+        let width = image.width() as f32;
+        let height = image.height() as f32;
+
+        GcPtr::from_parts(Size { width, height }, self.size_layout)
     }
 }
 
@@ -92,7 +126,7 @@ pub fn get_timestamp() -> usize {
         .as_secs() as usize
 }
 
-fn init_compiler(func_compiler: &mut FuncCompiler) -> TypeInfoRef {
+fn init_compiler(func_compiler: &mut FuncCompiler) -> (TypeInfoRef, TypeInfoRef) {
     let core_types = &func_compiler.checker.core_types;
 
     for (name, args, returns) in [
@@ -156,13 +190,27 @@ fn init_compiler(func_compiler: &mut FuncCompiler) -> TypeInfoRef {
         .checker
         .register_adt_in_module(module, AdtBuilder::new_struct("Size").field::<f32>("width").field::<f32>("height").finish());
 
-    let color_info = func_compiler.checker.instantiate_adt(color_ty, &[]);
-    let image_info = func_compiler.checker.instantiate_adt(image_ty, &[]);
-    let size_info = func_compiler.checker.instantiate_adt(size_ty, &[]);
+    let point_ty = func_compiler
+        .checker
+        .register_adt_in_module(module, AdtBuilder::new_struct("Point").field::<f32>("x").field::<f32>("y").finish());
+
+    let (color_info, _) = func_compiler.checker.instantiate_adt(color_ty, &[]);
+    let (image_info, _) = func_compiler.checker.instantiate_adt(image_ty, &[]);
+    let (size_info, size_ft) = func_compiler.checker.instantiate_adt(size_ty, &[]);
+    let (_, point_ft) = func_compiler.checker.instantiate_adt(point_ty, &[]);
     let draw_ctx_ty = func_compiler
         .checker
         .register_adt(AdtBuilder::new_struct("DrawContext").non_gc_collectable().finish());
-    let draw_ctx_info = func_compiler.checker.instantiate_adt(draw_ctx_ty, &[]);
+    let (draw_ctx_info, draw_ctx_ft) = func_compiler.checker.instantiate_adt(draw_ctx_ty, &[]);
+
+    let drawable = func_compiler.checker.register_trait(
+        TraitBuilder::new("Drawable")
+            .func("measure", [draw_ctx_ft.clone()], size_ft)
+            .func("render", [point_ft, draw_ctx_ft], FieldType::Primitive(PrimitiveType::Void))
+            .finish(),
+    );
+
+    let drawable_info = func_compiler.checker.solver.add_info(TypeInfo::Trait(drawable, Box::new([])));
 
     func_compiler.checker.solver.add_var("context", draw_ctx_info);
 
@@ -196,10 +244,12 @@ fn init_compiler(func_compiler: &mut FuncCompiler) -> TypeInfoRef {
         .func("image_size", "DrawContext_image_size", [draw_ctx_info, image_info], size_info)
         .finish(&mut func_compiler.checker);
 
-    draw_ctx_info
+    (draw_ctx_info, drawable_info)
 }
 
 fn main() {
+    tracing_subscriber::fmt().init();
+
     let source = include_str!("./ui.mol");
     let mut args = std::env::args();
 
@@ -218,15 +268,19 @@ fn main() {
     .unwrap();
     let mut provider = compiler.start_compiling();
 
-    let draw_ctx_info = init_compiler(&mut provider);
+    let (draw_ctx_info, drawable_info) = init_compiler(&mut provider);
 
     let pointer_type = provider.compiler.ptr_type();
-    let mut draw_context = DrawContext { actions: Vec::new() };
 
     let _dump = matches!(command, Command::Dump);
 
     provider
-        .compile("<main>", vec![(String::from("context"), pointer_type, draw_ctx_info)], source)
+        .compile(
+            "<main>",
+            vec![(String::from("context"), pointer_type, draw_ctx_info)],
+            vec![(String::from("comp"), pointer_type, drawable_info)],
+            source,
+        )
         .unwrap();
 
     for error in provider.checker.type_errors() {
@@ -235,7 +289,13 @@ fn main() {
 
     match command {
         Command::Run { name } => {
-            if let Some(main_func) = unsafe { provider.compiler.get_func::<fn(*const DrawContext)>("<main>") } {
+            let mut draw_context = DrawContext {
+                root: Pixmap::new(512, 512).unwrap(),
+                images: ImageStorage::default(),
+                size_layout: provider.compiler.find_adt("Size").unwrap().type_layout,
+            };
+
+            if let Some(main_func) = unsafe { provider.compiler.get_func::<fn(*const DrawContext) -> GcPtr<()>>("<main>") } {
                 if name.as_deref() == Some("stress") {
                     let mut taken = Duration::ZERO;
                     let mut highest = Duration::ZERO;
@@ -268,7 +328,32 @@ fn main() {
 
                     println!("Calls per sec: ~{:.2}", 1.0 / mid_execution_time.as_secs_f32());
                 } else {
-                    main_func(&raw mut draw_context);
+                    let value = main_func(&raw mut draw_context);
+                    let ty = value.type_layout();
+
+                    if let Some(hash) = ty.adt_ty {
+                        #[derive(Debug)]
+                        #[repr(C)]
+                        struct Point {
+                            x: f32,
+                            y: f32,
+                        }
+
+                        #[derive(Debug, Clone, Copy)]
+                        #[repr(C)]
+                        struct Drawable {
+                            measure: fn(*mut (), &mut DrawContext) -> GcPtr<Size>,
+                            render: fn(*mut (), point: GcPtr<Point>, ctx: &mut DrawContext),
+                        }
+
+                        let trait_ref = provider.checker.find_trait("Drawable");
+
+                        if let Some(vtable) = unsafe { compiler.get_vtable_ptr::<Drawable>(hash, trait_ref) } {
+                            (vtable.render)(value.ptr_mut(), GcPtr::from(Point { x: 0.0, y: 0.0 }), &mut draw_context);
+                        }
+                    }
+
+                    draw_context.root.save_png("./output.png").unwrap();
                 }
             }
         }

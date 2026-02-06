@@ -15,7 +15,7 @@ use mollie_typing::{
 use serde::Serialize;
 
 pub use crate::{
-    expression::{Block, Expr, IsPattern, LiteralExpr, TypePath, VFunc},
+    expression::{Block, Expr, FuncSource, IsPattern, LiteralExpr, TypePath, VFunc},
     statement::Stmt,
 };
 
@@ -97,6 +97,7 @@ pub enum VTableFuncKind {
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Func {
+    pub postfix: bool,
     pub name: String,
     pub arg_names: Vec<String>,
     pub ty: TypeInfoRef,
@@ -106,6 +107,7 @@ pub struct Func {
 impl Func {
     pub fn external<T: Into<String>>(name: T, ty: TypeInfoRef, ext_name: &'static str) -> Self {
         Self {
+            postfix: false,
             name: name.into(),
             arg_names: Vec::new(),
             ty,
@@ -164,6 +166,23 @@ pub struct Trait {
     pub functions: IndexVec<TraitFuncRef, TraitFunc>,
 }
 
+impl Trait {
+    pub fn get_func_offset<T: AsRef<str>>(&self, name: T) -> usize {
+        let mut offset = 0;
+        let name = name.as_ref();
+
+        for func in self.functions.values() {
+            if func.0 == name {
+                break;
+            }
+
+            offset += size_of::<usize>();
+        }
+
+        offset
+    }
+}
+
 pub struct TypeChecker {
     pub core_types: CoreTypes,
     pub solver: TypeSolver,
@@ -178,6 +197,8 @@ pub struct TypeChecker {
     pub local_functions: IndexVec<FuncRef, Func>,
     pub traits: IndexVec<TraitRef, Trait>,
     pub vtables: IndexVec<VTableRef, VTableGenerator>,
+
+    pub returns: Option<TypeInfoRef>,
 }
 
 impl TypeChecker {
@@ -206,6 +227,7 @@ impl TypeChecker {
         };
 
         Self {
+            returns: None,
             core_types,
             solver,
             infer: None,
@@ -217,6 +239,49 @@ impl TypeChecker {
             traits: IndexVec::new(),
             vtables: IndexVec::new(),
         }
+    }
+
+    pub fn type_check<T: AsRef<str>>(&mut self, code: T, ast: &mut TypedAST) -> mollie_parser::ParseResult<BlockRef> {
+        let mut parser = mollie_parser::Parser::new(mollie_lexer::Lexer::lex(code.as_ref()));
+
+        let (stmts, final_stmt) = mollie_parser::parse_statements_until(&mut parser, &mollie_lexer::Token::EOF)?;
+
+        let block = mollie_parser::BlockExpr {
+            stmts,
+            final_stmt: final_stmt.map(Box::new),
+        }
+        .into_typed_ast(self, ast, Span::default())
+        .unwrap();
+
+        if let Some(returns) = self.returns
+            && let &TypeInfo::Trait(t, _) = self.solver.get_info(returns)
+            && let Some(vtables) = self.solver.find_vtable(&FieldType::from_type_info_ref(ast[block].ty, &self.solver))
+            && let Some(&vtable) = vtables.get(&Some(t))
+        {
+            for (adt_ref, type_args) in &self.vtables[vtable].used_adt_types {
+                let adt = (*adt_ref, type_args.clone());
+
+                if !ast.used_adt_types.contains(&adt) {
+                    ast.used_adt_types.push(adt);
+                }
+            }
+
+            for (ty, vtable, type_args) in &self.vtables[vtable].used_vtables {
+                let vtable = (*ty, *vtable, type_args.clone());
+
+                if !ast.used_vtables.contains(&vtable) {
+                    ast.used_vtables.push(vtable);
+                }
+            }
+
+            let vtable = (ast[block].ty, vtable, Box::new([]) as Box<[_]>);
+
+            if !ast.used_vtables.contains(&vtable) {
+                ast.used_vtables.push(vtable);
+            }
+        }
+
+        Ok(block)
     }
 
     pub fn type_errors(&mut self) -> impl Iterator<Item = TypeErrorDisplay<'_>> {
@@ -250,6 +315,20 @@ impl TypeChecker {
         type_ref
     }
 
+    pub fn register_trait(&mut self, r#trait: Trait) -> TraitRef {
+        self.register_trait_in_module(ModuleId::ZERO, r#trait)
+    }
+
+    pub fn register_trait_in_module(&mut self, module: ModuleId, r#trait: Trait) -> TraitRef {
+        let trait_ref = self.traits.insert(r#trait);
+
+        self.modules[module]
+            .items
+            .insert(self.traits[trait_ref].name.clone(), ModuleItem::Trait(trait_ref));
+
+        trait_ref
+    }
+
     pub fn register_func_in_module(&mut self, module: ModuleId, func: Func) -> FuncRef {
         let func = self.local_functions.insert(func);
 
@@ -260,7 +339,7 @@ impl TypeChecker {
         func
     }
 
-    pub fn instantiate_adt(&mut self, ty: AdtRef, generic_args: &[TypeInfoRef]) -> TypeInfoRef {
+    pub fn instantiate_adt(&mut self, ty: AdtRef, generic_args: &[TypeInfoRef]) -> (TypeInfoRef, FieldType) {
         let kind = self.adt_types[ty].kind;
         let generics = self.adt_types[ty].generics;
         let args = generic_args
@@ -272,7 +351,9 @@ impl TypeChecker {
             .map(|arg| arg.unwrap_or_else(|| self.solver.add_info(TypeInfo::Unknown(None))))
             .collect();
 
-        self.solver.add_info(TypeInfo::Adt(ty, kind, args))
+        let type_ref = self.solver.add_info(TypeInfo::Adt(ty, kind, args));
+
+        (type_ref, FieldType::from_type_info_ref(type_ref, &self.solver))
     }
 }
 
@@ -346,6 +427,18 @@ impl TypeChecker {
 
     pub fn name_of_trait(&self, trait_ref: TraitRef) -> &str {
         self.traits[trait_ref].name.as_str()
+    }
+
+    pub fn find_trait<T: AsRef<str>>(&self, trait_name: T) -> Option<TraitRef> {
+        let name = trait_name.as_ref();
+
+        for (trait_ref, trait_data) in self.traits.iter() {
+            if trait_data.name == name {
+                return Some(trait_ref);
+            }
+        }
+
+        None
     }
 
     pub const fn display_of_error(&self, error: TypeUnificationError) -> TypeErrorDisplay<'_> {

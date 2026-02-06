@@ -4,15 +4,17 @@ use mollie_shared::Positioned;
 use crate::{BlockExpr, Ident, Parse, ParseResult, Parser, ty::Type};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
-pub enum FuncVis {
+pub enum FuncModifier {
     Public,
+    Postfix,
 }
 
-impl Parse for FuncVis {
+impl Parse for FuncModifier {
     fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
-        let vis = parser.consume(&Token::Public)?;
-
-        Ok(vis.wrap(Self::Public))
+        parser
+            .consume(&Token::Public)
+            .map(|t| t.wrap(Self::Public))
+            .or_else(|_| parser.consume(&Token::Postfix).map(|t| t.wrap(Self::Postfix)))
     }
 }
 
@@ -39,7 +41,7 @@ impl Parse for Argument {
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct FuncDecl {
-    pub func_vis: Option<Positioned<FuncVis>>,
+    pub modifiers: Vec<Positioned<FuncModifier>>,
     pub name: Positioned<Ident>,
     pub args: Vec<Positioned<Argument>>,
     pub returns: Option<Positioned<Type>>,
@@ -48,10 +50,8 @@ pub struct FuncDecl {
 
 impl Parse for FuncDecl {
     fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
+        let modifiers = parser.consume_while(|parser| parser.check_one_of(&[Token::Public, Token::Postfix]))?;
         let start = parser.consume(&Token::Fn)?;
-
-        let func_vis = FuncVis::parse(parser).ok();
-
         let name = Ident::parse(parser)?;
 
         parser.consume(&Token::ParenOpen)?;
@@ -81,7 +81,7 @@ impl Parse for FuncDecl {
         let body = BlockExpr::parse(parser)?;
 
         Ok(start.between(&body).wrap(Self {
-            func_vis,
+            modifiers,
             name,
             args,
             returns,

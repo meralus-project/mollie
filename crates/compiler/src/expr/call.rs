@@ -1,13 +1,34 @@
 use cranelift::{codegen::ir, module::Module, prelude::InstBuilder};
-use mollie_typed_ast::{ExprRef, TypedAST};
+use indexmap::map::Entry;
+use mollie_typed_ast::{ExprRef, FuncSource, TypedAST};
 use mollie_typing::TypeInfo;
 
-use crate::{AsIrType, CompileTypedAST, MolValue, error::CompileResult, func::FunctionCompiler};
+use crate::{AsIrType, CompileTypedAST, MolValue, error::CompileResult, func::{FuncKey, FunctionCompiler}};
 
 impl<M: Module> FunctionCompiler<'_, M> {
-    pub fn compile_call_expr(&mut self, ast: &TypedAST, func: ExprRef, args: &[ExprRef]) -> CompileResult<MolValue> {
-        if let Some(TypeInfo::Func(arg_types, returns)) = self.checker.solver.get_maybe_info(ast[func].ty) {
-            let v = func.compile(ast, self)?;
+    pub fn compile_call_expr(&mut self, ast: &TypedAST, func: FuncSource, args: &[ExprRef]) -> CompileResult<MolValue> {
+        let func_ty = match func {
+            FuncSource::Explicit(func) => self.checker.local_functions[func].ty,
+            FuncSource::Expr(func) => ast[func].ty,
+        };
+
+        if let Some(TypeInfo::Func(arg_types, returns)) = self.checker.solver.get_maybe_info(func_ty) {
+            let v = match func {
+                FuncSource::Explicit(func) => MolValue::FuncRef(match self.funcs.entry(FuncKey::Ref(func)) {
+                    Entry::Occupied(entry) => *entry.get(),
+                    Entry::Vacant(entry) => {
+                        let func = self
+                            .compiler
+                            .codegen
+                            .module
+                            .declare_func_in_func(self.compiler.func_ref_to_func_id[&func], self.fn_builder.func);
+
+                        *entry.insert(func)
+                    }
+                }),
+                FuncSource::Expr(func) => func.compile(ast, self)?,
+            };
+
             let mut arg_values = Vec::new();
 
             if let Some(this) = self.this.take() {
@@ -41,8 +62,6 @@ impl<M: Module> FunctionCompiler<'_, M> {
                 }
             }
 
-            println!("calling {v:?}");
-
             let value = match v {
                 MolValue::FuncRef(func) => {
                     let result = self.fn_builder.ins().call(func, &arg_values);
@@ -60,8 +79,6 @@ impl<M: Module> FunctionCompiler<'_, M> {
                 }
                 MolValue::CaptureFuncRef(func, captures) => {
                     arg_values.push(captures);
-
-                    println!("calling closure with captures");
 
                     let result = self.fn_builder.ins().call(func, &arg_values);
 

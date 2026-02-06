@@ -37,9 +37,8 @@ impl EnumDecl {
         parser.consume(&Token::Enum)?;
 
         let name = NameWithGenerics::parse(parser)?;
-
         let variants = parser.consume_separated_in(&Token::Comma, &Token::BraceOpen, &Token::BraceClose)?;
 
-        Ok(name.span.between(variants.span).wrap(Self { name, variants, attributes }))
+        Ok(name.span.between(variants.span).wrap(Self { attributes, name, variants }))
     }
 }

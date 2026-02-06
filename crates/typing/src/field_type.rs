@@ -1,6 +1,6 @@
 use crate::{AdtKind, AdtRef, CoreTypes, IntType, PrimitiveType, TraitRef, TypeInfo, TypeInfoRef, TypeSolver, UIntType, type_info::FuncArg};
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum FieldType {
     This,
     Generic(usize, Option<TypeInfoRef>),
@@ -52,6 +52,10 @@ impl FieldType {
             }
             _ => false,
         }
+    }
+
+    pub fn from_type_info_ref(info_ref: TypeInfoRef, solver: &TypeSolver) -> Self {
+        Self::from_type_info(solver.get_info(info_ref), Some(info_ref), solver)
     }
 
     pub fn from_type_info(info: &TypeInfo, info_ref: Option<TypeInfoRef>, solver: &TypeSolver) -> Self {

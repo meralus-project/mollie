@@ -3,7 +3,7 @@ use mollie_typing::{FieldRef, TypeInfoRef};
 
 pub use self::default_visitors::*;
 use crate::{
-    BlockRef, ExprRef, StmtRef, TypedAST,
+    BlockRef, ExprRef, FuncSource, StmtRef, TypedAST,
     expression::{IsPattern, LiteralExpr, VFunc},
 };
 
@@ -42,7 +42,7 @@ pub trait Visitor {
         visit_binary(self, ast, lhs, rhs, operator);
     }
 
-    fn visit_call(&mut self, ast: &TypedAST, func: ExprRef, args: &[ExprRef]) {
+    fn visit_call(&mut self, ast: &TypedAST, func: FuncSource, args: &[ExprRef]) {
         visit_call(self, ast, func, args);
     }
 
@@ -85,7 +85,7 @@ mod default_visitors {
 
     use super::Visitor;
     use crate::{
-        BlockRef, ExprRef, StmtRef, TypedAST,
+        BlockRef, ExprRef, FuncSource, StmtRef, TypedAST,
         expression::{Expr, IsPattern, VFunc},
         statement::Stmt,
     };
@@ -128,8 +128,10 @@ mod default_visitors {
         visitor.visit_expr(ast, rhs);
     }
 
-    pub fn visit_call<T: Visitor + ?Sized>(visitor: &mut T, ast: &TypedAST, func: ExprRef, args: &[ExprRef]) {
-        visitor.visit_expr(ast, func);
+    pub fn visit_call<T: Visitor + ?Sized>(visitor: &mut T, ast: &TypedAST, func: FuncSource, args: &[ExprRef]) {
+        if let FuncSource::Expr(func) = func {
+            visitor.visit_expr(ast, func);
+        }
 
         for &arg in args {
             visitor.visit_expr(ast, arg);

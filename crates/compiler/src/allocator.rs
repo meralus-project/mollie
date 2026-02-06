@@ -9,7 +9,7 @@ use std::{
 use mollie_index::Idx;
 use mollie_typing::{AdtKind, AdtVariantRef};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 pub enum GcManagedFieldType {
     Regular,
@@ -17,13 +17,14 @@ pub enum GcManagedFieldType {
     ArrayOfFat,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 #[repr(C)]
 pub struct TypeLayout {
     pub gc_managed_fields: &'static [(AdtVariantRef, u32, GcManagedFieldType)],
+    pub adt_ty: Option<u64>,
     pub size: usize,
     pub align: usize,
-    pub kind: AdtKind,
+    pub kind: Option<AdtKind>,
 }
 
 impl TypeLayout {
@@ -34,8 +35,9 @@ impl TypeLayout {
         Self {
             size,
             align,
-            kind: AdtKind::Struct,
             gc_managed_fields: &[],
+            kind: None,
+            adt_ty: None,
         }
     }
 }
@@ -44,7 +46,8 @@ impl TypeLayout {
 #[repr(C)]
 pub struct GcValue<T> {
     pub layout: &'static TypeLayout,
-    pub marked: bool,
+    // although `marked` can only be `0` or `1`, for correct alignment of `value` pointers, we need it to be `usize`
+    pub marked: usize,
     pub value: T,
 }
 
@@ -64,10 +67,10 @@ impl GarbageCollector {
     pub unsafe fn mark(ptr: *mut GcValue<()>) {
         let root = unsafe { &mut *ptr };
 
-        root.marked = true;
+        root.marked = 1;
 
         let value_ptr = unsafe { ptr.byte_add(mem::offset_of!(GcValue<()>, value)) };
-        let current_variant = if matches!(root.layout.kind, AdtKind::Enum) {
+        let current_variant = if matches!(root.layout.kind, Some(AdtKind::Enum)) {
             unsafe { value_ptr.cast::<AdtVariantRef>().read() }
         } else {
             AdtVariantRef::ZERO
@@ -120,8 +123,8 @@ impl GarbageCollector {
         self.objects.retain(|object_ptr| {
             let object = unsafe { &mut **object_ptr };
 
-            if object.marked {
-                object.marked = false;
+            if object.marked == 1 {
+                object.marked = 0;
 
                 true
             } else {
@@ -167,7 +170,7 @@ impl GarbageCollector {
             let value = ptr.as_mut().unwrap_unchecked();
 
             value.layout = type_layout;
-            value.marked = false;
+            value.marked = 0;
         }
 
         self.objects.insert(ptr);

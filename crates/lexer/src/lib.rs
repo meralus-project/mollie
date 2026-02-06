@@ -34,7 +34,7 @@ impl Lexer {
             "while" => Token::While,
             "for" => Token::For,
             "public" => Token::Public,
-            // "infix" => Token::Infix,
+            "postfix" => Token::Postfix,
             "in" => Token::In,
             "loop" => Token::Loop,
             "if" => Token::If,

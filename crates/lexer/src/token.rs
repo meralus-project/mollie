@@ -65,16 +65,14 @@ pub enum Token {
     Loop,
     #[display("null")]
     Null,
-    // #[display("infix")]
-    // Infix,
+    #[display("postfix")]
+    Postfix,
     #[display("fn")]
     Fn,
     #[display("@")]
     Attr,
     // #[display("match")]
     // Match,
-    // #[display("is")]
-    // Is,
     #[display("[")]
     BracketOpen,
     #[display("]")]

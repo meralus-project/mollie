@@ -1,15 +1,20 @@
 use std::{fmt, ops::Deref};
 
 pub use mollie_compiler as compiler;
-use mollie_compiler::allocator::{alloc, unmark_root};
+use mollie_compiler::{
+    CompiledAdt,
+    allocator::{alloc, unmark_root},
+};
 pub use mollie_const as constants;
 pub use mollie_index as index;
+use mollie_index::Idx;
 pub use mollie_ir as ir;
 pub use mollie_parser as parser;
 pub use mollie_shared as shared;
 pub use mollie_typed_ast as typed_ast;
+use mollie_typed_ast::{Trait, TraitFuncRef};
 pub use mollie_typing as typing;
-use mollie_typing::{IntType, UIntType};
+use mollie_typing::{AdtVariantRef, FieldRef, IntType, UIntType};
 
 use self::{
     compiler::allocator::{GcValue, TypeLayout},
@@ -34,8 +39,76 @@ impl<T> GcPtr<T> {
         Self(result_value.cast())
     }
 
+    pub fn from_parts(value: T, layout: &'static TypeLayout) -> Self {
+        let result_value = unsafe { alloc(layout) };
+
+        unsafe {
+            *result_value.cast::<T>() = value;
+        }
+
+        Self(result_value.cast())
+    }
+
+    pub fn ptr(&self) -> *const T {
+        self.0.cast()
+    }
+
+    pub fn ptr_mut(&self) -> *mut T {
+        self.0.cast()
+    }
+
     pub fn type_layout(&self) -> &'static TypeLayout {
         unsafe { self.0.byte_sub(std::mem::offset_of!(GcValue<()>, value)).read().layout }
+    }
+
+    pub fn adt_variant(&self) -> AdtVariantRef {
+        let type_layout = self.type_layout();
+
+        match type_layout.kind {
+            // SAFETY: discriminant is always placed at the beginning
+            Some(AdtKind::Enum) => AdtVariantRef::new(unsafe { self.0.cast::<usize>().read() }),
+            _ => AdtVariantRef::ZERO,
+        }
+    }
+
+    pub fn get<F>(&self, adt: &CompiledAdt, field: FieldRef) -> Option<&F> {
+        assert_eq!(self.type_layout(), adt.type_layout);
+
+        let field = &adt.variants[self.adt_variant()].fields[field].0;
+
+        assert_eq!(size_of::<F>(), field.ty.bytes() as usize);
+
+        unsafe { self.0.byte_add(field.offset as usize).cast::<F>().as_ref() }
+    }
+
+    pub fn get_mut<F>(&mut self, adt: &CompiledAdt, field: FieldRef) -> Option<&mut F> {
+        assert_eq!(self.type_layout(), adt.type_layout);
+
+        let field = &adt.variants[self.adt_variant()].fields[field].0;
+
+        assert_eq!(size_of::<F>(), field.ty.bytes() as usize);
+
+        unsafe { self.0.byte_add(field.offset as usize).cast::<F>().as_mut() }
+    }
+
+    pub fn get_slice<F>(&self, adt: &CompiledAdt, field: FieldRef) -> Option<&[F]> {
+        assert_eq!(self.type_layout(), adt.type_layout);
+
+        let field = &adt.variants[self.adt_variant()].fields[field].0;
+
+        assert_eq!(size_of::<&[F]>(), field.ty.bytes() as usize);
+
+        unsafe { Some(self.0.byte_add(field.offset as usize).cast::<&[F]>().read()) }
+    }
+
+    pub fn get_slice_mut<F>(&mut self, adt: &CompiledAdt, field: FieldRef) -> Option<&mut [F]> {
+        assert_eq!(self.type_layout(), adt.type_layout);
+
+        let field = &adt.variants[self.adt_variant()].fields[field].0;
+
+        assert_eq!(size_of::<&mut [F]>(), field.ty.bytes() as usize);
+
+        unsafe { Some(self.0.byte_add(field.offset as usize).cast::<&mut [F]>().read()) }
     }
 }
 
@@ -214,6 +287,53 @@ impl AdtBuilder {
                 discriminant,
                 fields: fields.into(),
             })),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct TraitBuilder {
+    name: String,
+    generics: usize,
+    functions: IndexVec<TraitFuncRef, (String, Vec<FuncArg<FieldType>>, FieldType)>,
+}
+
+impl TraitBuilder {
+    pub fn new<T: Into<String>>(name: T) -> Self {
+        Self {
+            name: name.into(),
+            functions: IndexVec::new(),
+            generics: 0,
+        }
+    }
+
+    pub fn func<T: Into<String>, I: IntoIterator<Item = FieldType>>(mut self, name: T, params: I, returns: FieldType) -> Self {
+        let mut args = vec![FuncArg::This(FieldType::This)];
+
+        args.extend(params.into_iter().map(FuncArg::Regular));
+
+        self.functions.push((name.into(), args, returns));
+
+        self
+    }
+
+    pub fn static_func<T: Into<String>, I: IntoIterator<Item = FieldType>>(mut self, name: T, params: I, returns: FieldType) -> Self {
+        self.functions.push((name.into(), params.into_iter().map(FuncArg::Regular).collect(), returns));
+
+        self
+    }
+
+    pub const fn add_generic(mut self) -> Self {
+        self.generics += 1;
+
+        self
+    }
+
+    pub fn finish(self) -> Trait {
+        Trait {
+            name: self.name,
+            generics: self.generics,
+            functions: self.functions,
         }
     }
 }
