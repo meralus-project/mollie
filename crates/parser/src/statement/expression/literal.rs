@@ -33,11 +33,9 @@ pub enum SizeType {
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub enum LiteralExpr {
-    SizeUnit(Number, SizeType),
     Number(Number, Option<String>),
     Boolean(bool),
     String(String),
-    Null,
 }
 
 impl Parse for LiteralExpr {
@@ -55,7 +53,6 @@ impl Parse for LiteralExpr {
                     Token::Integer(value, postfix, _) => Self::Number(Number::I64(value), postfix),
                     Token::Float(value, postfix) => Self::Number(Number::F32(value), postfix),
                     Token::String(value) => Self::String(value),
-                    Token::Null => Self::Null,
                     _ => unreachable!(),
                 })
             })

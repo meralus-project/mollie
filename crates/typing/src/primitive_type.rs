@@ -45,6 +45,10 @@ impl PrimitiveType {
         matches!(self, Self::Component)
     }
 
+    pub const fn is_number(&self) -> bool {
+        matches!(self, Self::Int(_) | Self::UInt(_) | Self::Float)
+    }
+
     pub const fn is_integer(&self) -> bool {
         matches!(self, Self::Int(_) | Self::UInt(_))
     }

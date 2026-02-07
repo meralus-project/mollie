@@ -2,7 +2,7 @@ use std::fmt;
 
 use crate::Span;
 
-#[derive(Debug, Hash, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Hash, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
 pub struct Positioned<T> {
     pub value: T,
     pub span: Span,

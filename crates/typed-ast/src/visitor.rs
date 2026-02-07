@@ -206,7 +206,7 @@ mod default_visitors {
             Expr::Construct { ty, variant, fields } => visitor.visit_construct(ast, *ty, fields.as_ref()),
             Expr::IsPattern { target, pattern } => visitor.visit_is_pattern(ast, *target, pattern),
             Expr::TypeIndex { ty, path } => todo!(), // visitor.visit_type_index(ast, target, func),
-            Expr::Nothing => (),
+            Expr::Error(_) | Expr::Nothing => (),
         }
     }
 

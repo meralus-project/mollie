@@ -12,8 +12,9 @@ use mollie_typing::{
 use serde::Serialize;
 
 use crate::{
-    BlockRef, ConstantContext, ExprRef, Func, FuncRef, IntoConstantValue, IntoPositionedTypedAST, IntoTypedAST, ModuleId, ModuleItem, StmtRef, Trait,
-    TraitFuncRef, TypeChecker, TypedAST, VTableFunc, VTableFuncKind, VTableGenerator, statement::Stmt,
+    BlockRef, CastedType, ConstantContext, ExprRef, Func, FuncRef, IntoConstantValue, IntoPositionedTypedAST, IntoTypedAST, InvalidTypePathSegmentReason,
+    ModuleId, ModuleItem, NonConstructable, NotFunction, NotModule, PostfixRequirement, StmtRef, Trait, TraitFuncRef, TypeChecker, TypeError, TypeErrorRef,
+    TypeInfoCastError, TypedAST, VTableFunc, VTableFuncKind, VTableGenerator, statement::Stmt,
 };
 
 #[derive(Debug, Serialize)]
@@ -96,6 +97,7 @@ pub enum Expr {
         ty: TypeInfoRef,
         path: TypePath,
     },
+    Error(TypeErrorRef),
     Nothing,
 }
 
@@ -117,14 +119,13 @@ pub enum IsPattern {
 }
 
 impl IntoTypedAST<ExprRef> for mollie_parser::LiteralExpr {
-    fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST, span: Span) -> Result<ExprRef, ()> {
+    fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST, span: Span) -> ExprRef {
         use mollie_parser::{
-            LiteralExpr::{Boolean, Null, Number, SizeUnit, String},
+            LiteralExpr::{Boolean, Number, String},
             Number::{F32, I64},
         };
 
         let (literal, ty) = match self {
-            SizeUnit(..) => unimplemented!(),
             Number(I64(value), postfix) => (LiteralExpr::Integer(value), match postfix.as_deref() {
                 Some("uint_size") => checker.core_types.uint_size,
                 Some("uint64") => checker.core_types.uint64,
@@ -137,118 +138,186 @@ impl IntoTypedAST<ExprRef> for mollie_parser::LiteralExpr {
                 Some("int16") => checker.core_types.int16,
                 Some("int8") => checker.core_types.int8,
                 Some(postfix) => {
-                    if let Some(func_ref) = checker.modules[ModuleId::ZERO].items.get(postfix).and_then(|item| {
-                        if let &ModuleItem::Func(func) = item
-                            && checker.local_functions[func].postfix
-                        {
-                            Some(func)
-                        } else {
-                            None
-                        }
-                    }) {
+                    if let Some(func_ref) = checker.modules[ModuleId::ZERO]
+                        .items
+                        .get(postfix)
+                        .and_then(|item| if let &ModuleItem::Func(func) = item { Some(func) } else { None })
+                    {
                         let func = &checker.local_functions[func_ref];
-                        let TypeInfo::Func(args, returns) = checker.solver.get_info(func.ty) else {
-                            unreachable!()
-                        };
 
-                        let expr = ast.add_expr(Expr::Literal(LiteralExpr::Integer(value)), args[0].inner(), span);
+                        if func.postfix {
+                            let TypeInfo::Func(args, returns) = checker.solver.get_info(func.ty) else {
+                                return ast.add_error_expr(
+                                    checker.add_error(
+                                        TypeError::ExpectedFunction {
+                                            found: NotFunction::Type(func.ty),
+                                        },
+                                        span,
+                                    ),
+                                    checker.solver.add_info(TypeInfo::Unknown(None)),
+                                    span,
+                                );
+                            };
 
-                        if let TypeInfo::Func(args, returns) = checker.solver.get_info(checker.local_functions[func_ref].ty) {
-                            for arg in args {
-                                if let TypeInfo::Adt(adt_ref, _, args) = checker.solver.get_info(arg.inner()) {
+                            let expr = ast.add_expr(Expr::Literal(LiteralExpr::Integer(value)), args[0].inner(), span);
+
+                            if let TypeInfo::Func(args, returns) = checker.solver.get_info(checker.local_functions[func_ref].ty) {
+                                for arg in args {
+                                    if let TypeInfo::Adt(adt_ref, _, args) = checker.solver.get_info(arg.inner()) {
+                                        ast.used_adt_types.push((*adt_ref, args.clone()));
+                                    }
+                                }
+
+                                if let TypeInfo::Adt(adt_ref, _, args) = checker.solver.get_info(*returns) {
                                     ast.used_adt_types.push((*adt_ref, args.clone()));
                                 }
                             }
 
-                            if let TypeInfo::Adt(adt_ref, _, args) = checker.solver.get_info(*returns) {
-                                ast.used_adt_types.push((*adt_ref, args.clone()));
-                            }
+                            ast.used_functions.push(func_ref);
+
+                            return ast.add_expr(
+                                Expr::Call {
+                                    func: FuncSource::Explicit(func_ref),
+                                    args: Box::new([expr]),
+                                },
+                                *returns,
+                                span,
+                            );
                         }
 
-                        ast.used_functions.push(func_ref);
+                        let number_length = (span.end - span.start) - postfix.len();
+                        let span = Span {
+                            start: span.start + number_length,
+                            end: span.end,
+                            line: span.line,
+                            column: span.column + number_length,
+                        };
 
-                        return Ok(ast.add_expr(
-                            Expr::Call {
-                                func: FuncSource::Explicit(func_ref),
-                                args: Box::new([expr]),
-                            },
-                            *returns,
+                        return ast.add_error_expr(
+                            checker.add_error(TypeError::NotPostfix { name: func.name.clone() }, span),
+                            checker.solver.add_info(TypeInfo::Unknown(None)),
                             span,
-                        ));
+                        );
                     }
 
-                    checker.solver.add_info(TypeInfo::Unknown(Some(checker.core_types.int32)))
+                    let number_length = (span.end - span.start) - postfix.len();
+                    let span = Span {
+                        start: span.start + number_length,
+                        end: span.end,
+                        line: span.line,
+                        column: span.column + number_length,
+                    };
+
+                    return ast.add_error_expr(
+                        checker.add_error(
+                            TypeError::NoFunction {
+                                name: postfix.to_string(),
+                                postfix: true,
+                            },
+                            span,
+                        ),
+                        checker.solver.add_info(TypeInfo::Unknown(None)),
+                        span,
+                    );
                 }
                 None => checker.solver.add_info(TypeInfo::Unknown(Some(checker.core_types.int32))),
             }),
-            Number(F32(value), postfix) => (LiteralExpr::Float(value), match postfix.as_deref() {
+            Number(F32(value), postfix) => (LiteralExpr::Float(value), match postfix {
                 Some(postfix) => {
-                    if let Some(func_ref) = checker.modules[ModuleId::ZERO].items.get(postfix).and_then(|item| {
-                        if let &ModuleItem::Func(func) = item
-                            && checker.local_functions[func].postfix
-                        {
-                            Some(func)
-                        } else {
-                            None
-                        }
-                    }) {
+                    if let Some(func_ref) = checker.modules[ModuleId::ZERO]
+                        .items
+                        .get(postfix.as_str())
+                        .and_then(|item| if let &ModuleItem::Func(func) = item { Some(func) } else { None })
+                    {
                         let func = &checker.local_functions[func_ref];
-                        let TypeInfo::Func(args, returns) = checker.solver.get_info(func.ty) else {
-                            unreachable!()
-                        };
 
-                        let expr = ast.add_expr(Expr::Literal(LiteralExpr::Float(value)), args[0].inner(), span);
+                        if func.postfix {
+                            let TypeInfo::Func(args, returns) = checker.solver.get_info(func.ty) else {
+                                return ast.add_error_expr(
+                                    checker.add_error(
+                                        TypeError::ExpectedFunction {
+                                            found: NotFunction::Type(func.ty),
+                                        },
+                                        span,
+                                    ),
+                                    checker.solver.add_info(TypeInfo::Unknown(None)),
+                                    span,
+                                );
+                            };
 
-                        if let TypeInfo::Func(args, returns) = checker.solver.get_info(checker.local_functions[func_ref].ty) {
-                            for arg in args {
-                                if let TypeInfo::Adt(adt_ref, _, args) = checker.solver.get_info(arg.inner()) {
+                            let expr = ast.add_expr(Expr::Literal(LiteralExpr::Float(value)), args[0].inner(), span);
+
+                            if let TypeInfo::Func(args, returns) = checker.solver.get_info(checker.local_functions[func_ref].ty) {
+                                for arg in args {
+                                    if let TypeInfo::Adt(adt_ref, _, args) = checker.solver.get_info(arg.inner()) {
+                                        ast.used_adt_types.push((*adt_ref, args.clone()));
+                                    }
+                                }
+
+                                if let TypeInfo::Adt(adt_ref, _, args) = checker.solver.get_info(*returns) {
                                     ast.used_adt_types.push((*adt_ref, args.clone()));
                                 }
                             }
 
-                            if let TypeInfo::Adt(adt_ref, _, args) = checker.solver.get_info(*returns) {
-                                ast.used_adt_types.push((*adt_ref, args.clone()));
-                            }
+                            ast.used_functions.push(func_ref);
+
+                            return ast.add_expr(
+                                Expr::Call {
+                                    func: FuncSource::Explicit(func_ref),
+                                    args: Box::new([expr]),
+                                },
+                                *returns,
+                                span,
+                            );
                         }
 
-                        ast.used_functions.push(func_ref);
+                        let number_length = (span.end - span.start) - postfix.len();
+                        let span = Span {
+                            start: span.start + number_length,
+                            end: span.end,
+                            line: span.line,
+                            column: span.column + number_length,
+                        };
 
-                        return Ok(ast.add_expr(
-                            Expr::Call {
-                                func: FuncSource::Explicit(func_ref),
-                                args: Box::new([expr]),
-                            },
-                            *returns,
+                        return ast.add_error_expr(
+                            checker.add_error(TypeError::NotPostfix { name: postfix }, span),
+                            checker.solver.add_info(TypeInfo::Unknown(None)),
                             span,
-                        ));
+                        );
                     }
 
-                    checker.core_types.float
+                    let number_length = (span.end - span.start) - postfix.len();
+                    let span = Span {
+                        start: span.start + number_length,
+                        end: span.end,
+                        line: span.line,
+                        column: span.column + number_length,
+                    };
+
+                    return ast.add_error_expr(
+                        checker.add_error(TypeError::NoFunction { name: postfix, postfix: true }, span),
+                        checker.solver.add_info(TypeInfo::Unknown(None)),
+                        span,
+                    );
                 }
                 None => checker.core_types.float,
             }),
             Boolean(value) => (LiteralExpr::Boolean(value), checker.core_types.boolean),
             String(value) => (LiteralExpr::String(value), checker.core_types.string),
-            Null => unimplemented!(),
         };
 
-        Ok(ast.add_expr(Expr::Literal(literal), ty, span))
+        ast.add_expr(Expr::Literal(literal), ty, span)
     }
 }
 
 impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
-    fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST, span: Span) -> Result<ExprRef, ()> {
+    fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST, span: Span) -> ExprRef {
         match self {
-            Self::Nothing => Ok(ast.add_expr(Expr::Nothing, checker.core_types.void, span)),
+            Self::Nothing => ast.add_expr(Expr::Nothing, checker.core_types.void, span),
             Self::Literal(literal_expr) => literal_expr.into_typed_ast(checker, ast, span),
             Self::FunctionCall(func_call_expr) => {
-                let func = func_call_expr.function.into_typed_ast(checker, ast)?;
-                let args = func_call_expr
-                    .args
-                    .value
-                    .into_iter()
-                    .map(|arg| arg.into_typed_ast(checker, ast))
-                    .collect::<Result<Box<_>, _>>()?;
+                let func = func_call_expr.function.into_typed_ast(checker, ast);
+                let args: Box<[ExprRef]> = func_call_expr.args.value.into_iter().map(|arg| arg.into_typed_ast(checker, ast)).collect();
 
                 if let TypeInfo::Func(expected_args, returns) = checker.solver.get_info(ast[func].ty).clone() {
                     if let &Expr::VTableAccess { target, .. } = &ast[func].value {
@@ -263,20 +332,51 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
                         }
                     }
 
-                    Ok(ast.add_expr(
+                    ast.add_expr(
                         Expr::Call {
                             func: FuncSource::Expr(func),
                             args,
                         },
                         returns,
                         span,
-                    ))
+                    )
+                } else if let Expr::Error(error) = ast[func].value {
+                    if let TypeError::NoVariable { name } = mem::replace(&mut checker.errors[error].value, TypeError::ModuleIsNotValue) {
+                        if let Ok(ty) = checker.try_cast(ModuleId::ZERO, &name) {
+                            checker.errors[error].value = match ty {
+                                CastedType::Primitive(primitive_type) => TypeError::ExpectedFunction {
+                                    found: NotFunction::Primitive(primitive_type),
+                                },
+                                CastedType::Adt(adt_ref) => TypeError::ExpectedFunction {
+                                    found: NotFunction::Adt(adt_ref),
+                                },
+                                CastedType::Trait(trait_ref) => TypeError::ExpectedFunction {
+                                    found: NotFunction::Trait(trait_ref),
+                                },
+                                CastedType::Func(_) => unreachable!(),
+                            }
+                        } else {
+                            checker.errors[error].value = TypeError::NoFunction { name, postfix: false };
+                        }
+                    }
+
+                    func
                 } else {
-                    unreachable!("unexpected type: {}", checker.display_of_type(ast[func].ty, None))
+                    ast.add_error_expr(
+                        checker.add_error(
+                            TypeError::ExpectedFunction {
+                                found: NotFunction::Type(ast[func].ty),
+                            },
+                            ast[func].span,
+                        ),
+                        checker.solver.add_info(TypeInfo::Unknown(None)),
+                        span,
+                    )
                 }
             }
             Self::Node(mut node_expr) => {
-                let path = node_expr.name.into_typed_ast(checker, ast)?;
+                let name_span = node_expr.name.span;
+                let path = node_expr.name.into_typed_ast(checker, ast);
                 let mut children = Some(node_expr.children);
 
                 if let TypePath::Adt(ty, struct_ty, variant, None) = path
@@ -331,7 +431,7 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
                                 Some(value) => {
                                     let infer = checker.infer.replace(ty);
 
-                                    let value = value.into_typed_ast(checker, ast)?;
+                                    let value = value.into_typed_ast(checker, ast);
 
                                     checker.infer = infer;
                                     checker.solver.unify(ast[value].ty, ty);
@@ -341,16 +441,16 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
                                 None => None,
                             };
 
-                            Ok((position, name, value))
+                            (position, name, value)
                         })
-                        .collect::<Result<_, _>>()?;
+                        .collect();
 
                     ast.used_adt_types.push((struct_ty, args));
 
                     if let Some(variant) = variant {
-                        Ok(ast.add_expr(Expr::Construct { ty, variant, fields }, ty, span))
+                        ast.add_expr(Expr::Construct { ty, variant, fields }, ty, span)
                     } else {
-                        Ok(ast.add_expr(
+                        ast.add_expr(
                             Expr::Construct {
                                 ty,
                                 variant: AdtVariantRef::ZERO,
@@ -358,14 +458,23 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
                             },
                             ty,
                             span,
-                        ))
+                        )
                     }
                 } else {
-                    unimplemented!()
+                    let (ty, found) = match path {
+                        TypePath::Adt(type_info_ref, ..) => (type_info_ref, NonConstructable::Function),
+                        TypePath::Trait(type_info_ref, _) => (type_info_ref, NonConstructable::Trait),
+                        TypePath::Func(func_ref) => (checker.local_functions[func_ref].ty, NonConstructable::Function),
+                        TypePath::Generic(type_info_ref, _) => (type_info_ref, NonConstructable::Generic),
+                        TypePath::Module(_) => (checker.solver.add_info(TypeInfo::Unknown(None)), NonConstructable::Module),
+                        TypePath::Error(error) => return ast.add_error_expr(error, checker.solver.add_info(TypeInfo::Unknown(None)), name_span),
+                    };
+
+                    ast.add_error_expr(checker.add_error(TypeError::ExpectedConstructable { found }, name_span), ty, name_span)
                 }
             }
             Self::Index(index_expr) => {
-                let target = index_expr.target.into_typed_ast(checker, ast)?;
+                let target = index_expr.target.into_typed_ast(checker, ast);
 
                 match index_expr.index.value {
                     IndexTarget::Named(property_name) => {
@@ -386,14 +495,14 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
                                     let returns = returns.as_type_info(Some(ast[target].ty), &checker.core_types, &mut checker.solver, &[]);
                                     let ty = checker.solver.add_info(TypeInfo::Func(args, returns));
 
-                                    return Ok(ast.add_expr(
+                                    return ast.add_expr(
                                         Expr::VTableAccess {
                                             target,
                                             func: VFunc::Unknown(trait_ref, func),
                                         },
                                         ty,
                                         span,
-                                    ));
+                                    );
                                 }
                             }
                         } else {
@@ -432,21 +541,21 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
 
                                         ast.used_vtables.push((ast[target].ty, vtable, args));
 
-                                        return Ok(ast.add_expr(
+                                        return ast.add_expr(
                                             Expr::VTableAccess {
                                                 target,
                                                 func: VFunc::Known(vtable, func_ref),
                                             },
                                             func_ty,
                                             span,
-                                        ));
+                                        );
                                     }
                                 }
                             }
                         }
 
                         match checker.solver.get_info(ast[target].ty) {
-                            TypeInfo::Adt(ty, _, args) => {
+                            TypeInfo::Adt(ty, AdtKind::Struct | AdtKind::Component, args) => {
                                 let ty = *ty;
                                 let args = args.clone();
 
@@ -454,30 +563,54 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
                                     checker.adt_types[ty].instantiate(AdtVariantRef::new(0), None, &checker.core_types, &mut checker.solver, args.as_ref())
                                 {
                                     if item.1 == property_name.0 {
-                                        return Ok(ast.add_expr(Expr::Access { target, field: item.0 }, item.2, span));
+                                        return ast.add_expr(Expr::Access { target, field: item.0 }, item.2, span);
                                     }
                                 }
 
-                                panic!("can't index {ty:?}: no field called {}", property_name.0);
+                                ast.add_error_expr(
+                                    checker.add_error(
+                                        TypeError::NoField {
+                                            adt: ty,
+                                            name: property_name.0,
+                                        },
+                                        span,
+                                    ),
+                                    checker.solver.add_info(TypeInfo::Unknown(None)),
+                                    span,
+                                )
                             }
-                            ty => unimplemented!("{ty:?}"),
+                            _ => ast.add_error_expr(
+                                checker.add_error(
+                                    TypeError::NonIndexable {
+                                        ty: ast[target].ty,
+                                        name: property_name.0,
+                                    },
+                                    span,
+                                ),
+                                checker.solver.add_info(TypeInfo::Unknown(None)),
+                                span,
+                            ),
                         }
                     }
                     IndexTarget::Expression(expr) => {
-                        let index = expr.into_typed_ast(checker, ast, index_expr.index.span)?;
+                        let index = expr.into_typed_ast(checker, ast, index_expr.index.span);
 
                         checker.solver.unify(ast[index].ty, checker.core_types.uint_size);
 
                         match checker.solver.get_info(ast[target].ty) {
-                            TypeInfo::Array(element, _) => Ok(ast.add_expr(Expr::Index { target, index }, *element, span)),
-                            _ => unimplemented!(),
+                            TypeInfo::Array(element, _) => ast.add_expr(Expr::Index { target, index }, *element, span),
+                            _ => ast.add_error_expr(
+                                checker.add_error(TypeError::ExpectedArray { found: ast[target].ty }, span),
+                                checker.solver.add_info(TypeInfo::Unknown(None)),
+                                span,
+                            ),
                         }
                     }
                 }
             }
             Self::Binary(binary_expr) => {
-                let lhs = binary_expr.lhs.into_typed_ast(checker, ast)?;
-                let rhs = binary_expr.rhs.into_typed_ast(checker, ast)?;
+                let lhs = binary_expr.lhs.into_typed_ast(checker, ast);
+                let rhs = binary_expr.rhs.into_typed_ast(checker, ast);
 
                 checker.solver.unify(ast[rhs].ty, ast[lhs].ty);
 
@@ -490,7 +623,7 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
                     ast[lhs].ty
                 };
 
-                Ok(ast.add_expr(
+                ast.add_expr(
                     Expr::Binary {
                         operator: binary_expr.operator.value,
                         lhs,
@@ -498,19 +631,28 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
                     },
                     ty,
                     span,
-                ))
+                )
             }
             Self::TypeIndex(type_index_expr) => {
-                let path = type_index_expr.into_typed_ast(checker, ast, span)?;
+                let path = type_index_expr.into_typed_ast(checker, ast, span);
 
                 let (ty, resulting_ty) = match path {
                     TypePath::Adt(type_info_ref, .., vfunc) => vfunc.map_or((type_info_ref, type_info_ref), |vfunc| (type_info_ref, checker[vfunc].ty)),
                     TypePath::Trait(type_info_ref, _) | TypePath::Generic(type_info_ref, _) => (type_info_ref, type_info_ref),
                     TypePath::Func(func_ref) => (checker.local_functions[func_ref].ty, checker.local_functions[func_ref].ty),
-                    TypePath::Module(_) => unimplemented!(),
+                    TypePath::Module(_) => {
+                        return ast.add_error_expr(
+                            checker.add_error(TypeError::ModuleIsNotValue, span),
+                            checker.solver.add_info(TypeInfo::Unknown(None)),
+                            span,
+                        );
+                    }
+                    TypePath::Error(error) => {
+                        return ast.add_error_expr(error, checker.solver.add_info(TypeInfo::Unknown(None)), span);
+                    }
                 };
 
-                Ok(ast.add_expr(Expr::TypeIndex { ty, path }, resulting_ty, span))
+                ast.add_expr(Expr::TypeIndex { ty, path }, resulting_ty, span)
             }
             Self::Array(array_expr) => {
                 let element = if let Some(ty) = checker.infer.take_if(|ty| checker.solver.get_info(*ty).is_array()) {
@@ -526,7 +668,7 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
                 let mut elements = Vec::with_capacity(array_expr.elements.capacity());
 
                 for arr_element in array_expr.elements {
-                    let arr_element = arr_element.into_typed_ast(checker, ast)?;
+                    let arr_element = arr_element.into_typed_ast(checker, ast);
 
                     if let &TypeInfo::Trait(t, _) = checker.solver.get_info(element)
                         && let Some(vtables) = checker.solver.find_vtable(&FieldType::from_type_info(
@@ -567,24 +709,24 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
                 let size = elements.len();
                 let array_ty = checker.solver.add_info(TypeInfo::Array(element, Some(size)));
 
-                Ok(ast.add_expr(Expr::Array(elements.into_boxed_slice()), array_ty, span))
+                ast.add_expr(Expr::Array(elements.into_boxed_slice()), array_ty, span)
             }
             Self::IfElse(if_else_expr) => {
                 checker.solver.push_frame();
 
                 let condition_expected = checker.core_types.boolean;
-                let condition = if_else_expr.condition.into_typed_ast(checker, ast)?;
+                let condition = if_else_expr.condition.into_typed_ast(checker, ast);
 
                 checker.solver.unify(condition_expected, ast[condition].ty);
 
-                let block = if_else_expr.block.into_typed_ast(checker, ast)?;
+                let block = if_else_expr.block.into_typed_ast(checker, ast);
 
                 checker.solver.pop_frame();
 
                 let ty = ast[block].ty;
 
                 let else_block = if let Some(else_block) = if_else_expr.else_block {
-                    let block = else_block.into_typed_ast(checker, ast)?;
+                    let block = else_block.into_typed_ast(checker, ast);
 
                     checker.solver.unify(ast[block].ty, ty);
 
@@ -593,43 +735,39 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
                     None
                 };
 
-                Ok(ast.add_expr(Expr::If { condition, block, else_block }, ty, span))
+                ast.add_expr(Expr::If { condition, block, else_block }, ty, span)
             }
             Self::While(while_expr) => {
                 checker.solver.push_frame();
 
                 let condition_expected = checker.core_types.boolean;
-                let condition = while_expr.condition.into_typed_ast(checker, ast)?;
+                let condition = while_expr.condition.into_typed_ast(checker, ast);
 
                 checker.solver.unify(ast[condition].ty, condition_expected);
 
                 let ty = checker.core_types.void;
-                let block = while_expr.block.into_typed_ast(checker, ast)?;
+                let block = while_expr.block.into_typed_ast(checker, ast);
 
                 checker.solver.pop_frame();
                 checker.solver.unify(ast[block].ty, ty);
 
-                Ok(ast.add_expr(Expr::While { condition, block }, ty, span))
+                ast.add_expr(Expr::While { condition, block }, ty, span)
             }
             Self::Block(block_expr) => {
                 checker.solver.push_frame();
 
-                let block = block_expr.into_typed_ast(checker, ast, span)?;
+                let block = block_expr.into_typed_ast(checker, ast, span);
                 let ty = ast[block].ty;
 
                 checker.solver.pop_frame();
 
-                Ok(ast.add_expr(Expr::Block(block), ty, span))
+                ast.add_expr(Expr::Block(block), ty, span)
             }
             Self::Is(is_expr) => {
-                let target = is_expr.target.into_typed_ast(checker, ast)?;
-                let pattern = is_expr
-                    .pattern
-                    .span
-                    .wrap((ast[target].ty, is_expr.pattern.value))
-                    .into_typed_ast(checker, ast)?;
+                let target = is_expr.target.into_typed_ast(checker, ast);
+                let pattern = is_expr.pattern.span.wrap((ast[target].ty, is_expr.pattern.value)).into_typed_ast(checker, ast);
 
-                Ok(ast.add_expr(Expr::IsPattern { target, pattern }, checker.core_types.boolean, span))
+                ast.add_expr(Expr::IsPattern { target, pattern }, checker.core_types.boolean, span)
             }
             Self::Closure(closure_expr) => {
                 let prev_captures = mem::take(&mut checker.captures);
@@ -647,14 +785,14 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
                     arg_types.push(FuncArg::Regular(ty));
                 }
 
-                let body = closure_expr.body.into_typed_ast(checker, ast)?;
+                let body = closure_expr.body.into_typed_ast(checker, ast);
                 let ty = checker.solver.add_info(TypeInfo::Func(arg_types.into_boxed_slice(), ast[body].ty));
 
                 checker.solver.pop_frame();
 
                 let captures = mem::replace(&mut checker.captures, prev_captures);
 
-                Ok(ast.add_expr(
+                ast.add_expr(
                     Expr::Closure {
                         args: args.into_boxed_slice(),
                         captures: captures.into_boxed_slice(),
@@ -662,7 +800,7 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
                     },
                     ty,
                     span,
-                ))
+                )
             }
             Self::Ident(ident) => {
                 if let Some(var) = checker.solver.get_var(&ident.0) {
@@ -670,7 +808,7 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
                         checker.captures.push((ident.0.clone(), var));
                     }
 
-                    Ok(ast.add_expr(Expr::Var(ident.0), var.ty, span))
+                    ast.add_expr(Expr::Var(ident.0), var.ty, span)
                 } else if let Some(&ModuleItem::Func(func_ref)) = checker.modules[ModuleId::ZERO].items.get(&ident.0) {
                     let ty = checker.local_functions[func_ref].ty;
 
@@ -688,38 +826,54 @@ impl IntoTypedAST<ExprRef> for mollie_parser::Expr {
 
                     ast.used_functions.push(func_ref);
 
-                    Ok(ast.add_expr(
+                    ast.add_expr(
                         Expr::TypeIndex {
                             ty,
                             path: TypePath::Func(func_ref),
                         },
                         ty,
                         span,
-                    ))
+                    )
                 } else {
-                    Err(())
+                    ast.add_error_expr(
+                        checker.add_error(TypeError::NoVariable { name: ident.0 }, span),
+                        checker.solver.add_info(TypeInfo::Unknown(None)),
+                        span,
+                    )
                 }
             }
-            Self::This => Ok(ast.add_expr(Expr::Var("self".into()), checker.solver.get_var("self").unwrap().ty, span)),
+            Self::This => {
+                let name = "self".into();
+
+                if let Some(var) = checker.solver.get_var("self") {
+                    ast.add_expr(Expr::Var(name), var.ty, span)
+                } else {
+                    ast.add_error_expr(
+                        checker.add_error(TypeError::NoVariable { name }, span),
+                        checker.solver.add_info(TypeInfo::Unknown(None)),
+                        span,
+                    )
+                }
+            }
             Self::ForIn(_for_in_expr) => todo!(),
         }
     }
 }
 
 impl IntoTypedAST<BlockRef> for mollie_parser::BlockExpr {
-    fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST, span: Span) -> Result<BlockRef, ()> {
-        let stmts = self.stmts.into_iter().try_fold(Vec::new(), |mut stmts, stmt| {
-            if let Some(stmt) = stmt.into_typed_ast(checker, ast)? {
+    fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST, span: Span) -> BlockRef {
+        let stmts = self.stmts.into_iter().fold(Vec::new(), |mut stmts, stmt| {
+            if let Some(stmt) = stmt.into_typed_ast(checker, ast) {
                 stmts.push(stmt);
             }
 
-            Ok(stmts)
-        })?;
+            stmts
+        });
 
         let (expr, ty) = match self.final_stmt {
             Some(stmt) => {
                 if let mollie_parser::Stmt::Expression(expr) = stmt.value {
-                    let expr = expr.into_typed_ast(checker, ast, stmt.span)?;
+                    let expr = expr.into_typed_ast(checker, ast, stmt.span);
 
                     (Some(expr), ast[expr].ty)
                 } else {
@@ -729,23 +883,23 @@ impl IntoTypedAST<BlockRef> for mollie_parser::BlockExpr {
             None => (None, checker.core_types.void),
         };
 
-        Ok(ast.add_block(
+        ast.add_block(
             Block {
                 stmts: stmts.into_boxed_slice(),
                 expr,
             },
             ty,
             span,
-        ))
+        )
     }
 }
 
 impl IntoTypedAST<IsPattern> for (TypeInfoRef, mollie_parser::IsPattern) {
-    fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST, span: Span) -> Result<IsPattern, ()> {
-        Ok(match self.1 {
-            mollie_parser::IsPattern::Literal(literal_expr) => IsPattern::Literal(literal_expr.into_typed_ast(checker, ast, span)?),
+    fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST, span: Span) -> IsPattern {
+        match self.1 {
+            mollie_parser::IsPattern::Literal(literal_expr) => IsPattern::Literal(literal_expr.into_typed_ast(checker, ast, span)),
             mollie_parser::IsPattern::Type { ty, pattern } => {
-                let path = ty.into_typed_ast(checker, ast)?;
+                let path = ty.into_typed_ast(checker, ast);
 
                 match path {
                     TypePath::Adt(target_ty, target, current_variant, None) => {
@@ -773,7 +927,7 @@ impl IntoTypedAST<IsPattern> for (TypeInfoRef, mollie_parser::IsPattern) {
                                 for value in values {
                                     if let Some(prop) = fields.iter().find(|prop| prop.1 == value.value.name.value.0) {
                                         let pattern = if let Some(value) = value.value.value {
-                                            Some(value.span.wrap((prop.2, value.value)).into_typed_ast(checker, ast)?)
+                                            Some(value.span.wrap((prop.2, value.value)).into_typed_ast(checker, ast))
                                         } else {
                                             None
                                         };
@@ -802,27 +956,27 @@ impl IntoTypedAST<IsPattern> for (TypeInfoRef, mollie_parser::IsPattern) {
                         }
                     }
                     TypePath::Trait(..) => todo!(),
-                    TypePath::Module(_) | TypePath::Adt(.., Some(_)) | TypePath::Generic(..) | TypePath::Func(_) => unimplemented!(),
+                    TypePath::Module(_) | TypePath::Adt(.., Some(_)) | TypePath::Generic(..) | TypePath::Func(_) | TypePath::Error(_) => unimplemented!(),
                 }
             }
-        })
+        }
     }
 }
 
 impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
-    fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST, span: Span) -> Result<Option<StmtRef>, ()> {
+    fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST, span: Span) -> Option<StmtRef> {
         match self {
             Self::Expression(expr) => {
-                let expr = expr.into_typed_ast(checker, ast, span)?;
+                let expr = expr.into_typed_ast(checker, ast, span);
 
-                Ok(Some(ast.add_stmt(Stmt::Expr(expr))))
+                Some(ast.add_stmt(Stmt::Expr(expr)))
             }
             Self::VariableDecl(variable_decl) => {
-                let value = variable_decl.value.into_typed_ast(checker, ast)?;
+                let value = variable_decl.value.into_typed_ast(checker, ast);
                 let value_ty = ast[value].ty;
 
                 if let Some(ty) = variable_decl.ty {
-                    let ty = ty.into_typed_ast(checker, ast)?;
+                    let ty = ty.into_typed_ast(checker, ast);
                     let ty = ty.as_type_info(None, &checker.core_types, &mut checker.solver, &[]);
 
                     assert!(!checker.solver.contains_unknown(ty), "explicit type can't have non-explicit generics");
@@ -833,10 +987,10 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
                     checker.solver.add_var(&variable_decl.name.value.0, value_ty);
                 }
 
-                Ok(Some(ast.add_stmt(Stmt::VariableDecl {
+                Some(ast.add_stmt(Stmt::VariableDecl {
                     name: variable_decl.name.value.0,
                     value,
-                })))
+                }))
             }
             Self::StructDecl(struct_decl) => {
                 for (index, name) in struct_decl.name.value.generics.iter().enumerate() {
@@ -848,15 +1002,22 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
 
                 for property in struct_decl.properties.value {
                     let name = property.value.name.value.0;
-                    let ty = property.value.ty.into_typed_ast(checker, ast)?;
+                    let ty = property.value.ty.into_typed_ast(checker, ast);
                     let constant = match property.value.default_value {
                         Some(value) => {
                             let expected_ty = ty.as_type_info(None, &checker.core_types, &mut checker.solver, &[]);
-                            let value = value.into_typed_ast(checker, ast)?;
+                            let value = value.into_typed_ast(checker, ast);
 
                             checker.solver.unify(ast[value].ty, expected_ty);
 
-                            Some(value.into_constant_value(checker, ast, &mut ConstantContext::default())?)
+                            value.into_constant_value(checker, ast, &mut ConstantContext::default()).map_or_else(
+                                |()| {
+                                    checker.add_error(TypeError::NonConstantEvaluable, ast[value].span);
+
+                                    None
+                                },
+                                Some,
+                            )
                         }
                         None => None,
                     };
@@ -888,7 +1049,7 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
                     variants: variants.into_boxed_slice(),
                 });
 
-                Ok(None)
+                None
             }
             Self::ComponentDecl(component_decl) => {
                 for (index, name) in component_decl.name.value.generics.iter().enumerate() {
@@ -900,15 +1061,22 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
 
                 for property in component_decl.properties {
                     let name = property.value.name.value.0;
-                    let ty = property.value.ty.into_typed_ast(checker, ast)?;
+                    let ty = property.value.ty.into_typed_ast(checker, ast);
                     let constant = match property.value.default_value {
                         Some(value) => {
                             let expected_ty = ty.as_type_info(None, &checker.core_types, &mut checker.solver, &[]);
-                            let value = value.into_typed_ast(checker, ast)?;
+                            let value = value.into_typed_ast(checker, ast);
 
                             checker.solver.unify(ast[value].ty, expected_ty);
 
-                            Some(value.into_constant_value(checker, ast, &mut ConstantContext::default())?)
+                            value.into_constant_value(checker, ast, &mut ConstantContext::default()).map_or_else(
+                                |()| {
+                                    checker.add_error(TypeError::NonConstantEvaluable, ast[value].span);
+
+                                    None
+                                },
+                                Some,
+                            )
                         }
                         None => None,
                     };
@@ -940,7 +1108,7 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
                     variants: variants.into_boxed_slice(),
                 });
 
-                Ok(None)
+                None
             }
             Self::TraitDecl(trait_decl) => {
                 for (index, name) in trait_decl.name.value.generics.iter().enumerate() {
@@ -958,13 +1126,13 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
                     }
 
                     for arg in function.value.args {
-                        args.push(FuncArg::Regular(arg.value.ty.into_typed_ast(checker, ast)?));
+                        args.push(FuncArg::Regular(arg.value.ty.into_typed_ast(checker, ast)));
                     }
 
                     let output = function
                         .value
                         .returns
-                        .map_or(Ok(FieldType::Primitive(PrimitiveType::Void)), |returns| returns.into_typed_ast(checker, ast))?;
+                        .map_or(FieldType::Primitive(PrimitiveType::Void), |returns| returns.into_typed_ast(checker, ast));
 
                     functions.push((name, args, output));
                 }
@@ -985,7 +1153,7 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
                     .items
                     .insert(trait_decl.name.value.name.value.0, ModuleItem::Trait(trait_ref));
 
-                Ok(None)
+                None
             }
             Self::EnumDecl(enum_decl) => {
                 for (index, name) in enum_decl.name.value.generics.iter().enumerate() {
@@ -1003,7 +1171,7 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
                     if let Some(properties) = variant.value.properties {
                         for property in properties.value {
                             let name = property.value.name.value.0;
-                            let ty = property.value.ty.into_typed_ast(checker, ast)?;
+                            let ty = property.value.ty.into_typed_ast(checker, ast);
 
                             fields.push((name, ty, None));
                         }
@@ -1034,33 +1202,68 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
                     variants: variants.into_boxed_slice(),
                 });
 
-                Ok(None)
+                None
             }
             Self::FuncDecl(func_decl) => {
                 checker.solver.push_frame();
 
-                let mut arg_names = Vec::with_capacity(func_decl.args.capacity());
-                let mut args = Vec::with_capacity(func_decl.args.capacity());
+                let postfix = func_decl
+                    .modifiers
+                    .iter()
+                    .any(|modifier| matches!(modifier.value, mollie_parser::FuncModifier::Postfix));
 
-                for arg in func_decl.args {
-                    let ty = arg.value.ty.into_typed_ast(checker, ast)?;
+                let mut arg_names = Vec::with_capacity(func_decl.args.value.capacity());
+                let mut args = Vec::with_capacity(func_decl.args.value.capacity());
+                let mut arg_spans = Vec::with_capacity(func_decl.args.value.capacity());
+
+                for arg in func_decl.args.value {
+                    let ty = arg.value.ty.into_typed_ast(checker, ast);
                     let ty = ty.as_type_info(None, &checker.core_types, &mut checker.solver, &[]);
 
                     checker.solver.add_var(&arg.value.name.value.0, ty);
 
                     arg_names.push(arg.value.name.value.0);
                     args.push(FuncArg::Regular(ty));
+                    arg_spans.push(arg.span);
+                }
+
+                if postfix {
+                    let mut reasons = Vec::new();
+
+                    if args.is_empty() {
+                        reasons.push(func_decl.args.span.wrap(PostfixRequirement::OneArgument));
+                    } else {
+                        if !checker.solver.get_info(args[0].inner()).is_number() {
+                            reasons.push(arg_spans[0].wrap(PostfixRequirement::ArgumentType));
+                        }
+
+                        if args.len() > 1 {
+                            let first = arg_spans[1];
+
+                            reasons.push(
+                                arg_spans
+                                    .into_iter()
+                                    .skip(2)
+                                    .fold(first, |p, c| p.between(c))
+                                    .wrap(PostfixRequirement::OnlyOneArgument),
+                            );
+                        }
+                    }
+
+                    if !reasons.is_empty() {
+                        checker.add_error(TypeError::InvalidPostfixFunction { reasons }, span.between(func_decl.args.span));
+                    }
                 }
 
                 let returns = if let Some(returns) = func_decl.returns {
                     returns
-                        .into_typed_ast(checker, ast)?
+                        .into_typed_ast(checker, ast)
                         .as_type_info(None, &checker.core_types, &mut checker.solver, &[])
                 } else {
                     checker.core_types.void
                 };
 
-                let body = func_decl.body.into_typed_ast(checker, ast)?;
+                let body = func_decl.body.into_typed_ast(checker, ast);
 
                 checker.solver.unify(ast[body].ty, returns);
                 checker.solver.pop_frame();
@@ -1074,17 +1277,14 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
                     .insert(func_decl.name.value.0.clone(), ModuleItem::Func(func_ref));
 
                 checker.local_functions.push(Func {
-                    postfix: func_decl
-                        .modifiers
-                        .iter()
-                        .any(|modifier| matches!(modifier.value, mollie_parser::FuncModifier::Postfix)),
+                    postfix,
                     name: func_decl.name.value.0,
                     arg_names,
                     ty,
                     kind: VTableFuncKind::Local(body),
                 });
 
-                Ok(None)
+                None
             }
             Self::Impl(mut implementation) => {
                 for (index, name) in implementation.generics.iter().enumerate() {
@@ -1095,7 +1295,7 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
 
                 let trait_ref = match implementation.trait_name {
                     Some(trait_name) => {
-                        if let TypePath::Trait(ty, trait_ref) = trait_name.into_typed_ast(checker, ast)? {
+                        if let TypePath::Trait(ty, trait_ref) = trait_name.into_typed_ast(checker, ast) {
                             if let TypeInfo::Trait(_, args) = checker.solver.get_info(ty) {
                                 applied_generics.clone_from(args);
                             }
@@ -1108,7 +1308,7 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
                     None => None,
                 };
 
-                let target = implementation.target.into_typed_ast(checker, ast)?;
+                let target = implementation.target.into_typed_ast(checker, ast);
                 let target_info = target.as_type_info(None, &checker.core_types, &mut checker.solver, &[]);
                 let mut functions = IndexVec::with_capacity(
                     implementation
@@ -1145,7 +1345,7 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
                             }
 
                             for arg in function.value.args {
-                                let ty = arg.value.ty.into_typed_ast(checker, ast)?;
+                                let ty = arg.value.ty.into_typed_ast(checker, ast);
                                 let ty = ty.as_type_info(Some(target_info), &checker.core_types, &mut checker.solver, &[]);
 
                                 checker.solver.add_var(&arg.value.name.value.0, ty);
@@ -1164,13 +1364,13 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
 
                             let returns = if let Some(returns) = function.value.returns {
                                 returns
-                                    .into_typed_ast(checker, ast)?
+                                    .into_typed_ast(checker, ast)
                                     .as_type_info(Some(target_info), &checker.core_types, &mut checker.solver, &[])
                             } else {
                                 checker.core_types.void
                             };
 
-                            let body = function.value.body.into_typed_ast(checker, ast)?;
+                            let body = function.value.body.into_typed_ast(checker, ast);
 
                             checker.solver.unify(ast[body].ty, returns);
                             checker.solver.pop_frame();
@@ -1206,7 +1406,7 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
                     }
 
                     for arg in function.value.args {
-                        let ty = arg.value.ty.into_typed_ast(checker, ast)?;
+                        let ty = arg.value.ty.into_typed_ast(checker, ast);
                         let ty = ty.as_type_info(Some(target_info), &checker.core_types, &mut checker.solver, &[]);
 
                         checker.solver.add_var(&arg.value.name.value.0, ty);
@@ -1217,13 +1417,13 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
 
                     let returns = if let Some(returns) = function.value.returns {
                         returns
-                            .into_typed_ast(checker, ast)?
+                            .into_typed_ast(checker, ast)
                             .as_type_info(Some(target_info), &checker.core_types, &mut checker.solver, &[])
                     } else {
                         checker.core_types.void
                     };
 
-                    let body = function.value.body.into_typed_ast(checker, ast)?;
+                    let body = function.value.body.into_typed_ast(checker, ast);
 
                     checker.solver.unify(ast[body].ty, returns);
                     checker.solver.pop_frame();
@@ -1287,13 +1487,14 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
                     }
                 }
 
-                Ok(None)
+                None
             }
             Self::Import(import) => {
-                let path = import.path.into_typed_ast(checker, ast)?;
+                let path_span = import.path.span;
+                let path = import.path.into_typed_ast(checker, ast);
 
-                if let TypePath::Module(module) = path {
-                    match import.kind {
+                match path {
+                    TypePath::Module(module) => match import.kind {
                         mollie_parser::ImportKind::Partial(items) => {
                             for item in items.value {
                                 let name = item.value.0;
@@ -1308,20 +1509,31 @@ impl IntoTypedAST<Option<StmtRef>> for mollie_parser::Stmt {
 
                             checker.modules[ModuleId::ZERO].items.insert(name, ModuleItem::SubModule(module));
                         }
+                    },
+                    TypePath::Adt(..) => {
+                        checker.add_error(TypeError::ExpectedModule { found: NotModule::Adt }, path_span);
                     }
-
-                    Ok(None)
-                } else {
-                    unimplemented!()
+                    TypePath::Trait(..) => {
+                        checker.add_error(TypeError::ExpectedModule { found: NotModule::Trait }, path_span);
+                    }
+                    TypePath::Func(_) => {
+                        checker.add_error(TypeError::ExpectedModule { found: NotModule::Function }, path_span);
+                    }
+                    TypePath::Generic(..) => {
+                        checker.add_error(TypeError::ExpectedModule { found: NotModule::Generic }, path_span);
+                    }
+                    TypePath::Error(_) => (),
                 }
+
+                None
             }
         }
     }
 }
 
 impl IntoTypedAST<Vec<FieldType>> for mollie_parser::TypeArgs {
-    fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST, _: Span) -> Result<Vec<FieldType>, ()> {
-        self.0.into_iter().map(|generic| generic.into_typed_ast(checker, ast)).collect::<Result<_, _>>()
+    fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST, _: Span) -> Vec<FieldType> {
+        self.0.into_iter().map(|generic| generic.into_typed_ast(checker, ast)).collect()
     }
 }
 
@@ -1332,10 +1544,11 @@ pub enum TypePath {
     Func(FuncRef),
     Generic(TypeInfoRef, usize),
     Module(ModuleId),
+    Error(TypeErrorRef),
 }
 
 impl IntoTypedAST<TypePath> for mollie_parser::TypePathExpr {
-    fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST, _: Span) -> Result<TypePath, ()> {
+    fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST, _: Span) -> TypePath {
         let mut result = TypePath::Module(ModuleId::ZERO);
 
         for segment in self.segments {
@@ -1371,65 +1584,85 @@ impl IntoTypedAST<TypePath> for mollie_parser::TypePathExpr {
                 checker.available_generics.insert(segment.value.name.value.0, (g, Some(ty)));
 
                 result = TypePath::Generic(ty, g);
-            } else if let &TypePath::Module(current_module) = &result
-                && let Some(item) = checker.modules[current_module].items.get(&segment.value.name.value.0)
-            {
-                match *item {
-                    ModuleItem::SubModule(module_id) => result = TypePath::Module(module_id),
-                    ModuleItem::Adt(adt_ref) => {
-                        let mut type_args = if let Some(type_args) = segment.value.args {
-                            type_args.into_typed_ast(checker, ast)?
-                        } else {
-                            Vec::default()
-                        };
+            } else if let &TypePath::Module(current_module) = &result {
+                if let Some(item) = checker.modules[current_module].items.get(&segment.value.name.value.0) {
+                    match *item {
+                        ModuleItem::SubModule(module_id) => result = TypePath::Module(module_id),
+                        ModuleItem::Adt(adt_ref) => {
+                            let mut type_args = segment.value.args.map_or_else(Vec::default, |type_args| type_args.into_typed_ast(checker, ast));
 
-                        let args = (0..checker.adt_types[adt_ref].generics)
-                            .rev()
-                            .map(|generic| type_args.pop().unwrap_or(FieldType::Generic(generic, None)))
-                            .rev()
-                            .map(|arg| arg.as_type_info(None, &checker.core_types, &mut checker.solver, &[]))
-                            .collect();
+                            let args = (0..checker.adt_types[adt_ref].generics)
+                                .rev()
+                                .map(|generic| type_args.pop().unwrap_or(FieldType::Generic(generic, None)))
+                                .rev()
+                                .map(|arg| arg.as_type_info(None, &checker.core_types, &mut checker.solver, &[]))
+                                .collect();
 
-                        result = TypePath::Adt(
-                            checker.solver.add_info(TypeInfo::Adt(adt_ref, checker.adt_types[adt_ref].kind, args)),
-                            adt_ref,
-                            None,
-                            None,
-                        );
-                    }
-                    ModuleItem::Trait(trait_ref) => {
-                        let mut type_args = if let Some(type_args) = segment.value.args {
-                            type_args.into_typed_ast(checker, ast)?
-                        } else {
-                            Vec::default()
-                        };
+                            result = TypePath::Adt(
+                                checker.solver.add_info(TypeInfo::Adt(adt_ref, checker.adt_types[adt_ref].kind, args)),
+                                adt_ref,
+                                None,
+                                None,
+                            );
+                        }
+                        ModuleItem::Trait(trait_ref) => {
+                            let mut type_args = segment.value.args.map_or_else(Vec::default, |type_args| type_args.into_typed_ast(checker, ast));
 
-                        let args = (0..checker.traits[trait_ref].generics)
-                            .rev()
-                            .map(|generic| type_args.pop().unwrap_or(FieldType::Generic(generic, None)))
-                            .rev()
-                            .map(|arg| arg.as_type_info(None, &checker.core_types, &mut checker.solver, &[]))
-                            .collect();
+                            let args = (0..checker.traits[trait_ref].generics)
+                                .rev()
+                                .map(|generic| type_args.pop().unwrap_or(FieldType::Generic(generic, None)))
+                                .rev()
+                                .map(|arg| arg.as_type_info(None, &checker.core_types, &mut checker.solver, &[]))
+                                .collect();
 
-                        result = TypePath::Trait(checker.solver.add_info(TypeInfo::Trait(trait_ref, args)), trait_ref);
-                    }
-                    ModuleItem::Func(func_ref) => {
-                        if let TypeInfo::Func(args, returns) = checker.solver.get_info(checker.local_functions[func_ref].ty) {
-                            for arg in args {
-                                if let TypeInfo::Adt(adt_ref, _, args) = checker.solver.get_info(arg.inner()) {
+                            result = TypePath::Trait(checker.solver.add_info(TypeInfo::Trait(trait_ref, args)), trait_ref);
+                        }
+                        ModuleItem::Func(func_ref) => {
+                            if let TypeInfo::Func(args, returns) = checker.solver.get_info(checker.local_functions[func_ref].ty) {
+                                for arg in args {
+                                    if let TypeInfo::Adt(adt_ref, _, args) = checker.solver.get_info(arg.inner()) {
+                                        ast.used_adt_types.push((*adt_ref, args.clone()));
+                                    }
+                                }
+
+                                if let TypeInfo::Adt(adt_ref, _, args) = checker.solver.get_info(*returns) {
                                     ast.used_adt_types.push((*adt_ref, args.clone()));
                                 }
                             }
 
-                            if let TypeInfo::Adt(adt_ref, _, args) = checker.solver.get_info(*returns) {
-                                ast.used_adt_types.push((*adt_ref, args.clone()));
-                            }
+                            ast.used_functions.push(func_ref);
+
+                            result = TypePath::Func(func_ref);
                         }
-
-                        ast.used_functions.push(func_ref);
-
-                        result = TypePath::Func(func_ref);
                     }
+                } else {
+                    return TypePath::Error(checker.add_error(
+                        match checker.try_cast(current_module, &segment.value.name.value.0) {
+                            Ok(ty) => match ty {
+                                CastedType::Primitive(primitive) => TypeError::InvalidTypePathSegment {
+                                    reason: InvalidTypePathSegmentReason::Primitive(primitive),
+                                    module: current_module,
+                                },
+                                CastedType::Func(_) | CastedType::Trait(_) | CastedType::Adt(_) => unreachable!(),
+                            },
+                            Err(err) => match err {
+                                TypeInfoCastError::IsModule => TypeError::ModuleIsNotValue,
+                                TypeInfoCastError::IsVariable => TypeError::InvalidTypePathSegment {
+                                    reason: InvalidTypePathSegmentReason::Variable(segment.value.name.value.0),
+                                    module: current_module,
+                                },
+                                TypeInfoCastError::TypeInPath(primitive) => TypeError::InvalidTypePathSegment {
+                                    reason: InvalidTypePathSegmentReason::Primitive(primitive),
+                                    module: current_module,
+                                },
+                                TypeInfoCastError::NotFound => TypeError::TypeNotFound {
+                                    name: segment.value.name.value.0,
+                                    module: current_module,
+                                },
+                            },
+                        },
+                        segment.span,
+                    ));
                 }
             }
         }
@@ -1440,13 +1673,13 @@ impl IntoTypedAST<TypePath> for mollie_parser::TypePathExpr {
             ast.used_adt_types.push((*ty, args.clone()));
         }
 
-        Ok(result)
+        result
     }
 }
 
 impl IntoTypedAST<FieldType> for mollie_parser::Type {
-    fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST, _: Span) -> Result<FieldType, ()> {
-        Ok(match self {
+    fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST, span: Span) -> FieldType {
+        match self {
             Self::Primitive(primitive_type) => {
                 use mollie_parser::PrimitiveType::{
                     Boolean, Component, Float, Int8, Int16, Int32, Int64, IntSize, String, UInt8, UInt16, UInt32, UInt64, UIntSize, Void,
@@ -1471,33 +1704,20 @@ impl IntoTypedAST<FieldType> for mollie_parser::Type {
                 }
             }
             Self::Array(element, size) => {
-                let element = element.into_typed_ast(checker, ast)?;
+                let element = element.into_typed_ast(checker, ast);
 
                 FieldType::Array(Box::new(element), size.map(|size| size.value))
             }
-            Self::OneOf(_) => todo!(),
             Self::Func(args, output) => {
-                let args = args
-                    .into_iter()
-                    .map(|arg| arg.into_typed_ast(checker, ast).map(FuncArg::Regular))
-                    .collect::<Result<_, _>>()?;
-                let output = if let Some(output) = output {
-                    output.into_typed_ast(checker, ast)?
-                } else {
-                    FieldType::Primitive(PrimitiveType::Void)
-                };
+                let args = args.into_iter().map(|arg| FuncArg::Regular(arg.into_typed_ast(checker, ast))).collect();
+
+                let output = output.map_or(FieldType::Primitive(PrimitiveType::Void), |output| output.into_typed_ast(checker, ast));
 
                 FieldType::Func(args, Box::new(output))
             }
             Self::Path(path) => {
                 let mut result = None;
                 let mut current_module = ModuleId::ZERO;
-
-                // modules:
-                //   std
-                //   std::option
-                //   std::array
-                //   std::iter
 
                 for segment in path.segments {
                     if let Some((g, ty)) = checker.available_generics.get(&segment.value.name.value.0).copied() {
@@ -1506,69 +1726,75 @@ impl IntoTypedAST<FieldType> for mollie_parser::Type {
                         checker.available_generics.insert(segment.value.name.value.0, (g, Some(ty)));
 
                         result = Some(FieldType::Generic(g, Some(ty)));
-                    } else if result.is_none()
-                        && let Some(item) = checker.modules[current_module].items.get(&segment.value.name.value.0)
-                    {
-                        match *item {
-                            ModuleItem::SubModule(module_id) => current_module = module_id,
-                            ModuleItem::Adt(adt_ref) => {
-                                let mut type_args = if let Some(type_args) = segment.value.args {
-                                    type_args.into_typed_ast(checker, ast)?
-                                } else {
-                                    Vec::default()
-                                };
+                    } else if result.is_none() {
+                        if let Some(item) = checker.modules[current_module].items.get(&segment.value.name.value.0) {
+                            match *item {
+                                ModuleItem::SubModule(module_id) => current_module = module_id,
+                                ModuleItem::Adt(adt_ref) => {
+                                    let mut type_args = segment.value.args.map_or_else(Vec::default, |type_args| type_args.into_typed_ast(checker, ast));
 
-                                let args = (0..checker.adt_types[adt_ref].generics)
-                                    .rev()
-                                    .map(|generic| type_args.pop().unwrap_or(FieldType::Generic(generic, None)))
-                                    .rev()
-                                    .collect();
+                                    let args = (0..checker.adt_types[adt_ref].generics)
+                                        .rev()
+                                        .map(|generic| type_args.pop().unwrap_or(FieldType::Generic(generic, None)))
+                                        .rev()
+                                        .collect();
 
-                                result = Some(FieldType::Adt(adt_ref, checker.adt_types[adt_ref].kind, args));
-                            }
-                            ModuleItem::Trait(trait_ref) => {
-                                let mut type_args = if let Some(type_args) = segment.value.args {
-                                    type_args.into_typed_ast(checker, ast)?
-                                } else {
-                                    Vec::default()
-                                };
+                                    result = Some(FieldType::Adt(adt_ref, checker.adt_types[adt_ref].kind, args));
+                                }
+                                ModuleItem::Trait(trait_ref) => {
+                                    let mut type_args = segment.value.args.map_or_else(Vec::default, |type_args| type_args.into_typed_ast(checker, ast));
 
-                                let args = (0..checker.traits[trait_ref].generics)
-                                    .rev()
-                                    .map(|generic| type_args.pop().unwrap_or(FieldType::Generic(generic, None)))
-                                    .rev()
-                                    .collect();
+                                    let args = (0..checker.traits[trait_ref].generics)
+                                        .rev()
+                                        .map(|generic| type_args.pop().unwrap_or(FieldType::Generic(generic, None)))
+                                        .rev()
+                                        .collect();
 
-                                result = Some(FieldType::Trait(trait_ref, args));
-                            }
-                            ModuleItem::Func(func_ref) => {
-                                if let TypeInfo::Func(args, returns) = checker.solver.get_info(checker.local_functions[func_ref].ty) {
-                                    for arg in args {
-                                        if let TypeInfo::Adt(adt_ref, _, args) = checker.solver.get_info(arg.inner()) {
+                                    result = Some(FieldType::Trait(trait_ref, args));
+                                }
+                                ModuleItem::Func(func_ref) => {
+                                    if let TypeInfo::Func(args, returns) = checker.solver.get_info(checker.local_functions[func_ref].ty) {
+                                        for arg in args {
+                                            if let TypeInfo::Adt(adt_ref, _, args) = checker.solver.get_info(arg.inner()) {
+                                                ast.used_adt_types.push((*adt_ref, args.clone()));
+                                            }
+                                        }
+
+                                        if let TypeInfo::Adt(adt_ref, _, args) = checker.solver.get_info(*returns) {
                                             ast.used_adt_types.push((*adt_ref, args.clone()));
                                         }
                                     }
 
-                                    if let TypeInfo::Adt(adt_ref, _, args) = checker.solver.get_info(*returns) {
-                                        ast.used_adt_types.push((*adt_ref, args.clone()));
-                                    }
+                                    ast.used_functions.push(func_ref);
+
+                                    result = Some(FieldType::from_type_info(
+                                        checker.solver.get_info(checker.local_functions[func_ref].ty),
+                                        Some(checker.local_functions[func_ref].ty),
+                                        &checker.solver,
+                                    ));
                                 }
-
-                                ast.used_functions.push(func_ref);
-
-                                result = Some(FieldType::from_type_info(
-                                    checker.solver.get_info(checker.local_functions[func_ref].ty),
-                                    Some(checker.local_functions[func_ref].ty),
-                                    &checker.solver,
-                                ));
                             }
+                        } else {
+                            checker.add_error(
+                                TypeError::TypeNotFound {
+                                    name: segment.value.name.value.0,
+                                    module: current_module,
+                                },
+                                span,
+                            );
+
+                            return FieldType::Unknown(None);
                         }
                     }
                 }
 
-                result.unwrap()
+                result.unwrap_or_else(|| {
+                    checker.add_error(TypeError::ModuleIsNotValue, span);
+
+                    FieldType::Unknown(None)
+                })
             }
-        })
+        }
     }
 }
 
@@ -1759,7 +1985,7 @@ impl IntoConstantValue for ExprRef {
             Expr::Construct { .. } => todo!(),
             Expr::IsPattern { .. } => todo!(),
             Expr::TypeIndex { .. } => todo!(),
-            Expr::Nothing => ConstantValue::Nothing,
+            Expr::Error(_) | Expr::Nothing => ConstantValue::Nothing,
         })
     }
 }

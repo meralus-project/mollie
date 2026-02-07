@@ -1,5 +1,6 @@
 use cranelift::module::ModuleError;
-use mollie_parser::ParseError;
+use mollie_shared::Positioned;
+use mollie_typed_ast::TypeError;
 
 pub type CompileResult<T> = Result<T, CompileError>;
 
@@ -8,14 +9,8 @@ pub enum CompileError {
     ExpectedAdt,
     AdtArgsCount { expected: usize, found: usize },
 
-    Parse(ParseError),
+    Type(Vec<Positioned<TypeError>>),
     Module(ModuleError),
-}
-
-impl From<ParseError> for CompileError {
-    fn from(error: ParseError) -> Self {
-        Self::Parse(error)
-    }
 }
 
 impl From<ModuleError> for CompileError {

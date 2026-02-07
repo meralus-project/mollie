@@ -320,7 +320,7 @@ impl FuncCompiler<'_> {
         let mut ast = TypedAST::default();
         let block = match self.checker.type_check(text, &mut ast) {
             Ok(block) => block,
-            Err(error) => return Err(CompileError::Parse(error)),
+            Err(error) => return Err(CompileError::Type(error.0.to_vec())),
         };
 
         self.checker.solver.finalize();

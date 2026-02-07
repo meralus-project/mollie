@@ -4,13 +4,16 @@ use std::{
     time::{Duration, Instant},
 };
 
+use ariadne::{Config, Label, Report, ReportKind, Source};
 use mollie::{
     AdtBuilder, GcPtr, Generic, TraitBuilder, VTableBuilder,
     compiler::{Compiler, FuncCompiler, allocator::GARBAGE_COLLECTOR},
     typed_ast::Func,
     typing::{AdtKind, FieldType, FuncArg, TypeInfo, TypeInfoRef},
 };
-use mollie_compiler::allocator::TypeLayout;
+use mollie_compiler::{allocator::TypeLayout, error::CompileError};
+use mollie_index::Idx;
+use mollie_typed_ast::{InvalidTypePathSegmentReason, ModuleId, NotFunction};
 use mollie_typing::PrimitiveType;
 use tiny_skia::{FilterQuality, Paint, Pattern, Pixmap, Rect, SpreadMode, Transform};
 
@@ -205,8 +208,8 @@ fn init_compiler(func_compiler: &mut FuncCompiler) -> (TypeInfoRef, TypeInfoRef)
 
     let drawable = func_compiler.checker.register_trait(
         TraitBuilder::new("Drawable")
-            .func("measure", [draw_ctx_ft.clone()], size_ft)
-            .func("render", [point_ft, draw_ctx_ft], FieldType::Primitive(PrimitiveType::Void))
+            .func("measure", [size_ft.clone(), draw_ctx_ft.clone()], size_ft.clone())
+            .func("render", [point_ft, size_ft, draw_ctx_ft], FieldType::Primitive(PrimitiveType::Void))
             .finish(),
     );
 
@@ -274,14 +277,142 @@ fn main() {
 
     let _dump = matches!(command, Command::Dump);
 
-    provider
-        .compile(
-            "<main>",
-            vec![(String::from("context"), pointer_type, draw_ctx_info)],
-            vec![(String::from("comp"), pointer_type, drawable_info)],
-            source,
-        )
-        .unwrap();
+    if let Err(CompileError::Type(errors)) = provider.compile(
+        "<main>",
+        vec![(String::from("context"), pointer_type, draw_ctx_info)],
+        vec![(String::from("comp"), pointer_type, drawable_info)],
+        source,
+    ) {
+        for error in errors {
+            let mut report = Report::build(ReportKind::Error, ("ui.mol", error.span.start..error.span.end)).with_config(Config::new().with_compact(true));
+            let label = Label::new(("ui.mol", error.span.start..error.span.end)).with_color(ariadne::Color::Cyan);
+
+            match error.value {
+                mollie_typed_ast::TypeError::ExpectedFunction { found } => {
+                    report.set_message("expected `function`");
+                    report.add_label(match found {
+                        NotFunction::Type(found) => label.with_message(format!("found value of type `{}`", provider.checker.display_of_type(found, None))),
+                        NotFunction::Adt(adt_ref) => label.with_message(format!("found `{}`", match provider.checker.adt_types[adt_ref].kind {
+                            AdtKind::Struct => "struct",
+                            AdtKind::Component => "component",
+                            AdtKind::Enum => "enum",
+                        })),
+                        NotFunction::Trait(_) => label.with_message("found `trait`"),
+                        NotFunction::Primitive(primitive_type) => label.with_message(format!(
+                            "found primitive type `{}`",
+                            provider
+                                .checker
+                                .display_of_type(provider.checker.core_types.cast_primitive(primitive_type), None)
+                        )),
+                    });
+                }
+                mollie_typed_ast::TypeError::ExpectedConstructable { found } => {
+                    report.set_message("expected `struct`, `enum` or `component`");
+                    report.add_label(label.with_message(format!("found `{}`", match found {
+                        mollie_typed_ast::NonConstructable::Trait => "trait",
+                        mollie_typed_ast::NonConstructable::Function => "function",
+                        mollie_typed_ast::NonConstructable::Generic => "generic",
+                        mollie_typed_ast::NonConstructable::Module => "module",
+                    })));
+                }
+                mollie_typed_ast::TypeError::ExpectedArray { found } => {
+                    report.set_message("expected `array`");
+                    report.add_label(label.with_message(format!("found `{}`", provider.checker.display_of_type(found, None))));
+                }
+                mollie_typed_ast::TypeError::ExpectedModule { found } => {
+                    report.set_message("expected `module`");
+                    report.add_label(label.with_message(format!("found `{}`", match found {
+                        mollie_typed_ast::NotModule::Trait => "trait",
+                        mollie_typed_ast::NotModule::Function => "function",
+                        mollie_typed_ast::NotModule::Generic => "generic",
+                        mollie_typed_ast::NotModule::Adt => "adt",
+                    })));
+                }
+                mollie_typed_ast::TypeError::NoField { adt, name } => {
+                    report.set_message("no field");
+
+                    if let Some(adt_name) = &provider.checker.adt_types[adt].name {
+                        report.add_label(label.with_message(format!("`{adt_name}` doesn't have field called `{name}`")));
+                    }
+                }
+                mollie_typed_ast::TypeError::NonIndexable { ty, name } => {
+                    report.set_message("non-indexable value");
+                    report.add_label(label.with_message(format!(
+                        "`{}` can't have fields and be indexed by `{name}`",
+                        provider.checker.display_of_type(ty, None)
+                    )));
+                }
+                mollie_typed_ast::TypeError::TypeNotFound { name, module } => {
+                    report.set_message("type not found");
+                    report.add_label(if module == ModuleId::ZERO {
+                        label.with_message(format!("there's no type called `{name}`"))
+                    } else {
+                        label.with_message(format!("there's no type called `{name}` in `{}`", provider.checker.display_of_module(module)))
+                    });
+                }
+                mollie_typed_ast::TypeError::InvalidPostfixFunction { reasons } => {
+                    report.set_message("invalid postfix function definition");
+
+                    for reason in reasons {
+                        let label = Label::new(("ui.mol", reason.span.start..reason.span.end)).with_color(ariadne::Color::Cyan);
+
+                        report.add_label(match reason.value {
+                            mollie_typed_ast::PostfixRequirement::NoGenerics => label.with_message("generics are not allowed in postfix context"),
+                            mollie_typed_ast::PostfixRequirement::OneArgument => label.with_message("one argument is expected"),
+                            mollie_typed_ast::PostfixRequirement::OnlyOneArgument => label.with_message("multiple arguments are not allowed"),
+                            mollie_typed_ast::PostfixRequirement::ArgumentType => {
+                                label.with_message("argument type must be either an (unsigned) integer or a float")
+                            }
+                        });
+                    }
+                }
+                mollie_typed_ast::TypeError::NoVariable { name } => {
+                    report.set_message(format!("there's no variable called `{name}`"));
+                    report.add_label(label.with_message("tried to access here"));
+                }
+                mollie_typed_ast::TypeError::NoFunction { name, postfix } => {
+                    if postfix {
+                        report.set_message(format!("there's no postfix function called `{name}`"));
+                        report.add_label(label.with_message("tried to use here"));
+                    } else {
+                        report.set_message(format!("there's no function called `{name}`"));
+                        report.add_label(label.with_message("tried to call here"));
+                    }
+                }
+                mollie_typed_ast::TypeError::InvalidTypePathSegment { reason, module } => {
+                    report.set_message("invalid type-path segment");
+                    report.add_label(if module == ModuleId::ZERO {
+                        match reason {
+                            InvalidTypePathSegmentReason::Variable(_) => label.with_message("expected `type`, found `variable`"),
+                            InvalidTypePathSegmentReason::Primitive(_) => label.with_message("primitive types are not allowed in this context"),
+                        }
+                    } else {
+                        match reason {
+                            InvalidTypePathSegmentReason::Variable(_) => unreachable!(),
+                            InvalidTypePathSegmentReason::Primitive(_) => label.with_message("primitive types are not allowed in type paths"),
+                        }
+                    });
+                }
+                mollie_typed_ast::TypeError::NotPostfix { name } => {
+                    report.set_message(format!("`{name}` can't be used in postfix context"));
+                    report.add_label(label.with_message("tried to use here"));
+                }
+                mollie_typed_ast::TypeError::ModuleIsNotValue => {
+                    report.set_message("expected `value`");
+                    report.add_label(label.with_message("found `module`"));
+                }
+                mollie_typed_ast::TypeError::NonConstantEvaluable => {
+                    report.set_message("expression can't be evaluated at compile-time");
+                    report.add_label(label.with_message("this expression"));
+                }
+                mollie_typed_ast::TypeError::Parse(parse_error) => {
+                    report.set_message(parse_error);
+                }
+            };
+
+            report.finish().print(("ui.mol", Source::from(source))).unwrap();
+        }
+    }
 
     for error in provider.checker.type_errors() {
         println!("[Compiler/TypeErrors   ] {error}");
@@ -342,14 +473,19 @@ fn main() {
                         #[derive(Debug, Clone, Copy)]
                         #[repr(C)]
                         struct Drawable {
-                            measure: fn(*mut (), &mut DrawContext) -> GcPtr<Size>,
-                            render: fn(*mut (), point: GcPtr<Point>, ctx: &mut DrawContext),
+                            measure: fn(*mut (), parent: GcPtr<Size>, &mut DrawContext) -> GcPtr<Size>,
+                            render: fn(*mut (), point: GcPtr<Point>, parent: GcPtr<Size>, ctx: &mut DrawContext),
                         }
 
                         let trait_ref = provider.checker.find_trait("Drawable");
 
                         if let Some(vtable) = unsafe { compiler.get_vtable_ptr::<Drawable>(hash, trait_ref) } {
-                            (vtable.render)(value.ptr_mut(), GcPtr::from(Point { x: 0.0, y: 0.0 }), &mut draw_context);
+                            (vtable.render)(
+                                value.ptr_mut(),
+                                GcPtr::from(Point { x: 0.0, y: 0.0 }),
+                                GcPtr::from(Size { width: 1024.0, height: 1024.0 }),
+                                &mut draw_context,
+                            );
                         }
                     }
 

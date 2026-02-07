@@ -1,6 +1,6 @@
 use crate::{AdtKind, AdtRef, PrimitiveType, TraitRef, TypeInfoRef};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 pub enum FuncArg<T> {
     This(T),
     Regular(T),
@@ -42,7 +42,7 @@ impl<T> FuncArg<T> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum TypeInfo {
     Unknown(Option<TypeInfoRef>),
     Generic(usize, Option<TypeInfoRef>),
@@ -89,6 +89,10 @@ impl TypeInfo {
 
     pub const fn is_any_component(&self) -> bool {
         matches!(self, Self::Primitive(primitive) if primitive.is_component())
+    }
+
+    pub const fn is_number(&self) -> bool {
+        matches!(self, Self::Primitive(primitive) if primitive.is_number())
     }
 
     pub const fn is_integer(&self) -> bool {

@@ -3,7 +3,7 @@ use mollie_index::IndexBoxedSlice;
 
 use crate::{AdtVariantRef, CoreTypes, FieldRef, FieldType, IntType, PrimitiveType, TypeInfo, TypeInfoRef, TypeSolver, UIntType};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 pub enum AdtKind {
     Struct,
     Component,

@@ -43,7 +43,7 @@ impl Parse for Argument {
 pub struct FuncDecl {
     pub modifiers: Vec<Positioned<FuncModifier>>,
     pub name: Positioned<Ident>,
-    pub args: Vec<Positioned<Argument>>,
+    pub args: Positioned<Vec<Positioned<Argument>>>,
     pub returns: Option<Positioned<Type>>,
     pub body: Positioned<BlockExpr>,
 }
@@ -54,7 +54,7 @@ impl Parse for FuncDecl {
         let start = parser.consume(&Token::Fn)?;
         let name = Ident::parse(parser)?;
 
-        parser.consume(&Token::ParenOpen)?;
+        let args_start = parser.consume(&Token::ParenOpen)?;
 
         let mut args = Vec::new();
 
@@ -70,7 +70,7 @@ impl Parse for FuncDecl {
             args.push(Argument::parse(parser)?);
         }
 
-        parser.consume(&Token::ParenClose)?;
+        let args_end = parser.consume(&Token::ParenClose)?;
 
         let returns = if parser.try_consume(&Token::Arrow) {
             Some(Type::parse(parser)?)
@@ -83,7 +83,7 @@ impl Parse for FuncDecl {
         Ok(start.between(&body).wrap(Self {
             modifiers,
             name,
-            args,
+            args: args_start.between(&args_end).wrap(args),
             returns,
             body,
         }))

@@ -37,6 +37,7 @@ impl<M: Module> CompileTypedAST<M, MolValue> for ExprRef {
             Expr::IsPattern { target, pattern } => compiler.compile_is_pattern_expr(ast, *target, pattern),
             &Expr::TypeIndex { ty, path } => compiler.compile_type_index_expr(ast, ty, path),
             Expr::Nothing => Ok(MolValue::Nothing),
+            Expr::Error(_) => unreachable!(),
         }
     }
 }

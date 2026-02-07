@@ -25,6 +25,90 @@ new_idx_type!(ExprRef);
 new_idx_type!(FuncRef);
 new_idx_type!(TraitFuncRef);
 new_idx_type!(ModuleId);
+new_idx_type!(TypeErrorRef);
+
+#[derive(Debug, Clone, Copy, Serialize)]
+pub enum NonConstructable {
+    Trait,
+    Function,
+    Generic,
+    Module,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+pub enum NotModule {
+    Trait,
+    Function,
+    Generic,
+    Adt,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub enum NotFunction {
+    Type(TypeInfoRef),
+    Adt(AdtRef),
+    Trait(TraitRef),
+    Primitive(PrimitiveType),
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub enum TypeError {
+    ExpectedFunction { found: NotFunction },
+    ExpectedConstructable { found: NonConstructable },
+    ExpectedArray { found: TypeInfoRef },
+    ExpectedModule { found: NotModule },
+    NoField { adt: AdtRef, name: String },
+    NonIndexable { ty: TypeInfoRef, name: String },
+    NoFunction { name: String, postfix: bool },
+    NoVariable { name: String },
+    TypeNotFound { name: String, module: ModuleId },
+    InvalidTypePathSegment { reason: InvalidTypePathSegmentReason, module: ModuleId },
+    NotPostfix { name: String },
+    ModuleIsNotValue,
+    NonConstantEvaluable,
+    InvalidPostfixFunction { reasons: Vec<Positioned<PostfixRequirement>> },
+    Parse(mollie_parser::ParseError),
+}
+
+impl TypeError {
+    pub const fn name(&self) -> &'static str {
+        match self {
+            Self::ExpectedFunction { .. } => "expected-function",
+            Self::ExpectedConstructable { .. } => "expected-constructable",
+            Self::ExpectedArray { .. } => "expected-array",
+            Self::ExpectedModule { .. } => "expected-module",
+            Self::NoField { .. } => "no-field",
+            Self::NonIndexable { .. } => "non-indexable",
+            Self::NoFunction { .. } => "no-function",
+            Self::NoVariable { .. } => "no-variable",
+            Self::TypeNotFound { .. } => "type-not-found",
+            Self::InvalidTypePathSegment { .. } => "invalid-type-path-segment",
+            Self::NotPostfix { .. } => "not-postfix",
+            Self::ModuleIsNotValue => "module-is-not-value",
+            Self::NonConstantEvaluable => "non-constant-evaluable",
+            Self::InvalidPostfixFunction { .. } => "invalid-postfix-definition",
+            Self::Parse(..) => "parse",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub enum PostfixRequirement {
+    NoGenerics,
+    OneArgument,
+    OnlyOneArgument,
+    ArgumentType,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub enum InvalidTypePathSegmentReason {
+    Variable(String),
+    Primitive(PrimitiveType),
+}
+
+pub struct TypeErrors<'a>(pub &'a [Positioned<TypeError>]);
+
+pub type TypeResult<'a, T> = Result<T, TypeErrors<'a>>;
 
 #[derive(Debug, Default, Serialize)]
 pub struct TypedAST {
@@ -59,6 +143,18 @@ impl TypedAST {
         let result = ExprRef(self.exprs.len());
 
         self.exprs.push(Typed { value: expr, span, ty });
+
+        result
+    }
+
+    pub fn add_error_expr(&mut self, error: TypeErrorRef, ty: TypeInfoRef, span: Span) -> ExprRef {
+        let result = ExprRef(self.exprs.len());
+
+        self.exprs.push(Typed {
+            value: Expr::Error(error),
+            span,
+            ty,
+        });
 
         result
     }
@@ -198,6 +294,8 @@ pub struct TypeChecker {
     pub traits: IndexVec<TraitRef, Trait>,
     pub vtables: IndexVec<VTableRef, VTableGenerator>,
 
+    pub errors: IndexVec<TypeErrorRef, Positioned<TypeError>>,
+
     pub returns: Option<TypeInfoRef>,
 }
 
@@ -237,21 +335,40 @@ impl TypeChecker {
             adt_types: IndexVec::new(),
             local_functions: IndexVec::new(),
             traits: IndexVec::new(),
+            errors: IndexVec::new(),
             vtables: IndexVec::new(),
         }
     }
 
-    pub fn type_check<T: AsRef<str>>(&mut self, code: T, ast: &mut TypedAST) -> mollie_parser::ParseResult<BlockRef> {
+    pub fn add_error(&mut self, error: TypeError, span: Span) -> TypeErrorRef {
+        let result = TypeErrorRef(self.errors.len());
+
+        self.errors.push(span.wrap(error));
+
+        result
+    }
+
+    pub fn type_check<'a, T: AsRef<str>>(&'a mut self, code: T, ast: &mut TypedAST) -> TypeResult<'a, BlockRef> {
         let mut parser = mollie_parser::Parser::new(mollie_lexer::Lexer::lex(code.as_ref()));
 
-        let (stmts, final_stmt) = mollie_parser::parse_statements_until(&mut parser, &mollie_lexer::Token::EOF)?;
+        let (stmts, final_stmt) = match mollie_parser::parse_statements_until(&mut parser, &mollie_lexer::Token::EOF) {
+            Ok(it) => it,
+            Err(err) => {
+                self.errors.push(Span::default().wrap(TypeError::Parse(err)));
+
+                return Err(TypeErrors(&self.errors.raw));
+            }
+        };
 
         let block = mollie_parser::BlockExpr {
             stmts,
             final_stmt: final_stmt.map(Box::new),
         }
-        .into_typed_ast(self, ast, Span::default())
-        .unwrap();
+        .into_typed_ast(self, ast, Span::default());
+
+        if !self.errors.is_empty() {
+            return Err(TypeErrors(&self.errors.raw));
+        }
 
         if let Some(returns) = self.returns
             && let &TypeInfo::Trait(t, _) = self.solver.get_info(returns)
@@ -355,6 +472,76 @@ impl TypeChecker {
 
         (type_ref, FieldType::from_type_info_ref(type_ref, &self.solver))
     }
+
+    pub fn try_cast(&self, module: ModuleId, input: &str) -> Result<CastedType, TypeInfoCastError> {
+        let result = match input {
+            "int_size" => Ok(CastedType::Primitive(PrimitiveType::Int(IntType::ISize))),
+            "uint_size" => Ok(CastedType::Primitive(PrimitiveType::UInt(UIntType::USize))),
+            "int64" => Ok(CastedType::Primitive(PrimitiveType::Int(IntType::I64))),
+            "uint64" => Ok(CastedType::Primitive(PrimitiveType::UInt(UIntType::U64))),
+            "int32" => Ok(CastedType::Primitive(PrimitiveType::Int(IntType::I32))),
+            "uint32" => Ok(CastedType::Primitive(PrimitiveType::UInt(UIntType::U32))),
+            "int16" => Ok(CastedType::Primitive(PrimitiveType::Int(IntType::I16))),
+            "uint16" => Ok(CastedType::Primitive(PrimitiveType::UInt(UIntType::U16))),
+            "int8" => Ok(CastedType::Primitive(PrimitiveType::Int(IntType::I8))),
+            "uint8" => Ok(CastedType::Primitive(PrimitiveType::UInt(UIntType::U8))),
+            "float" => Ok(CastedType::Primitive(PrimitiveType::Float)),
+            "boolean" => Ok(CastedType::Primitive(PrimitiveType::Boolean)),
+            "string" => Ok(CastedType::Primitive(PrimitiveType::String)),
+            "component" => Ok(CastedType::Primitive(PrimitiveType::Component)),
+            input => self.modules[module].items.get(input).map_or_else(
+                || {
+                    if module == ModuleId::ZERO && self.solver.get_var(input).is_some() {
+                        Err(TypeInfoCastError::IsVariable)
+                    } else {
+                        Err(TypeInfoCastError::NotFound)
+                    }
+                },
+                |item| match item {
+                    ModuleItem::SubModule(_) => Err(TypeInfoCastError::IsModule),
+                    &ModuleItem::Adt(adt_ref) => Ok(CastedType::Adt(adt_ref)),
+                    &ModuleItem::Trait(trait_ref) => Ok(CastedType::Trait(trait_ref)),
+                    &ModuleItem::Func(func_ref) => Ok(CastedType::Func(func_ref)),
+                },
+            ),
+        }?;
+
+        if let CastedType::Primitive(primitive) = result
+            && module != ModuleId::ZERO
+        {
+            Err(TypeInfoCastError::TypeInPath(primitive))
+        } else {
+            Ok(result)
+        }
+    }
+}
+
+pub enum CastedType {
+    Primitive(PrimitiveType),
+    Adt(AdtRef),
+    Trait(TraitRef),
+    Func(FuncRef),
+}
+
+pub enum TypeInfoCastError {
+    IsModule,
+    IsVariable,
+    TypeInPath(PrimitiveType),
+    NotFound,
+}
+
+pub struct ModuleDisplay<'a>(ModuleId, &'a IndexVec<ModuleId, Module>);
+
+impl fmt::Display for ModuleDisplay<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.1[self.0].parent.map_or(Ok(()), |parent| {
+            if parent == ModuleId::ZERO {
+                write!(f, "{}", self.1[self.0].name)
+            } else {
+                write!(f, "{}::{}", Self(parent, self.1), self.1[self.0].name)
+            }
+        })
+    }
 }
 
 impl Default for TypeChecker {
@@ -443,6 +630,10 @@ impl TypeChecker {
 
     pub const fn display_of_error(&self, error: TypeUnificationError) -> TypeErrorDisplay<'_> {
         TypeErrorDisplay { checker: self, error }
+    }
+
+    pub const fn display_of_module(&self, module: ModuleId) -> ModuleDisplay<'_> {
+        ModuleDisplay(module, &self.modules)
     }
 
     pub const fn display_of_type(&self, ty: TypeInfoRef, this: Option<TypeInfoRef>) -> TypeDisplay<'_> {
@@ -568,15 +759,15 @@ pub trait IntoConstantValue {
 }
 
 pub trait IntoTypedAST<T> {
-    fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST, span: Span) -> Result<T, ()>;
+    fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST, span: Span) -> T;
 }
 
 pub trait IntoPositionedTypedAST<T> {
-    fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST) -> Result<T, ()>;
+    fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST) -> T;
 }
 
 impl<O, T: IntoTypedAST<O>> IntoPositionedTypedAST<O> for Positioned<T> {
-    fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST) -> Result<O, ()> {
+    fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST) -> O {
         self.value.into_typed_ast(checker, ast, self.span)
     }
 }

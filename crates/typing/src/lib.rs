@@ -41,3 +41,31 @@ pub struct CoreTypes {
     pub component: TypeInfoRef,
     pub string: TypeInfoRef,
 }
+
+impl CoreTypes {
+    pub fn cast_primitive(&self, primitive: PrimitiveType) -> TypeInfoRef {
+        match primitive {
+            PrimitiveType::Any => self.any,
+            PrimitiveType::Int(int_type) => match int_type {
+                IntType::ISize => self.int_size,
+                IntType::I64 => self.int64,
+                IntType::I32 => self.int32,
+                IntType::I16 => self.int16,
+                IntType::I8 => self.int8,
+            },
+            PrimitiveType::UInt(uint_type) => match uint_type {
+                UIntType::USize => self.uint_size,
+                UIntType::U64 => self.uint64,
+                UIntType::U32 => self.uint32,
+                UIntType::U16 => self.uint16,
+                UIntType::U8 => self.uint8,
+            },
+            PrimitiveType::Float => self.float,
+            PrimitiveType::Boolean => self.boolean,
+            PrimitiveType::String => self.string,
+            PrimitiveType::Component => self.component,
+            PrimitiveType::Void => self.void,
+            PrimitiveType::Null => unimplemented!(),
+        }
+    }
+}

@@ -84,7 +84,6 @@ impl Parse for TypeArgs {
 pub enum Type {
     Primitive(PrimitiveType),
     Array(Box<Positioned<Self>>, Option<Positioned<usize>>),
-    OneOf(Vec<Positioned<Self>>),
     Func(Vec<Positioned<Self>>, Option<Box<Positioned<Self>>>),
     Path(TypePathExpr),
 }
@@ -142,16 +141,6 @@ impl Parse for Type {
             value
         };
 
-        if parser.try_consume(&Token::Or) {
-            let mut types = vec![value, Self::parse(parser)?];
-
-            while parser.try_consume(&Token::Or) {
-                types.push(Self::parse(parser)?);
-            }
-
-            Ok(types[0].span.between(types[types.len() - 1].span).wrap(Self::OneOf(types)))
-        } else {
-            Ok(value)
-        }
+        Ok(value)
     }
 }

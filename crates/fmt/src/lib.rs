@@ -120,19 +120,17 @@ impl<'a, 'b> Formatter<'a, 'b> {
 
     pub fn fmt_literal(&mut self, literal_expr: &mollie_parser::LiteralExpr) -> fmt::Result {
         use mollie_parser::{
-            LiteralExpr::{Boolean, Null, Number, SizeUnit, String},
+            LiteralExpr::{Boolean, Number, String},
             Number::{F32, I64},
         };
 
         match literal_expr {
-            SizeUnit(..) => todo!(),
             Number(number, _suffix) => match number {
                 I64(value) => value.fmt(self.f),
                 F32(value) => value.fmt(self.f),
             },
             Boolean(value) => value.fmt(self.f),
             String(value) => write!(self.f, "{value:?}"),
-            Null => self.f.write_str("null"),
         }
     }
 
@@ -168,7 +166,6 @@ impl<'a, 'b> Formatter<'a, 'b> {
                     self.f.write_str("[]")
                 }
             }
-            mollie_parser::Type::OneOf(_types) => todo!(),
             mollie_parser::Type::Func(_args, _returns) => todo!(),
             mollie_parser::Type::Path(type_path_expr) => self.fmt_type_path(type_path_expr),
         }

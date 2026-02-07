@@ -37,16 +37,49 @@ impl<T> Iterable<ArrayIter<T>> for T[] {
     }
 }
 
+enum Unit {
+    ParentWeight { value: float },
+    Fixed { value: float }
+}
+
+impl Unit {
+    fn calc(self, parent: float) -> float {
+        if self is Unit::ParentWeight { value } {
+            parent * value
+        } else if self is Unit::Fixed { value } {
+            value
+        } else {
+            0.0
+        }
+    }
+}
+
+postfix fn px(value: float) -> Unit {
+    Unit::Fixed { value }
+}
+
+postfix fn wh(value: float) -> Unit {
+    Unit::ParentWeight { value }
+}
+
+postfix fn test(value: string, second: float) -> Unit {
+    Unit::ParentWeight { value }
+}
+
+postfix fn test() -> Unit {
+    Unit::ParentWeight { value: 1.0 }
+}
+
 declare Rectangle {
-    width: float,
-    height: float,
+    width: Unit,
+    height: Unit,
     background: graphics::Color
 }
 
 declare Image {
     image: graphics::Image,
-    width: float = 0.0,
-    height: float = 0.0
+    width: Unit,
+    height: Unit
 }
 
 impl graphics::Color {
@@ -66,42 +99,34 @@ declare Row {
 }
 
 impl Drawable for Image {
-    fn measure(self, ctx: DrawContext) -> Size {
-        const width = if self.width > 0.0 {
-            self.width
-        } else {
-            ctx.image_size(self.image).width
-            // 24.0
-        };
-
-        const height = if self.height > 0.0 {
-            self.height
-        } else {
-            ctx.image_size(self.image).height
-            // 24.0
-        };
-
-        self.width = width;
-        self.height = height;
+    fn measure(self, parent: Size, ctx: DrawContext) -> Size {
+        const width = self.width.calc(parent.width);
+        const height = self.height.calc(parent.height);
 
         Size { width, height }
     }
 
-    fn render(self, origin: Point, ctx: DrawContext) {
-        ctx.draw_image(origin.x, origin.y, self.width, self.height, self.image);
+    fn render(self, origin: Point, parent: Size, ctx: DrawContext) {
+        const width = self.width.calc(parent.width);
+        const height = self.height.calc(parent.height);
+
+        ctx.draw_image(origin.x, origin.y, width, height, self.image);
     }
 }
 
 impl Drawable for Rectangle {
-    fn measure(self, ctx: DrawContext) -> Size {
+    fn measure(self, parent: Size, ctx: DrawContext) -> Size {
         Size {
-            width: self.width,
-            height: self.height
+            width: self.width.calc(parent.width),
+            height: self.height.calc(parent.height)
         }
     }
 
-    fn render(self, origin: Point, ctx: DrawContext) {
-        ctx.draw_rect(origin.x, origin.y, self.width, self.height, self.background);
+    fn render(self, origin: Point, parent: Size, ctx: DrawContext) {
+        const width = self.width.calc(parent.width);
+        const height = self.height.calc(parent.height);
+
+        ctx.draw_rect(origin.x, origin.y, width, height, self.background);
     }
 }
 
@@ -116,14 +141,14 @@ impl float {
 }
 
 impl Drawable for Column {
-    fn measure(self, ctx: DrawContext) -> Size {
+    fn measure(self, parent: Size, ctx: DrawContext) -> Size {
         const width = 0.0;
         const height = 0.0;
 
         const iterator = self.children.iter();
 
         while iterator.next() is Option::Some { value } {
-            const measured = value.measure(ctx);
+            const measured = value.measure(parent, ctx);
 
             width = measured.width.max(width);
             height = height + measured.height + self.spacing;
@@ -136,28 +161,29 @@ impl Drawable for Column {
         Size { width, height }
     }
 
-    fn render(self, point: Point, ctx: DrawContext) {
+    fn render(self, point: Point, parent: Size, ctx: DrawContext) {
         const iterator = self.children.iter();
 
         while iterator.next() is Option::Some { value } {
-            const measured = value.measure(ctx);
+            const measured = value.measure(parent, ctx);
 
-            value.render(point, ctx);
+            value.render(point, parent, ctx);
 
             point.y = point.y + measured.height + self.spacing;
+            parent.height = parent.height - measured.height - self.spacing;
         }
     }
 }
 
 impl Drawable for Row {
-    fn measure(self, ctx: DrawContext) -> Size {
+    fn measure(self, parent: Size, ctx: DrawContext) -> Size {
         const width = 0.0;
         const height = 0.0;
 
         const iterator = self.children.iter();
 
         while iterator.next() is Option::Some { value } {
-            const measured = value.measure(ctx);
+            const measured = value.measure(parent, ctx);
 
             height = measured.width.max(width);
             width = width + measured.width + self.spacing;
@@ -170,15 +196,16 @@ impl Drawable for Row {
         Size { width, height }
     }
 
-    fn render(self, point: Point, ctx: DrawContext) {
+    fn render(self, point: Point, parent: Size, ctx: DrawContext) {
         const iterator = self.children.iter();
 
         while iterator.next() is Option::Some { value } {
-            const measured = value.measure(ctx);
+            const measured = value.measure(parent, ctx);
 
-            value.render(point, ctx);
+            value.render(point, parent, ctx);
 
             point.x = point.x + measured.width + self.spacing;
+            parent.width = parent.width - measured.width - self.spacing;
         }
     }
 }
@@ -189,27 +216,32 @@ impl graphics::Image {
     }
 }
 
-struct A {
-    value: float
-}
+const a = graphics::A { };
+const b = float { };
+const c = 10timestamp;
+const c = 10ms;
+const c = float();
+const c = 42();
+const bb = Size { width: 1.0, height: 1.0 };
+const width = 24.0px;
+const image = graphics::Image::path("./examples/assets/graphql.png");
 
-postfix fn px(value: float) -> A {
-    A { value }
-}
-
-const aa = 501.0px;
-
-println_float(aa.value);
-
-const width = 24.0;
+bb.x;
+image.val;
 
 Column {
     spacing: 8.0,
 
     Image {
-        width: 128.0,
-        height: 128.0,
-        image: graphics::Image::path("./examples/assets/graphql.png")
+        width: 128.0px,
+        height: 128.0px,
+        image
+    }
+
+    Rectangle {
+        width: 1.0wh,
+        height: 48.0px,
+        background: graphics::Color::new(0, 255, 0),
     }
 
     Row {
@@ -217,13 +249,13 @@ Column {
 
         Rectangle {
             width,
-            height: 48.0,
+            height: 48.0px,
             background: graphics::Color::new(255, 0, 0),
         }
 
         Rectangle {
-            width: 96.0,
-            height: 48.0,
+            width: 1.0wh,
+            height: 48.0px,
             background: graphics::Color::new(0, 0, 255),
         }
     }

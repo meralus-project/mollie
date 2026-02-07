@@ -3,7 +3,11 @@ use indexmap::map::Entry;
 use mollie_typed_ast::{ExprRef, FuncSource, TypedAST};
 use mollie_typing::TypeInfo;
 
-use crate::{AsIrType, CompileTypedAST, MolValue, error::CompileResult, func::{FuncKey, FunctionCompiler}};
+use crate::{
+    AsIrType, CompileTypedAST, MolValue,
+    error::CompileResult,
+    func::{FuncKey, FunctionCompiler},
+};
 
 impl<M: Module> FunctionCompiler<'_, M> {
     pub fn compile_call_expr(&mut self, ast: &TypedAST, func: FuncSource, args: &[ExprRef]) -> CompileResult<MolValue> {

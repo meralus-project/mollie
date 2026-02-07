@@ -5,7 +5,7 @@ use mollie_shared::{Positioned, Span};
 
 pub type ParseResult<T> = Result<T, ParseError>;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct ParseError(pub String, pub Option<Span>);
 
 impl fmt::Display for ParseError {
