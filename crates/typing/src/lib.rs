@@ -23,27 +23,27 @@ new_idx_type!(VTableRef);
 new_idx_type!(VFuncRef);
 
 #[derive(Debug, Clone, Copy)]
-pub struct CoreTypes {
-    pub void: TypeInfoRef,
-    pub any: TypeInfoRef,
-    pub boolean: TypeInfoRef,
-    pub int8: TypeInfoRef,
-    pub int16: TypeInfoRef,
-    pub int32: TypeInfoRef,
-    pub int64: TypeInfoRef,
-    pub int_size: TypeInfoRef,
-    pub uint8: TypeInfoRef,
-    pub uint16: TypeInfoRef,
-    pub uint32: TypeInfoRef,
-    pub uint64: TypeInfoRef,
-    pub uint_size: TypeInfoRef,
-    pub float: TypeInfoRef,
-    pub component: TypeInfoRef,
-    pub string: TypeInfoRef,
+pub struct CoreTypes<T = TypeInfoRef> {
+    pub void: T,
+    pub any: T,
+    pub boolean: T,
+    pub int8: T,
+    pub int16: T,
+    pub int32: T,
+    pub int64: T,
+    pub int_size: T,
+    pub uint8: T,
+    pub uint16: T,
+    pub uint32: T,
+    pub uint64: T,
+    pub uint_size: T,
+    pub float: T,
+    pub component: T,
+    pub string: T,
 }
 
-impl CoreTypes {
-    pub fn cast_primitive(&self, primitive: PrimitiveType) -> TypeInfoRef {
+impl<T: Copy> CoreTypes<T> {
+    pub fn cast_primitive(&self, primitive: PrimitiveType) -> T {
         match primitive {
             PrimitiveType::Any => self.any,
             PrimitiveType::Int(int_type) => match int_type {

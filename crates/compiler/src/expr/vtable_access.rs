@@ -5,7 +5,7 @@ use mollie_typed_ast::{ExprRef, TypedAST, VFunc};
 
 use crate::{CompileTypedAST, MolValue, error::CompileResult, func::FunctionCompiler};
 
-impl<M: Module> FunctionCompiler<'_, M> {
+impl<S, M: Module> FunctionCompiler<'_, S, M> {
     pub fn compile_vtable_access(&mut self, ast: &TypedAST, target: ExprRef, func: VFunc) -> CompileResult<MolValue> {
         let target_val = target.compile(ast, self)?;
 
@@ -23,14 +23,14 @@ impl<M: Module> FunctionCompiler<'_, M> {
                         self.compiler.isa(),
                         &mut self.fn_builder,
                         vtable_ptr,
-                        trait_func_ref.index().try_into().unwrap(),
+                        trait_func_ref.index() as u32,
                     );
 
                     self.this.replace(MolValue::Value(value));
 
                     Ok(MolValue::Value(vtable_func))
                 } else {
-                    panic!("expected fat ptr for accessing dynamic vtable value")
+                    unimplemented!("expected fat ptr for accessing dynamic vtable value")
                 }
             }
         }

@@ -5,12 +5,23 @@ use crate::{Attribute, Ident, NameWithGenerics, Parse, ParseResult, Parser, Prop
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct EnumVariant {
+    pub attributes: Vec<Positioned<Attribute>>,
     pub name: Positioned<Ident>,
     pub properties: Option<Positioned<Vec<Positioned<Property>>>>,
 }
 
 impl Parse for EnumVariant {
     fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
+        let attributes = {
+            let mut items = Vec::new();
+
+            while parser.check(&Token::Attr) {
+                items.push(Attribute::parse(parser)?);
+            }
+
+            items
+        };
+
         parser.verify_if(Token::is_ident)?;
 
         let name = Ident::parse(parser)?;
@@ -21,7 +32,7 @@ impl Parse for EnumVariant {
         } else {
             name.span
         }
-        .wrap(Self { name, properties }))
+        .wrap(Self { attributes, name, properties }))
     }
 }
 

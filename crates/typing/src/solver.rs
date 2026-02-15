@@ -246,25 +246,45 @@ impl TypeSolver {
         }
     }
 
-    pub fn solve_generic_args(&mut self, ty: TypeInfoRef, args: &[TypeInfoRef]) {
+    #[must_use]
+    pub fn solve_generic_args(&mut self, ty: TypeInfoRef, args: &[TypeInfoRef]) -> TypeInfoRef {
         let (ty, ty_val) = self.get_info3(ty);
 
         match ty_val.clone() {
-            TypeInfo::Generic(idx, None) => self.type_infos[ty] = TypeInfo::Generic(idx, args.get(idx).copied()),
-            TypeInfo::Ref(type_info_ref) | TypeInfo::Array(type_info_ref, _) => self.solve_generic_args(type_info_ref, args),
-            TypeInfo::Func(func_args, type_info_ref) => {
-                for arg in func_args {
-                    self.solve_generic_args(arg.inner(), args);
-                }
+            TypeInfo::Generic(idx, None) => args.get(idx).copied().unwrap_or_else(|| self.add_info(TypeInfo::Generic(idx, None))),
+            TypeInfo::Ref(type_info_ref) => self.solve_generic_args(type_info_ref, args),
+            TypeInfo::Array(element, size) => {
+                let element = self.solve_generic_args(element, args);
 
-                self.solve_generic_args(type_info_ref, args);
+                self.add_info(TypeInfo::Array(element, size))
             }
-            TypeInfo::Trait(_, type_info_refs) | TypeInfo::Adt(.., type_info_refs) => {
-                for arg in type_info_refs {
-                    self.solve_generic_args(arg, args);
+            TypeInfo::Func(func_args, type_info_ref) => {
+                let info = TypeInfo::Func(
+                    func_args.into_iter().map(|arg| arg.map(|inner| self.solve_generic_args(inner, args))).collect(),
+                    self.solve_generic_args(type_info_ref, args),
+                );
+
+                self.add_info(info)
+            }
+            TypeInfo::Trait(trait_ref, type_args) => {
+                if type_args.is_empty() {
+                    ty
+                } else {
+                    let info = TypeInfo::Trait(trait_ref, type_args.into_iter().map(|arg| self.solve_generic_args(arg, args)).collect());
+
+                    self.add_info(info)
                 }
             }
-            i => println!("can't solve {i:?} with {args:?}"),
+            TypeInfo::Adt(adt_ref, adt_kind, type_args) => {
+                if type_args.is_empty() {
+                    ty
+                } else {
+                    let info = TypeInfo::Adt(adt_ref, adt_kind, type_args.into_iter().map(|arg| self.solve_generic_args(arg, args)).collect());
+
+                    self.add_info(info)
+                }
+            }
+            i => ty,
         }
     }
 
@@ -279,11 +299,12 @@ impl TypeSolver {
 
         match (got_val.clone(), expected_val.cloned()) {
             (TypeInfo::Generic(_, Some(got)), Some(TypeInfo::Generic(idx, None))) => self.type_infos[expected] = TypeInfo::Generic(idx, Some(got)),
+            (TypeInfo::Unknown(_), Some(TypeInfo::Generic(idx, Some(expected)))) => self.type_infos[got] = TypeInfo::Generic(idx, Some(expected)),
             (TypeInfo::Generic(idx, None), Some(TypeInfo::Generic(_, Some(expected)))) => self.type_infos[got] = TypeInfo::Generic(idx, Some(expected)),
             (_, None | Some(TypeInfo::Generic(_, Some(_))))
             | (TypeInfo::Generic(_, Some(_)), _)
-            | (TypeInfo::Unknown(None), Some(TypeInfo::Unknown(None)))
-            | (TypeInfo::Unknown(Some(_)), Some(TypeInfo::Unknown(Some(_))))
+            // | (TypeInfo::Unknown(None), Some(TypeInfo::Unknown(None)))
+            // | (TypeInfo::Unknown(Some(_)), Some(TypeInfo::Unknown(Some(_))))
             | (TypeInfo::Primitive(PrimitiveType::Component), Some(TypeInfo::Adt(_, AdtKind::Component, _)))
             | (TypeInfo::Adt(_, AdtKind::Component, _), Some(TypeInfo::Primitive(PrimitiveType::Component))) => (),
             (_, Some(TypeInfo::Generic(idx, None))) => self.type_infos[expected] = TypeInfo::Generic(idx, Some(got)),
@@ -401,7 +422,13 @@ impl TypeSolver {
                 None => f.write_str("<Self>"),
             },
             FieldType::Unknown(fallback) => match fallback.as_deref() {
-                Some(field_type) => self.fmt_field(f, field_type, this, storage, generics, short),
+                Some(field_type) => {
+                    f.write_str("<unknown: fallback = ")?;
+
+                    self.fmt_field(f, field_type, this, storage, generics, short)?;
+
+                    f.write_str(">")
+                }
                 None => f.write_str("<unknown>"),
             },
             &FieldType::Generic(idx, _) => self.generic_fmt(f, generics, idx, this, storage, short),
@@ -576,7 +603,13 @@ impl TypeSolver {
     pub fn fmt_type<S: TypeStorage>(&self, f: &mut fmt::Formatter, ty: TypeInfoRef, this: Option<TypeInfoRef>, storage: &S, short: bool) -> fmt::Result {
         match &self.type_infos[ty] {
             TypeInfo::Unknown(fallback) => match fallback {
-                &Some(ty) => self.fmt_type(f, ty, this, storage, short),
+                &Some(ty) => {
+                    f.write_str("<unknown: fallback = ")?;
+
+                    self.fmt_type(f, ty, this, storage, short)?;
+
+                    f.write_str(">")
+                }
                 None => write!(f, "<unknown: {ty:?}>"),
             },
             TypeInfo::Generic(idx, fallback) => match fallback {

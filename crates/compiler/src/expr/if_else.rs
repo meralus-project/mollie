@@ -4,13 +4,19 @@ use mollie_typed_ast::{BlockRef, ExprRef, TypedAST};
 
 use crate::{AsIrType, CompileTypedAST, MolValue, error::CompileResult, func::FunctionCompiler};
 
-impl<M: Module> FunctionCompiler<'_, M> {
+impl<S, M: Module> FunctionCompiler<'_, S, M> {
     pub fn compile_if_expr(&mut self, ast: &TypedAST, condition: ExprRef, block: BlockRef, else_block: Option<ExprRef>) -> CompileResult<MolValue> {
         self.push_frame();
 
-        let cond_result = condition.compile(ast, self)?.expect_value();
         let then_block = self.fn_builder.create_block();
         let after_block = self.fn_builder.create_block();
+        let else_block = else_block.map(|block| (block, self.fn_builder.create_block()));
+
+        self.branches = Some((then_block, else_block.map_or(after_block, |b| b.1)));
+
+        let cond_result = condition.compile(ast, self)?;
+
+        self.branches.take();
 
         let returning_param = if let Some(final_stmt) = &ast[block].value.expr {
             Some(match ast[*final_stmt].ty.as_ir_type(&self.checker.solver, self.compiler.isa()) {
@@ -24,10 +30,10 @@ impl<M: Module> FunctionCompiler<'_, M> {
             None
         };
 
-        let returned = if let Some(otherwise) = else_block {
-            let else_block = self.fn_builder.create_block();
-
-            self.fn_builder.ins().brif(cond_result, then_block, &[], else_block, &[]);
+        let returned = if let Some((otherwise, else_block)) = else_block {
+            if let MolValue::Value(cond_result) = cond_result {
+                self.fn_builder.ins().brif(cond_result, then_block, &[], else_block, &[]);
+            }
 
             self.fn_builder.switch_to_block(then_block);
             self.fn_builder.seal_block(then_block);
@@ -55,7 +61,9 @@ impl<M: Module> FunctionCompiler<'_, M> {
 
             otherwise.compile(ast, self)?
         } else {
-            self.fn_builder.ins().brif(cond_result, then_block, &[], after_block, &[]);
+            if let MolValue::Value(cond_result) = cond_result {
+                self.fn_builder.ins().brif(cond_result, then_block, &[], after_block, &[]);
+            }
 
             self.fn_builder.switch_to_block(then_block);
             self.fn_builder.seal_block(then_block);

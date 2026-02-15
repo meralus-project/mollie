@@ -27,6 +27,12 @@ impl<T> FuncArg<T> {
         }
     }
 
+    pub const fn as_inner_mut(&mut self) -> &mut T {
+        match self {
+            Self::This(inner) | Self::Regular(inner) => inner,
+        }
+    }
+
     pub fn inner(self) -> T {
         match self {
             Self::This(inner) | Self::Regular(inner) => inner,
@@ -55,6 +61,14 @@ pub enum TypeInfo {
 }
 
 impl TypeInfo {
+    pub const fn as_func(&self) -> Option<(&[FuncArg<TypeInfoRef>], TypeInfoRef)> {
+        if let Self::Func(args, returns) = self {
+            Some((args, *returns))
+        } else {
+            None
+        }
+    }
+
     pub const fn is_func(&self) -> bool {
         matches!(self, Self::Func(..))
     }

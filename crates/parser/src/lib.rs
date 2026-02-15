@@ -94,8 +94,8 @@ impl Parser {
         self.tokens.len()
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
+    pub fn is_empty(&mut self) -> bool {
+        self.tokens.peek().is_none()
     }
 
     /// # Errors

@@ -10,13 +10,13 @@ use crate::{
     func::{FuncKey, FunctionCompiler},
 };
 
-impl<M: Module> FunctionCompiler<'_, M> {
+impl<S, M: Module> FunctionCompiler<'_, S, M> {
     pub fn compile_type_index_expr(&mut self, _: &TypedAST, ty: TypeInfoRef, path: TypePath) -> CompileResult<MolValue> {
         match path {
             TypePath::Adt(.., Some((vtable_ref, vfunc_ref))) => Ok(MolValue::FuncRef(self.get_vfunc(self.checker.solver.hash_of(ty), vtable_ref, vfunc_ref))),
             TypePath::Adt(.., Some(variant), None) => {
                 if self.checker.solver.get_info2(ty).is_enum() {
-                    let discriminant = self.fn_builder.ins().iconst(self.compiler.ptr_type(), variant.index() as i64);
+                    let discriminant = self.fn_builder.ins().iconst(self.compiler.ptr_type(), variant.index().cast_signed() as i64);
 
                     Ok(MolValue::Value(self.construct(ty, variant, &[discriminant])?))
                 } else {

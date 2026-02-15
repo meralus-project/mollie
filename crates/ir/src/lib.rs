@@ -14,7 +14,7 @@ use cranelift::{
 
 pub use self::{
     ptr::{FatPtr, VTablePtr},
-    ty::{Array, Field, Struct, compile_constant},
+    ty::{Array, ConstValue, ConstantCompiler, Field, Struct, compile_constant},
     utils::stack_alloc,
 };
 

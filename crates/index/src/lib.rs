@@ -273,3 +273,34 @@ impl<I: Idx, T> From<Vec<T>> for IndexVec<I, T> {
         }
     }
 }
+
+pub trait IdxEnumerate: Iterator + Sized {
+    fn enumerate_idx<T: Idx>(self) -> Enumerate<T, Self>;
+}
+
+pub struct Enumerate<T: Idx, I: Iterator> {
+    iter: I,
+    counter: T,
+}
+
+impl<T: Idx, I: Iterator> Iterator for Enumerate<T, I> {
+    type Item = (T, I::Item);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let value = self.iter.next()?;
+        let index = self.counter;
+
+        self.counter = T::new(index.index() + 1);
+
+        Some((index, value))
+    }
+}
+
+impl<I: Iterator> IdxEnumerate for I {
+    fn enumerate_idx<T: Idx>(self) -> Enumerate<T, Self> {
+        Enumerate {
+            iter: self,
+            counter: T::ZERO,
+        }
+    }
+}

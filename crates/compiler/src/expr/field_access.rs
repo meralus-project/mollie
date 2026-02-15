@@ -6,7 +6,7 @@ use mollie_typing::{AdtVariantRef, FieldRef, TypeInfo};
 
 use crate::{CompileTypedAST, MolValue, error::CompileResult, func::FunctionCompiler};
 
-impl<M: Module> FunctionCompiler<'_, M> {
+impl<S, M: Module> FunctionCompiler<'_, S, M> {
     pub fn compile_field_access_expr(&mut self, ast: &TypedAST, expr: ExprRef, target: ExprRef, field: FieldRef) -> CompileResult<MolValue> {
         let v = target.compile(ast, self)?;
 

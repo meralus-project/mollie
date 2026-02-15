@@ -13,6 +13,31 @@ pub enum FieldType {
 }
 
 impl FieldType {
+    pub fn erase(&mut self) {
+        match self {
+            &mut Self::Generic(index, _) => *self = Self::Generic(index, None),
+            Self::Unknown(fallback) => {
+                if let Some(fallback) = fallback {
+                    fallback.erase();
+                }
+            }
+            Self::This | Self::Primitive(_) => (),
+            Self::Array(field_type, _) => field_type.erase(),
+            Self::Func(func_args, field_type) => {
+                for arg in func_args {
+                    arg.as_inner_mut().erase();
+                }
+
+                field_type.erase();
+            }
+            Self::Trait(_, type_args) | Self::Adt(.., type_args) => {
+                for type_arg in type_args {
+                    type_arg.erase();
+                }
+            }
+        }
+    }
+
     pub fn try_unify(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::This, Self::This) | (Self::Generic(..), _) | (Self::Unknown(None), Self::Unknown(Some(_))) => true,

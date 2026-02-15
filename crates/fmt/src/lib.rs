@@ -244,7 +244,7 @@ impl<'a, 'b> Formatter<'a, 'b> {
             ForIn(_) => todo!(),
             Ident(ident) => ident.0.fmt(self.f),
             This => self.f.write_str("self"),
-            Nothing => todo!(),
+            _ => todo!(),
         }
     }
 }

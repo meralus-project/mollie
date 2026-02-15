@@ -13,9 +13,10 @@ use mollie::{
 };
 use mollie_compiler::{allocator::TypeLayout, error::CompileError};
 use mollie_index::Idx;
-use mollie_typed_ast::{InvalidTypePathSegmentReason, ModuleId, NotFunction};
+use mollie_typed_ast::{IntrinsicKind, InvalidTypePathSegmentReason, ModuleId, NotFunction};
 use mollie_typing::PrimitiveType;
-use tiny_skia::{FilterQuality, Paint, Pattern, Pixmap, Rect, SpreadMode, Transform};
+use tiny_skia::{FillRule, FilterQuality, Paint, PathBuilder, Pattern, Pixmap, Point, Rect, SpreadMode, Transform};
+use tracing::level_filters::LevelFilter;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Color {
@@ -70,8 +71,46 @@ pub struct DrawContext {
     size_layout: &'static TypeLayout,
 }
 
+#[repr(C)]
+pub struct CornerRadius {
+    pub top_left: f32,
+    pub top_right: f32,
+    pub bottom_left: f32,
+    pub bottom_right: f32,
+}
+
+struct Path {
+    builder: PathBuilder,
+}
+
+impl Path {
+    fn new() -> Self {
+        Self { builder: PathBuilder::new() }
+    }
+
+    fn move_to(&mut self, point: Point) {
+        self.builder.move_to(point.x, point.y);
+    }
+
+    fn line_to(&mut self, point: Point) {
+        self.builder.line_to(point.x, point.y);
+    }
+
+    fn quad_to(&mut self, point1: Point, point: Point) {
+        self.builder.quad_to(point1.x, point1.y, point.x, point.y);
+    }
+
+    fn close(&mut self) {
+        self.builder.close();
+    }
+
+    fn finish(self) -> Option<tiny_skia::Path> {
+        self.builder.finish()
+    }
+}
+
 impl DrawContext {
-    pub fn draw_rect(&mut self, x: f32, y: f32, width: f32, height: f32, color: GcPtr<Color>) {
+    pub fn draw_rect(&mut self, x: f32, y: f32, width: f32, height: f32, corner_radius: GcPtr<CornerRadius>, color: GcPtr<Color>) {
         println!(
             "[DrawContext/draw_rect ] origin = {x}x{y}, size = {width}x{height}, color = {color} ({:?})",
             color.type_layout()
@@ -81,12 +120,31 @@ impl DrawContext {
 
         paint.set_color_rgba8(color.red, color.green, color.blue, 255);
 
+        let mut path = Path::new();
+
+        path.move_to(Point::from_xy(x + corner_radius.top_left, y));
+        path.line_to(Point::from_xy(x + width - corner_radius.top_right, y));
+        path.quad_to(Point::from_xy(x + width, y), Point::from_xy(x + width, y + corner_radius.top_right));
+        path.line_to(Point::from_xy(x + width, y + height - corner_radius.bottom_right));
+        path.quad_to(
+            Point::from_xy(x + width, y + height),
+            Point::from_xy(x + width - corner_radius.bottom_right, y + height),
+        );
+        path.line_to(Point::from_xy(x + corner_radius.bottom_left, y + height));
+        path.quad_to(Point::from_xy(x, y + height), Point::from_xy(x, y + height - corner_radius.bottom_left));
+        path.line_to(Point::from_xy(x, y + corner_radius.top_left));
+        path.quad_to(Point::from_xy(x, y), Point::from_xy(x + corner_radius.top_left, y));
+        path.close();
+
         self.root
-            .fill_rect(Rect::from_xywh(x, y, width, height).unwrap(), &paint, Transform::identity(), None);
+            .fill_path(&path.finish().unwrap(), &paint, FillRule::Winding, Transform::identity(), None);
     }
 
     pub fn draw_image(&mut self, x: f32, y: f32, width: f32, height: f32, image: GcPtr<Image>) {
-        println!("[DrawContext/draw_image] origin = {x}x{y}, size = {width}x{height}, image = {image:?}");
+        println!(
+            "[DrawContext/draw_image] origin = {x}x{y}, size = {width}x{height}, image = {image:?} ({:?})",
+            image.type_layout()
+        );
 
         let image = self.images.get_image(image);
         let image_width = image.width() as f32;
@@ -159,6 +217,14 @@ fn init_compiler(func_compiler: &mut FuncCompiler) -> (TypeInfoRef, TypeInfoRef)
     func_compiler
         .checker
         .register_func_in_module(module, Func::external("timestamp", func, "ext__get_timestamp"));
+
+    let func_arg = func_compiler.checker.solver.add_info(TypeInfo::Generic(0, None));
+    let ty = TypeInfo::Func(Box::new([FuncArg::Regular(func_arg)]), func_compiler.checker.core_types.uint_size);
+
+    func_compiler
+        .checker
+        .register_intrinsic_in_module(module, "size_of_val", IntrinsicKind::SizeOfValue, ty);
+
     func_compiler.checker.register_adt_in_module(
         module,
         AdtBuilder::new_enum("Option")
@@ -189,6 +255,16 @@ fn init_compiler(func_compiler: &mut FuncCompiler) -> (TypeInfoRef, TypeInfoRef)
             .finish(),
     );
 
+    let corner_radius_ty = func_compiler.checker.register_adt_in_module(
+        module,
+        AdtBuilder::new_struct("CornerRadius")
+            .field::<f32>("top_left")
+            .field::<f32>("top_right")
+            .field::<f32>("bottom_left")
+            .field::<f32>("bottom_right")
+            .finish(),
+    );
+
     let size_ty = func_compiler
         .checker
         .register_adt_in_module(module, AdtBuilder::new_struct("Size").field::<f32>("width").field::<f32>("height").finish());
@@ -197,6 +273,7 @@ fn init_compiler(func_compiler: &mut FuncCompiler) -> (TypeInfoRef, TypeInfoRef)
         .checker
         .register_adt_in_module(module, AdtBuilder::new_struct("Point").field::<f32>("x").field::<f32>("y").finish());
 
+    let (corner_radius_info, _) = func_compiler.checker.instantiate_adt(corner_radius_ty, &[]);
     let (color_info, _) = func_compiler.checker.instantiate_adt(color_ty, &[]);
     let (image_info, _) = func_compiler.checker.instantiate_adt(image_ty, &[]);
     let (size_info, size_ft) = func_compiler.checker.instantiate_adt(size_ty, &[]);
@@ -227,6 +304,7 @@ fn init_compiler(func_compiler: &mut FuncCompiler) -> (TypeInfoRef, TypeInfoRef)
                 func_compiler.checker.core_types.float,
                 func_compiler.checker.core_types.float,
                 func_compiler.checker.core_types.float,
+                corner_radius_info,
                 color_info,
             ],
             func_compiler.checker.core_types.void,
@@ -251,7 +329,7 @@ fn init_compiler(func_compiler: &mut FuncCompiler) -> (TypeInfoRef, TypeInfoRef)
 }
 
 fn main() {
-    tracing_subscriber::fmt().init();
+    tracing_subscriber::fmt().with_max_level(LevelFilter::INFO).init();
 
     let source = include_str!("./ui.mol");
     let mut args = std::env::args();
@@ -328,12 +406,9 @@ fn main() {
                         mollie_typed_ast::NotModule::Adt => "adt",
                     })));
                 }
-                mollie_typed_ast::TypeError::NoField { adt, name } => {
+                mollie_typed_ast::TypeError::NoField { ty, name } => {
                     report.set_message("no field");
-
-                    if let Some(adt_name) = &provider.checker.adt_types[adt].name {
-                        report.add_label(label.with_message(format!("`{adt_name}` doesn't have field called `{name}`")));
-                    }
+                    report.add_label(label.with_message(format!("`{}` doesn't have field called `{name}`", provider.checker.display_of_type(ty, None))));
                 }
                 mollie_typed_ast::TypeError::NonIndexable { ty, name } => {
                     report.set_message("non-indexable value");
@@ -459,7 +534,7 @@ fn main() {
 
                     println!("Calls per sec: ~{:.2}", 1.0 / mid_execution_time.as_secs_f32());
                 } else {
-                    let value = main_func(&raw mut draw_context);
+                    let mut value = main_func(&raw mut draw_context);
                     let ty = value.type_layout();
 
                     if let Some(hash) = ty.adt_ty {
@@ -483,7 +558,7 @@ fn main() {
                             (vtable.render)(
                                 value.ptr_mut(),
                                 GcPtr::from(Point { x: 0.0, y: 0.0 }),
-                                GcPtr::from(Size { width: 1024.0, height: 1024.0 }),
+                                GcPtr::from(Size { width: 512.0, height: 512.0 }),
                                 &mut draw_context,
                             );
                         }

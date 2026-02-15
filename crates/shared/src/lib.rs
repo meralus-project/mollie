@@ -26,6 +26,8 @@ pub enum Operator {
     GreaterThan, // >
     And,         // &&
     Or,          // ||
+    BitAnd,      // &
+    BitOr,       // |
     Is,          // is
 }
 
@@ -53,6 +55,8 @@ impl fmt::Display for Operator {
             Self::GreaterThan => ">",
             Self::And => "&&",
             Self::Or => "||",
+            Self::BitAnd => "&",
+            Self::BitOr => "|",
             Self::Is => "is",
         })
     }

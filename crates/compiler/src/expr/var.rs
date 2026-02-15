@@ -8,7 +8,7 @@ use crate::{
     func::{FuncKey, FunctionCompiler},
 };
 
-impl<M: Module> FunctionCompiler<'_, M> {
+impl<S, M: Module> FunctionCompiler<'_, S, M> {
     pub fn compile_var_expr(&mut self, ast: &TypedAST, expr: ExprRef, name: &str) -> CompileResult<MolValue> {
         if let Some((_, value_ref)) = self.assign_ref.take_if(|(lhs_ref, _)| *lhs_ref == expr) {
             let value = value_ref.compile(ast, self)?;
@@ -42,7 +42,7 @@ impl<M: Module> FunctionCompiler<'_, M> {
                 }
             }))
         } else {
-            unimplemented!("there's no anything for {name}")
+            unimplemented!("there's no anything for {name}: {:#?}", self.frames)
         }
     }
 }

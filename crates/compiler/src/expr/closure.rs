@@ -10,12 +10,12 @@ use mollie_typing::{AdtKind, AdtVariantRef, TypeInfo};
 
 use crate::{
     AsIrType, CompileTypedAST, MolValue, Var,
-    allocator::{GcManagedFieldType, TypeLayout},
+    allocator::{TypeLayout, TypeLayoutField},
     error::CompileResult,
     func::{FunctionCompiler, Variable},
 };
 
-impl<M: Module> FunctionCompiler<'_, M> {
+impl<S, M: Module> FunctionCompiler<'_, S, M> {
     pub fn compile_closure_expr(
         &mut self,
         ast: &TypedAST,
@@ -55,7 +55,7 @@ impl<M: Module> FunctionCompiler<'_, M> {
         let mut ctx = self.compiler.codegen.module.make_context();
         let mut fn_builder_ctx = FunctionBuilderContext::new();
 
-        let mut compiler = FunctionCompiler::new_anonymous(signature, self.compiler, self.checker, &mut ctx, &mut fn_builder_ctx).unwrap();
+        let mut compiler = FunctionCompiler::new_anonymous(signature, self.compiler, self.checker, &mut ctx, &mut fn_builder_ctx)?;
 
         let mut index = 0;
 
@@ -123,8 +123,6 @@ impl<M: Module> FunctionCompiler<'_, M> {
                     }
                 };
 
-                println!("Declaring {name}: {var:?}");
-
                 compiler.frames.current_mut().insert(name.clone(), Variable::new(var, arg_type));
             }
         }
@@ -135,7 +133,7 @@ impl<M: Module> FunctionCompiler<'_, M> {
 
         let func_id = compiler.id;
 
-        self.compiler.codegen.module.define_function(func_id, &mut ctx).unwrap();
+        self.compiler.codegen.module.define_function(func_id, &mut ctx)?;
         self.compiler.codegen.module.clear_context(&mut ctx);
 
         let func = self.compiler.codegen.module.declare_func_in_func(func_id, self.fn_builder.func);
@@ -143,38 +141,40 @@ impl<M: Module> FunctionCompiler<'_, M> {
         if captures.is_empty() {
             Ok(MolValue::FuncRef(func))
         } else {
-            let gc_managed_fields = captures
+            let fields = captures
                 .iter()
                 .zip(&captures_tuple.fields)
-                .filter_map(|((_, field_var), field)| {
+                .map(|((_, field_var), field)| {
                     let info = self.checker.solver.get_info(field_var.ty);
+                    let offset = field.offset.cast_unsigned();
+                    let ir_type = field_var.ty.as_ir_type(&self.checker.solver, self.compiler.isa());
 
                     if info.is_adt() {
-                        Some((AdtVariantRef::ZERO, field.offset.cast_unsigned(), GcManagedFieldType::Regular))
+                        (AdtVariantRef::ZERO, offset, ir_type, TypeLayoutField::Collectable)
                     } else if let &TypeInfo::Array(element, _) = info {
                         let info = self.checker.solver.get_info(element);
 
                         if info.is_adt() {
-                            Some((AdtVariantRef::ZERO, field.offset.cast_unsigned(), GcManagedFieldType::ArrayOfRegular))
+                            (AdtVariantRef::ZERO, offset, ir_type, TypeLayoutField::ArrayOfRegular)
                         } else if info.is_trait() {
-                            Some((AdtVariantRef::ZERO, field.offset.cast_unsigned(), GcManagedFieldType::ArrayOfFat))
+                            (AdtVariantRef::ZERO, offset, ir_type, TypeLayoutField::ArrayOfFat)
                         } else {
-                            None
+                            (AdtVariantRef::ZERO, offset, ir_type, TypeLayoutField::Regular)
                         }
                     } else {
-                        None
+                        (AdtVariantRef::ZERO, offset, ir_type, TypeLayoutField::Regular)
                     }
                 })
                 .collect::<Vec<_>>();
 
-            let gc_managed_fields = Vec::leak::<'static>(gc_managed_fields) as &[_];
+            let gc_managed_fields = Vec::leak::<'static>(fields) as &[_];
 
             let ptr = self.alloc(Box::leak(Box::new(TypeLayout {
                 size: captures_tuple.size as usize,
                 align: captures_tuple.align as usize,
                 kind: Some(AdtKind::Struct),
                 adt_ty: None,
-                gc_managed_fields,
+                fields: gc_managed_fields,
             })));
 
             for ((capture, _), field) in captures.iter().zip(&captures_tuple.fields) {

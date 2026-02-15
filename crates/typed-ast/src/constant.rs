@@ -21,11 +21,6 @@ pub enum ConstantValue {
     Boolean(bool),
     Array(Box<[Self]>),
     String(String),
-    Construct {
-        ty: usize,
-        variant: usize,
-        fields: Box<[(usize, Option<ConstantValue>)]>,
-    },
     Nothing,
 }
 

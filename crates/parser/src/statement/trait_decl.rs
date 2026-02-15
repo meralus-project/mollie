@@ -1,7 +1,7 @@
 use mollie_lexer::Token;
 use mollie_shared::Positioned;
 
-use crate::{Ident, NameWithGenerics, Parse, ParseResult, Parser, ty::Type};
+use crate::{Attribute, Ident, NameWithGenerics, Parse, ParseResult, Parser, ty::Type};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub struct TraitFuncArgument {
@@ -24,8 +24,9 @@ impl Parse for TraitFuncArgument {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct TraitFunction {
+    pub attributes: Vec<Positioned<Attribute>>,
     pub name: Positioned<Ident>,
     pub this: Option<Positioned<()>>,
     pub args: Vec<Positioned<TraitFuncArgument>>,
@@ -34,8 +35,17 @@ pub struct TraitFunction {
 
 impl Parse for TraitFunction {
     fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
-        let start = parser.consume(&Token::Fn)?;
+        let attributes = {
+            let mut items = Vec::new();
 
+            while parser.check(&Token::Attr) {
+                items.push(Attribute::parse(parser)?);
+            }
+
+            items
+        };
+
+        let start = parser.consume(&Token::Fn)?;
         let name = Ident::parse(parser)?;
 
         parser.consume(&Token::ParenOpen)?;
@@ -70,24 +80,29 @@ impl Parse for TraitFunction {
 
         let end = parser.consume(&Token::Semi)?;
 
-        Ok(start.between(&end).wrap(Self { name, this, args, returns }))
+        Ok(start.between(&end).wrap(Self {
+            attributes,
+            name,
+            this,
+            args,
+            returns,
+        }))
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct TraitDecl {
+    pub attributes: Vec<Positioned<Attribute>>,
     pub name: Positioned<NameWithGenerics>,
     pub functions: Positioned<Vec<Positioned<TraitFunction>>>,
 }
 
-impl Parse for TraitDecl {
-    fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
+impl TraitDecl {
+    pub fn parse(parser: &mut Parser, attributes: Vec<Positioned<Attribute>>) -> ParseResult<Positioned<Self>> {
         let start = parser.consume(&Token::Trait)?;
-
         let name = NameWithGenerics::parse(parser)?;
-
         let functions = parser.consume_in(&Token::BraceOpen, &Token::BraceClose)?;
 
-        Ok(start.between(&functions).wrap(Self { name, functions }))
+        Ok(start.between(&functions).wrap(Self { attributes, name, functions }))
     }
 }

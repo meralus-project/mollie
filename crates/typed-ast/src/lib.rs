@@ -1,3 +1,4 @@
+mod constant;
 mod expression;
 mod statement;
 pub mod visitor;
@@ -5,12 +6,14 @@ pub mod visitor;
 use std::{collections::HashMap, fmt, iter, mem, ops::Index};
 
 use indexmap::IndexMap;
+use itertools::Itertools;
 use mollie_const::ConstantValue;
 use mollie_index::{Idx, IndexVec, new_idx_type};
+use mollie_parser::LangItem;
 use mollie_shared::{Positioned, Span};
 use mollie_typing::{
-    Adt, AdtRef, CoreTypes, FieldType, FuncArg, IntType, PrimitiveType, TraitRef, TypeInfo, TypeInfoRef, TypeSolver, TypeStorage, TypeUnificationError,
-    UIntType, VFuncRef, VTableRef, Variable,
+    Adt, AdtRef, AdtVariantRef, CoreTypes, FieldType, FuncArg, IntType, PrimitiveType, TraitRef, TypeInfo, TypeInfoRef, TypeSolver, TypeStorage,
+    TypeUnificationError, UIntType, VFuncRef, VTableRef, Variable,
 };
 use serde::Serialize;
 
@@ -26,6 +29,12 @@ new_idx_type!(FuncRef);
 new_idx_type!(TraitFuncRef);
 new_idx_type!(ModuleId);
 new_idx_type!(TypeErrorRef);
+
+impl TraitFuncRef {
+    pub fn as_vfunc(&self) -> VFuncRef {
+        VFuncRef::new(self.0)
+    }
+}
 
 #[derive(Debug, Clone, Copy, Serialize)]
 pub enum NonConstructable {
@@ -57,7 +66,7 @@ pub enum TypeError {
     ExpectedConstructable { found: NonConstructable },
     ExpectedArray { found: TypeInfoRef },
     ExpectedModule { found: NotModule },
-    NoField { adt: AdtRef, name: String },
+    NoField { ty: TypeInfoRef, name: String },
     NonIndexable { ty: TypeInfoRef, name: String },
     NoFunction { name: String, postfix: bool },
     NoVariable { name: String },
@@ -110,6 +119,13 @@ pub struct TypeErrors<'a>(pub &'a [Positioned<TypeError>]);
 
 pub type TypeResult<'a, T> = Result<T, TypeErrors<'a>>;
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub enum UsedItem {
+    VTable(TypeInfoRef, VTableRef, Box<[TypeInfoRef]>),
+    Adt(AdtRef, Box<[TypeInfoRef]>),
+    Func(FuncRef),
+}
+
 #[derive(Debug, Default, Serialize)]
 pub struct TypedAST {
     pub module: ModuleId,
@@ -117,9 +133,7 @@ pub struct TypedAST {
     pub statements: IndexVec<StmtRef, Stmt>,
     pub exprs: IndexVec<ExprRef, Typed<Expr>>,
 
-    pub used_vtables: Vec<(TypeInfoRef, VTableRef, Box<[TypeInfoRef]>)>,
-    pub used_adt_types: Vec<(AdtRef, Box<[TypeInfoRef]>)>,
-    pub used_functions: Vec<FuncRef>,
+    pub used_items: Vec<UsedItem>,
 }
 
 impl TypedAST {
@@ -158,6 +172,52 @@ impl TypedAST {
 
         result
     }
+
+    pub fn use_item(&mut self, item: UsedItem) {
+        if !self.used_items.contains(&item) {
+            self.used_items.push(item);
+        }
+    }
+
+    /// Function for adding used VTable to Typed AST
+    #[track_caller]
+    pub fn use_vtable_impl<S>(&mut self, checker: &mut TypeChecker<S>, target: TypeInfoRef, vtable: VTableRef) -> Box<[TypeInfoRef]> {
+        let type_args = match checker.solver.get_info(target) {
+            TypeInfo::Adt(.., args) => args.clone(),
+            &TypeInfo::Array(element, _) => Box::new([element]),
+            _ => Box::new([]),
+        };
+
+        for item in &checker.vtables[vtable].used_items {
+            match item {
+                UsedItem::VTable(ty, vtable, input_type_args) => {
+                    if checker.current_vtable == Some(*vtable) {
+                        continue;
+                    }
+
+                    self.use_item(UsedItem::VTable(*ty, *vtable, input_type_args.clone()));
+                }
+                UsedItem::Adt(adt_ref, adt_type_args) => {
+                    let type_args = adt_type_args.iter().map(|&ty| checker.solver.solve_generic_args(ty, &type_args)).collect();
+
+                    self.use_item(UsedItem::Adt(*adt_ref, type_args));
+                }
+                &UsedItem::Func(func_ref) => self.use_item(UsedItem::Func(func_ref)),
+            }
+        }
+
+        if checker.current_vtable != Some(vtable) {    
+            let vtable_type_args: Box<[_]> = checker.vtables[vtable]
+                .generics
+                .iter()
+                .map(|&ty| checker.solver.solve_generic_args(ty, &type_args))
+                .collect();
+
+            self.use_item(UsedItem::VTable(target, vtable, vtable_type_args));
+        }
+
+        type_args
+    }
 }
 
 impl Index<ExprRef> for TypedAST {
@@ -187,10 +247,20 @@ impl Index<StmtRef> for TypedAST {
 pub type TraitFunc = (String, Vec<FuncArg<FieldType>>, FieldType);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VTableFuncKind {
+pub enum VTableFuncKind<S = ()> {
     Local(BlockRef),
     External(&'static str),
+    Special(S),
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+pub enum IntrinsicKind {
+    SizeOf,
+    AlignOf,
+    SizeOfValue,
+    AlignOfValue,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Func {
     pub postfix: bool,
@@ -213,21 +283,21 @@ impl Func {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct VTableFunc<T = TypeInfoRef> {
+pub struct VTableFunc<T = TypeInfoRef, S = ()> {
     pub trait_func: Option<TraitFuncRef>,
     pub name: String,
     pub arg_names: Vec<String>,
     pub ty: T,
-    pub kind: VTableFuncKind,
+    pub kind: VTableFuncKind<S>,
 }
 
 #[derive(Debug)]
-pub struct VTableGenerator {
+pub struct VTableGenerator<S = ()> {
     pub origin_trait: Option<TraitRef>,
     pub generics: Box<[TypeInfoRef]>,
-    pub used_vtables: Vec<(TypeInfoRef, VTableRef, Box<[TypeInfoRef]>)>,
-    pub used_adt_types: Vec<(AdtRef, Box<[TypeInfoRef]>)>,
-    pub functions: IndexVec<VFuncRef, VTableFunc>,
+    pub applied_generics: Box<[TypeInfoRef]>,
+    pub used_items: Vec<UsedItem>,
+    pub functions: IndexVec<VFuncRef, VTableFunc<TypeInfoRef, S>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -236,6 +306,7 @@ pub enum ModuleItem {
     Adt(AdtRef),
     Trait(TraitRef),
     Func(FuncRef),
+    Intrinsic(IntrinsicKind, TypeInfoRef),
 }
 
 pub struct Module {
@@ -279,27 +350,38 @@ impl Trait {
     }
 }
 
-pub struct TypeChecker {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LangItemValue {
+    Adt(AdtRef),
+    AdtVariant(AdtRef, AdtVariantRef),
+    Trait(TraitRef),
+    TraitFunc(TraitRef, TraitFuncRef),
+}
+
+pub struct TypeChecker<S = ()> {
     pub core_types: CoreTypes,
     pub solver: TypeSolver,
 
     pub infer: Option<TypeInfoRef>,
 
+    pub current_vtable: Option<VTableRef>,
     pub available_generics: HashMap<String, (usize, Option<TypeInfoRef>)>,
     pub captures: Vec<(String, Variable)>,
+
+    pub language_items: HashMap<LangItem, LangItemValue>,
 
     pub modules: IndexVec<ModuleId, Module>,
     pub adt_types: IndexVec<AdtRef, Adt>,
     pub local_functions: IndexVec<FuncRef, Func>,
     pub traits: IndexVec<TraitRef, Trait>,
-    pub vtables: IndexVec<VTableRef, VTableGenerator>,
+    pub vtables: IndexVec<VTableRef, VTableGenerator<S>>,
 
     pub errors: IndexVec<TypeErrorRef, Positioned<TypeError>>,
 
     pub returns: Option<TypeInfoRef>,
 }
 
-impl TypeChecker {
+impl<S> TypeChecker<S> {
     pub fn new() -> Self {
         let mut solver = TypeSolver::default();
 
@@ -326,10 +408,12 @@ impl TypeChecker {
 
         Self {
             returns: None,
+            current_vtable: None,
             core_types,
             solver,
             infer: None,
             available_generics: HashMap::new(),
+            language_items: HashMap::new(),
             captures: Vec::new(),
             modules: IndexVec::from_iter([Module::new(ModuleId::ZERO, "<anonymous>")]),
             adt_types: IndexVec::new(),
@@ -346,6 +430,40 @@ impl TypeChecker {
         self.errors.push(span.wrap(error));
 
         result
+    }
+
+    pub fn get_adt_item(&self, item: LangItem) -> Option<AdtRef> {
+        self.language_items
+            .get(&item)
+            .and_then(|v| if let &LangItemValue::Adt(adt_ref) = v { Some(adt_ref) } else { None })
+    }
+
+    pub fn get_adt_variant_item(&self, item: LangItem) -> Option<(AdtRef, AdtVariantRef)> {
+        self.language_items.get(&item).and_then(|v| {
+            if let &LangItemValue::AdtVariant(adt_ref, adt_variant) = v {
+                Some((adt_ref, adt_variant))
+            } else {
+                None
+            }
+        })
+    }
+
+    pub fn get_trait_item(&self, item: LangItem) -> Option<TraitRef> {
+        self.language_items
+            .get(&item)
+            .and_then(|v| if let &LangItemValue::Trait(trait_ref) = v { Some(trait_ref) } else { None })
+    }
+
+    pub fn get_trait_func_item(&self, trait_ref: TraitRef, item: LangItem) -> Option<TraitFuncRef> {
+        self.language_items.get(&item).and_then(|v| {
+            if let &LangItemValue::TraitFunc(func_trait_ref, trait_func) = v
+                && func_trait_ref == trait_ref
+            {
+                Some(trait_func)
+            } else {
+                None
+            }
+        })
     }
 
     pub fn type_check<'a, T: AsRef<str>>(&'a mut self, code: T, ast: &mut TypedAST) -> TypeResult<'a, BlockRef> {
@@ -375,33 +493,19 @@ impl TypeChecker {
             && let Some(vtables) = self.solver.find_vtable(&FieldType::from_type_info_ref(ast[block].ty, &self.solver))
             && let Some(&vtable) = vtables.get(&Some(t))
         {
-            for (adt_ref, type_args) in &self.vtables[vtable].used_adt_types {
-                let adt = (*adt_ref, type_args.clone());
-
-                if !ast.used_adt_types.contains(&adt) {
-                    ast.used_adt_types.push(adt);
-                }
+            for item in &self.vtables[vtable].used_items {
+                ast.use_item(item.clone());
             }
 
-            for (ty, vtable, type_args) in &self.vtables[vtable].used_vtables {
-                let vtable = (*ty, *vtable, type_args.clone());
+            let vtable = UsedItem::VTable(ast[block].ty, vtable, Box::new([]));
 
-                if !ast.used_vtables.contains(&vtable) {
-                    ast.used_vtables.push(vtable);
-                }
-            }
-
-            let vtable = (ast[block].ty, vtable, Box::new([]) as Box<[_]>);
-
-            if !ast.used_vtables.contains(&vtable) {
-                ast.used_vtables.push(vtable);
-            }
+            ast.use_item(vtable);
         }
 
         Ok(block)
     }
 
-    pub fn type_errors(&mut self) -> impl Iterator<Item = TypeErrorDisplay<'_>> {
+    pub fn type_errors(&mut self) -> impl Iterator<Item = TypeErrorDisplay<'_, S>> {
         mem::take(&mut self.solver.errors).into_iter().map(|error| self.display_of_error(error))
     }
 
@@ -456,6 +560,12 @@ impl TypeChecker {
         func
     }
 
+    pub fn register_intrinsic_in_module<T: Into<String>>(&mut self, module: ModuleId, name: T, kind: IntrinsicKind, ty: TypeInfo) {
+        self.modules[module]
+            .items
+            .insert(name.into(), ModuleItem::Intrinsic(kind, self.solver.add_info(ty)));
+    }
+
     pub fn instantiate_adt(&mut self, ty: AdtRef, generic_args: &[TypeInfoRef]) -> (TypeInfoRef, FieldType) {
         let kind = self.adt_types[ty].kind;
         let generics = self.adt_types[ty].generics;
@@ -502,6 +612,7 @@ impl TypeChecker {
                     &ModuleItem::Adt(adt_ref) => Ok(CastedType::Adt(adt_ref)),
                     &ModuleItem::Trait(trait_ref) => Ok(CastedType::Trait(trait_ref)),
                     &ModuleItem::Func(func_ref) => Ok(CastedType::Func(func_ref)),
+                    &ModuleItem::Intrinsic(kind, ty) => Ok(CastedType::Intrinsic(kind, ty)),
                 },
             ),
         }?;
@@ -521,6 +632,7 @@ pub enum CastedType {
     Adt(AdtRef),
     Trait(TraitRef),
     Func(FuncRef),
+    Intrinsic(IntrinsicKind, TypeInfoRef),
 }
 
 pub enum TypeInfoCastError {
@@ -544,21 +656,21 @@ impl fmt::Display for ModuleDisplay<'_> {
     }
 }
 
-impl Default for TypeChecker {
+impl<S> Default for TypeChecker<S> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Index<(VTableRef, VFuncRef)> for TypeChecker {
-    type Output = VTableFunc;
+impl<S> Index<(VTableRef, VFuncRef)> for TypeChecker<S> {
+    type Output = VTableFunc<TypeInfoRef, S>;
 
     fn index(&self, (vtable_ref, vfunc_ref): (VTableRef, VFuncRef)) -> &Self::Output {
         &self.vtables[vtable_ref].functions[vfunc_ref]
     }
 }
 
-impl TypeStorage for TypeChecker {
+impl<S> TypeStorage for TypeChecker<S> {
     fn get_adt(&self, adt_ref: AdtRef) -> &Adt {
         &self.adt_types[adt_ref]
     }
@@ -568,32 +680,32 @@ impl TypeStorage for TypeChecker {
     }
 }
 
-pub struct TypeDisplay<'a> {
+pub struct TypeDisplay<'a, S> {
     ty: TypeInfoRef,
     this: Option<TypeInfoRef>,
-    checker: &'a TypeChecker,
+    checker: &'a TypeChecker<S>,
     short: bool,
 }
 
-impl fmt::Display for TypeDisplay<'_> {
+impl<S> fmt::Display for TypeDisplay<'_, S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.checker.solver.fmt_type(f, self.ty, self.this, self.checker, self.short)
     }
 }
 
-pub struct TypeInfoDisplay<'a, 'b> {
+pub struct TypeInfoDisplay<'a, 'b, S> {
     ty: &'a TypeInfo,
     this: Option<TypeInfoRef>,
-    checker: &'b TypeChecker,
+    checker: &'b TypeChecker<S>,
 }
 
-impl fmt::Display for TypeInfoDisplay<'_, '_> {
+impl<S> fmt::Display for TypeInfoDisplay<'_, '_, S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.checker.solver.fmt_type_info(f, self.ty, self.this, self.checker, false)
     }
 }
 
-impl TypeChecker {
+impl<S> TypeChecker<S> {
     pub const fn save_state(&self) -> TypeCheckerState {
         TypeCheckerState {
             type_infos: self.solver.type_infos.len(),
@@ -628,7 +740,7 @@ impl TypeChecker {
         None
     }
 
-    pub const fn display_of_error(&self, error: TypeUnificationError) -> TypeErrorDisplay<'_> {
+    pub const fn display_of_error(&self, error: TypeUnificationError) -> TypeErrorDisplay<'_, S> {
         TypeErrorDisplay { checker: self, error }
     }
 
@@ -636,7 +748,7 @@ impl TypeChecker {
         ModuleDisplay(module, &self.modules)
     }
 
-    pub const fn display_of_type(&self, ty: TypeInfoRef, this: Option<TypeInfoRef>) -> TypeDisplay<'_> {
+    pub const fn display_of_type(&self, ty: TypeInfoRef, this: Option<TypeInfoRef>) -> TypeDisplay<'_, S> {
         TypeDisplay {
             ty,
             this,
@@ -645,7 +757,7 @@ impl TypeChecker {
         }
     }
 
-    pub const fn short_display_of_type(&self, ty: TypeInfoRef, this: Option<TypeInfoRef>) -> TypeDisplay<'_> {
+    pub const fn short_display_of_type(&self, ty: TypeInfoRef, this: Option<TypeInfoRef>) -> TypeDisplay<'_, S> {
         TypeDisplay {
             ty,
             this,
@@ -654,17 +766,17 @@ impl TypeChecker {
         }
     }
 
-    pub const fn display_of_type_info<'a, 'b>(&'b self, ty: &'a TypeInfo, this: Option<TypeInfoRef>) -> TypeInfoDisplay<'a, 'b> {
+    pub const fn display_of_type_info<'a, 'b>(&'b self, ty: &'a TypeInfo, this: Option<TypeInfoRef>) -> TypeInfoDisplay<'a, 'b, S> {
         TypeInfoDisplay { ty, this, checker: self }
     }
 }
 
-pub struct TypeErrorDisplay<'a> {
-    checker: &'a TypeChecker,
+pub struct TypeErrorDisplay<'a, S> {
+    checker: &'a TypeChecker<S>,
     error: TypeUnificationError,
 }
 
-impl fmt::Display for TypeErrorDisplay<'_> {
+impl<S> fmt::Display for TypeErrorDisplay<'_, S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.error {
             TypeUnificationError::TypeMismatch(expected, got) => {
@@ -754,20 +866,20 @@ impl ConstantContext {
     }
 }
 
-pub trait IntoConstantValue {
-    fn into_constant_value(self, checker: &TypeChecker, ast: &TypedAST, context: &mut ConstantContext) -> Result<ConstantValue, ()>;
+pub trait IntoConstantValue<S> {
+    fn into_constant_value(self, checker: &TypeChecker<S>, ast: &TypedAST, context: &mut ConstantContext) -> Result<ConstantValue, ()>;
 }
 
-pub trait IntoTypedAST<T> {
-    fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST, span: Span) -> T;
+pub trait IntoTypedAST<S, T> {
+    fn into_typed_ast(self, checker: &mut TypeChecker<S>, ast: &mut TypedAST, span: Span) -> T;
 }
 
-pub trait IntoPositionedTypedAST<T> {
-    fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST) -> T;
+pub trait IntoPositionedTypedAST<S, T> {
+    fn into_typed_ast(self, checker: &mut TypeChecker<S>, ast: &mut TypedAST) -> T;
 }
 
-impl<O, T: IntoTypedAST<O>> IntoPositionedTypedAST<O> for Positioned<T> {
-    fn into_typed_ast(self, checker: &mut TypeChecker, ast: &mut TypedAST) -> O {
+impl<O, S, T: IntoTypedAST<S, O>> IntoPositionedTypedAST<S, O> for Positioned<T> {
+    fn into_typed_ast(self, checker: &mut TypeChecker<S>, ast: &mut TypedAST) -> O {
         self.value.into_typed_ast(checker, ast, self.span)
     }
 }

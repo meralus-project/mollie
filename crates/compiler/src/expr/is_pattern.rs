@@ -16,14 +16,14 @@ use crate::{
     func::{FunctionCompiler, Variable},
 };
 
-impl<M: Module> FunctionCompiler<'_, M> {
+impl<S, M: Module> FunctionCompiler<'_, S, M> {
     pub fn compile_is_pattern_expr(&mut self, ast: &TypedAST, target: ExprRef, pattern: &IsPattern) -> CompileResult<MolValue> {
-        fn compile_pattern<M: Module>(
+        fn compile_pattern<S, M: Module>(
             target: &MolValue,
             target_ty: TypeInfoRef,
             pattern: &IsPattern,
             ast: &TypedAST,
-            compiler: &mut FunctionCompiler<'_, M>,
+            compiler: &mut FunctionCompiler<'_, S, M>,
         ) -> CompileResult<MolValue> {
             match pattern {
                 &IsPattern::Literal(expr_ref) => {

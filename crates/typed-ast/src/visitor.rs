@@ -195,6 +195,7 @@ mod default_visitors {
             &Expr::If { condition, block, else_block } => visitor.visit_if(ast, condition, block, else_block),
             &Expr::Block(block) => visitor.visit_block(ast, block),
             Expr::Var(name) => visitor.visit_var(ast, name.as_str()),
+            &Expr::Cast { expr, .. } => visitor.visit_expr(ast, expr),
             &Expr::VTableAccess { target, func } => visitor.visit_vtable_access(ast, target, func),
             &Expr::Access { target, field } => visitor.visit_access(ast, target, field),
             &Expr::Index { target, index } => visitor.visit_index(ast, target, index),

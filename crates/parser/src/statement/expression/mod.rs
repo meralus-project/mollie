@@ -33,7 +33,7 @@ pub use self::{
     type_index::{TypePathExpr, TypePathSegment},
     while_expr::WhileExpr,
 };
-use crate::{Parse, ParseResult, Parser};
+use crate::{Parse, ParseResult, Parser, PrimitiveType};
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Hash)]
 pub enum Precedence {
@@ -47,6 +47,7 @@ pub enum Precedence {
     PCall,
     PIndex,
     PCheck,
+    PCast,
 }
 
 impl Precedence {
@@ -54,6 +55,8 @@ impl Precedence {
         match &token {
             Token::AndAnd => (Self::PAnd, Some(Operator::And)),
             Token::OrOr => (Self::POr, Some(Operator::Or)),
+            Token::And => (Self::PAnd, Some(Operator::BitAnd)),
+            Token::Or => (Self::POr, Some(Operator::BitOr)),
             Token::Eq => (Self::PEquals, Some(Operator::Assign)),
             Token::EqEq => (Self::PEquals, Some(Operator::Equal)),
             Token::NotEq => (Self::PEquals, Some(Operator::NotEqual)),
@@ -66,6 +69,7 @@ impl Precedence {
             Token::ParenOpen => (Self::PCall, None),
             Token::BracketOpen | Token::Dot => (Self::PIndex, None),
             Token::Is => (Self::PCheck, None),
+            Token::As => (Self::PCast, None),
             _ => (Self::PLowest, None),
         }
     }
@@ -85,6 +89,15 @@ fn go_parse_pratt_expr(parser: &mut Parser, precedence: Precedence, left: Positi
                     target: Box::new(left),
                     pattern,
                 }));
+
+                go_parse_pratt_expr(parser, precedence, left, is_limited_expr)
+            }
+            Precedence::PCast if precedence < Precedence::PCast => {
+                parser.consume(&Token::As)?;
+
+                let primitive = PrimitiveType::parse(parser)?;
+
+                let left = left.between(&primitive).wrap(Expr::Cast(Box::new(left), primitive));
 
                 go_parse_pratt_expr(parser, precedence, left, is_limited_expr)
             }
@@ -124,6 +137,7 @@ pub enum Expr {
     Block(BlockExpr),
     ForIn(ForInExpr),
     Is(IsExpr),
+    Cast(Box<Positioned<Expr>>, Positioned<PrimitiveType>),
     Closure(ClosureExpr),
     Ident(Ident),
     This,

@@ -27,6 +27,7 @@ pub fn parse_statements_until(parser: &mut Parser, token: &Token) -> ParseResult
                         ..
                     }) | Expr::Block(_)
                         | Expr::While(_)
+                        | Expr::ForIn(_)
                 )
             )
         {

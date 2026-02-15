@@ -53,7 +53,7 @@ impl<T> GcPtr<T> {
         self.0.cast()
     }
 
-    pub fn ptr_mut(&self) -> *mut T {
+    pub fn ptr_mut(&mut self) -> *mut T {
         self.0.cast()
     }
 
@@ -338,17 +338,25 @@ impl TraitBuilder {
     }
 }
 
-pub struct VTableBuilder {
+pub struct VTableBuilder<S> {
     this: FieldType,
-    functions: IndexVec<VFuncRef, VTableFunc<TypeInfo>>,
+    generics: usize,
+    functions: IndexVec<VFuncRef, VTableFunc<TypeInfo, S>>,
 }
 
-impl VTableBuilder {
+impl<S> VTableBuilder<S> {
     pub const fn new(this: FieldType) -> Self {
         Self {
             this,
+            generics: 0,
             functions: IndexVec::new(),
         }
+    }
+
+    pub fn add_generic(mut self) -> Self {
+        self.generics += 1;
+
+        self
     }
 
     pub fn func<T: Into<String>, I: IntoIterator<Item = TypeInfoRef>>(mut self, name: T, external_name: &'static str, args: I, returns: TypeInfoRef) -> Self {
@@ -363,7 +371,7 @@ impl VTableBuilder {
         self
     }
 
-    pub fn finish(self, checker: &mut TypeChecker) -> VTableRef {
+    pub fn finish(self, checker: &mut TypeChecker<S>) -> VTableRef {
         let functions = self
             .functions
             .into_values()
@@ -386,9 +394,11 @@ impl VTableBuilder {
 
         let vtable = checker.vtables.insert(VTableGenerator {
             origin_trait: None,
-            generics: Box::new([]),
-            used_vtables: Vec::new(),
-            used_adt_types: Vec::new(),
+            generics: (0..self.generics)
+                .map(|generic| checker.solver.add_info(TypeInfo::Generic(generic, None)))
+                .collect(),
+            applied_generics: Box::new([]),
+            used_items: Vec::new(),
             functions,
         });
 

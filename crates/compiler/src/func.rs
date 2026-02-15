@@ -1,5 +1,8 @@
 use cranelift::{
-    codegen::{Context, ir},
+    codegen::{
+        Context,
+        ir::{self, UserFuncName},
+    },
     jit::JITModule,
     module::{FuncId, Linkage, Module},
     prelude::{Block, FunctionBuilder, FunctionBuilderContext, InstBuilder},
@@ -15,9 +18,11 @@ use crate::{
     error::{CompileError, CompileResult},
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct FunctionContext {
     pub alloc: ir::FuncRef,
+    pub alloc_array: ir::FuncRef,
+    pub realloc_array: ir::FuncRef,
     pub mark_root: ir::FuncRef,
     pub unmark_root: ir::FuncRef,
 }
@@ -48,6 +53,7 @@ impl Variable {
 
 pub type VariableFrame = IndexMap<String, Variable>;
 
+#[derive(Debug)]
 pub struct Frames {
     frames: Vec<VariableFrame>,
 }
@@ -98,48 +104,60 @@ impl Default for Frames {
     }
 }
 
-pub struct FunctionCompiler<'a, T: Module = JITModule> {
+pub struct FunctionCompiler<'a, S, T: Module = JITModule> {
     pub(crate) id: FuncId,
     pub(crate) entry_block: Block,
 
     pub(crate) compiler: &'a mut Compiler<T>,
     pub(crate) fn_builder: FunctionBuilder<'a>,
-    pub(crate) checker: &'a TypeChecker,
+    pub(crate) checker: &'a TypeChecker<S>,
 
     pub(crate) context: FunctionContext,
 
     pub(crate) this: Option<MolValue>,
     pub(crate) assign_ref: Option<(ExprRef, ExprRef)>,
+    pub(crate) branches: Option<(ir::Block, ir::Block)>,
 
     pub(crate) funcs: IndexMap<FuncKey, ir::FuncRef>,
     pub(crate) frames: Frames,
 }
 
-impl<'a, M: Module> FunctionCompiler<'a, M> {
+impl<'a, S, M: Module> FunctionCompiler<'a, S, M> {
     pub fn new<T: Into<String>>(
         name: T,
         signature: ir::Signature,
         compiler: &'a mut Compiler<M>,
-        checker: &'a TypeChecker,
+        checker: &'a TypeChecker<S>,
         ctx: &'a mut Context,
         fn_builder_ctx: &'a mut FunctionBuilderContext,
     ) -> Result<Self, FuncCompilerError> {
         compiler.codegen.module.clear_context(ctx);
 
         let name = name.into();
-        let id = compiler.codegen.module.declare_function(&name, Linkage::Local, &signature).unwrap();
+
+        ctx.func.name = UserFuncName::testcase(&name);
+
+        let id = compiler.codegen.module.declare_function(&name, Linkage::Local, &signature)?;
         let mut fn_builder = FunctionBuilder::new(&mut ctx.func, fn_builder_ctx);
         let context = FunctionContext {
             alloc: match compiler.name_to_func_id.get("molalloc") {
-                Some(&alloc) => compiler.codegen.module.declare_func_in_func(alloc, fn_builder.func),
+                Some(&func_id) => compiler.codegen.module.declare_func_in_func(func_id, fn_builder.func),
+                None => return Err(FuncCompilerError::AllocNotFound),
+            },
+            alloc_array: match compiler.name_to_func_id.get("molalloc_arr") {
+                Some(&func_id) => compiler.codegen.module.declare_func_in_func(func_id, fn_builder.func),
+                None => return Err(FuncCompilerError::AllocNotFound),
+            },
+            realloc_array: match compiler.name_to_func_id.get("molrealloc_arr") {
+                Some(&func_id) => compiler.codegen.module.declare_func_in_func(func_id, fn_builder.func),
                 None => return Err(FuncCompilerError::AllocNotFound),
             },
             mark_root: match compiler.name_to_func_id.get("molmark_root") {
-                Some(&alloc) => compiler.codegen.module.declare_func_in_func(alloc, fn_builder.func),
+                Some(&func_id) => compiler.codegen.module.declare_func_in_func(func_id, fn_builder.func),
                 None => return Err(FuncCompilerError::AllocNotFound),
             },
             unmark_root: match compiler.name_to_func_id.get("molunmark_root") {
-                Some(&alloc) => compiler.codegen.module.declare_func_in_func(alloc, fn_builder.func),
+                Some(&func_id) => compiler.codegen.module.declare_func_in_func(func_id, fn_builder.func),
                 None => return Err(FuncCompilerError::AllocNotFound),
             },
         };
@@ -163,6 +181,7 @@ impl<'a, M: Module> FunctionCompiler<'a, M> {
             context,
             this: None,
             assign_ref: None,
+            branches: None,
             funcs: IndexMap::new(),
             frames: Frames::new(),
         })
@@ -171,25 +190,33 @@ impl<'a, M: Module> FunctionCompiler<'a, M> {
     pub fn new_anonymous(
         signature: ir::Signature,
         compiler: &'a mut Compiler<M>,
-        checker: &'a TypeChecker,
+        checker: &'a TypeChecker<S>,
         ctx: &'a mut Context,
         fn_builder_ctx: &'a mut FunctionBuilderContext,
     ) -> Result<Self, FuncCompilerError> {
         compiler.codegen.module.clear_context(ctx);
 
-        let id = compiler.codegen.module.declare_anonymous_function(&signature).unwrap();
+        let id = compiler.codegen.module.declare_anonymous_function(&signature)?;
         let mut fn_builder = FunctionBuilder::new(&mut ctx.func, fn_builder_ctx);
         let context = FunctionContext {
             alloc: match compiler.name_to_func_id.get("molalloc") {
-                Some(&alloc) => compiler.codegen.module.declare_func_in_func(alloc, fn_builder.func),
+                Some(&func_id) => compiler.codegen.module.declare_func_in_func(func_id, fn_builder.func),
+                None => return Err(FuncCompilerError::AllocNotFound),
+            },
+            alloc_array: match compiler.name_to_func_id.get("molalloc_arr") {
+                Some(&func_id) => compiler.codegen.module.declare_func_in_func(func_id, fn_builder.func),
+                None => return Err(FuncCompilerError::AllocNotFound),
+            },
+            realloc_array: match compiler.name_to_func_id.get("molrealloc_arr") {
+                Some(&func_id) => compiler.codegen.module.declare_func_in_func(func_id, fn_builder.func),
                 None => return Err(FuncCompilerError::AllocNotFound),
             },
             mark_root: match compiler.name_to_func_id.get("molmark_root") {
-                Some(&alloc) => compiler.codegen.module.declare_func_in_func(alloc, fn_builder.func),
+                Some(&func_id) => compiler.codegen.module.declare_func_in_func(func_id, fn_builder.func),
                 None => return Err(FuncCompilerError::AllocNotFound),
             },
             unmark_root: match compiler.name_to_func_id.get("molunmark_root") {
-                Some(&alloc) => compiler.codegen.module.declare_func_in_func(alloc, fn_builder.func),
+                Some(&func_id) => compiler.codegen.module.declare_func_in_func(func_id, fn_builder.func),
                 None => return Err(FuncCompilerError::AllocNotFound),
             },
         };
@@ -205,6 +232,7 @@ impl<'a, M: Module> FunctionCompiler<'a, M> {
         Ok(FunctionCompiler {
             id,
             entry_block,
+            branches: None,
             compiler,
             fn_builder,
             checker,
@@ -346,11 +374,13 @@ impl<'a, M: Module> FunctionCompiler<'a, M> {
         match self.funcs.entry(FuncKey::VFunc(hash, vtable, func)) {
             Entry::Occupied(vfunc) => *vfunc.get(),
             Entry::Vacant(vfunc) => {
-                let func = self
-                    .compiler
-                    .codegen
-                    .module
-                    .declare_func_in_func(self.compiler.vtables[&(hash, vtable)][func], self.fn_builder.func);
+                let func = self.compiler.codegen.module.declare_func_in_func(
+                    self.compiler
+                        .vtables
+                        .get(&(hash, vtable))
+                        .unwrap_or_else(|| panic!("there's no vtable for ({hash}, {vtable:?})"))[func],
+                    self.fn_builder.func,
+                );
 
                 *vfunc.insert(func)
             }

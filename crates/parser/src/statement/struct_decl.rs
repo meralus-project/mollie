@@ -46,7 +46,6 @@ impl StructDecl {
         parser.consume(&Token::Struct)?;
 
         let name = NameWithGenerics::parse(parser)?;
-
         let properties = parser.consume_separated_in(&Token::Comma, &Token::BraceOpen, &Token::BraceClose)?;
 
         Ok(name.span.between(properties.span).wrap(Self { attributes, name, properties }))
