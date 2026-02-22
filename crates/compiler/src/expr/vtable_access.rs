@@ -19,12 +19,7 @@ impl<S, M: Module> FunctionCompiler<'_, S, M> {
             }
             VFunc::Unknown(_, trait_func_ref) => {
                 if let MolValue::FatPtr(value, vtable_ptr) = target_val {
-                    let vtable_func = VTablePtr::get_func_ptr(
-                        self.compiler.isa(),
-                        &mut self.fn_builder,
-                        vtable_ptr,
-                        trait_func_ref.index() as u32,
-                    );
+                    let vtable_func = VTablePtr::get_func_ptr(self.compiler.isa(), &mut self.fn_builder, vtable_ptr, trait_func_ref.index() as u32);
 
                     self.this.replace(MolValue::Value(value));
 

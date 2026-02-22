@@ -63,7 +63,7 @@ impl<S, M: Module> FunctionCompiler<'_, S, M> {
             }
 
             Ok(MolValue::Nothing)
-        } else {            
+        } else {
             let lhs = lhs_ref.compile(ast, self)?;
             let rhs = rhs_ref.compile(ast, self)?;
 

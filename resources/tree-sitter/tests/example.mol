@@ -1,0 +1,643 @@
+import { timestamp } from std;
+import { Size, Point } from graphics;
+
+@[lang_item = "Option"]
+enum Option<T> {
+    @[lang_item = "Option::Some"]
+    Some { value: T },
+    @[lang_item = "Option::None"]
+    None,
+}
+
+@[lang_item = "IntoIterator"]
+trait Iterable<T> {
+    @[lang_item = "IntoIterator::into_iter"]
+    fn iter(self) -> T;
+}
+
+@[lang_item = "Iterator"]
+trait Iterator<T> {
+    @[lang_item = "Iterator::next"]
+    fn next(self) -> Option<T>;
+}
+
+struct ArrayIter<T> {
+    index: uint_size,
+    value: T[]
+}
+
+impl<T> Iterator<T> for ArrayIter<T> {
+    fn next(self) -> Option<T> {
+        if self.index == get_size(self.value) {
+            Option::None
+        } else {
+            const value = self.value[self.index];
+
+            self.index = self.index + 1;
+
+            Option::Some { value }
+        }
+    }
+}
+
+impl<T> Iterable<ArrayIter<T>> for T[] {
+    fn iter(self) -> ArrayIter<T> {
+        ArrayIter {
+            value: self,
+            index: 0
+        }
+    }
+}
+
+enum Unit {
+    ParentWeight { value: float },
+    Fixed { value: float }
+}
+
+impl Unit {
+    fn calc(self, parent: float) -> float {
+        if self is Unit::ParentWeight { value } {
+            parent * value
+        } else if self is Unit::Fixed { value } {
+            value
+        } else {
+            0.0
+        }
+    }
+}
+
+postfix fn px(value: float) -> Unit {
+    Unit::Fixed { value }
+}
+
+postfix fn wh(value: float) -> Unit {
+    Unit::ParentWeight { value }
+}
+
+declare Rectangle {
+    width: Unit,
+    height: Unit,
+    corner_radius: graphics::CornerRadius = graphics::CornerRadius { top_left: 0.0, top_right: 0.0, bottom_left: 0.0, bottom_right: 0.0 },
+    background: graphics::Color
+}
+
+declare Image {
+    image: graphics::Image,
+    width: Unit,
+    height: Unit
+}
+
+impl graphics::Color {
+    fn new(red: uint8, green: uint8, blue: uint8) -> graphics::Color {
+        graphics::Color { red, green, blue }
+    }
+}
+
+declare Column {
+    children: Drawable[],
+    spacing: float = 0.0
+}
+
+declare Row {
+    children: Drawable[],
+    spacing: float = 0.0
+}
+
+impl Drawable for Image {
+    fn measure(self, parent: Size, ctx: DrawContext) -> Size {
+        const width = self.width.calc(parent.width);
+        const height = self.height.calc(parent.height);
+
+        Size { width, height }
+    }
+
+    fn render(self, origin: Point, parent: Size, ctx: DrawContext) {
+        const width = self.width.calc(parent.width);
+        const height = self.height.calc(parent.height);
+
+        ctx.draw_image(origin.x, origin.y, width, height, self.image);
+    }
+}
+
+impl Drawable for Rectangle {
+    fn measure(self, parent: Size, ctx: DrawContext) -> Size {
+        Size {
+            width: self.width.calc(parent.width),
+            height: self.height.calc(parent.height)
+        }
+    }
+
+    fn render(self, origin: Point, parent: Size, ctx: DrawContext) {
+        const width = self.width.calc(parent.width);
+        const height = self.height.calc(parent.height);
+
+        ctx.draw_rect(origin.x, origin.y, width, height, self.corner_radius, self.background);
+    }
+}
+
+impl float {
+    fn max(self, other: float) -> float {
+        if self > other {
+            self
+        } else {
+            other
+        }
+    }
+}
+
+impl Drawable for Column {
+    fn measure(self, parent: Size, ctx: DrawContext) -> Size {
+        const width = 0.0;
+        const height = 0.0;
+
+        for value in self.children {
+            const measured = value.measure(parent, ctx);
+
+            width = measured.width.max(width);
+            height = height + measured.height + self.spacing;
+        }
+
+        if height > 0.0 {
+            height = height - self.spacing;
+        }
+
+        Size { width, height }
+    }
+
+    fn render(self, point: Point, parent: Size, ctx: DrawContext) {
+        for value in self.children {
+            const measured = value.measure(parent, ctx);
+
+            value.render(point, parent, ctx);
+
+            point.y = point.y + measured.height + self.spacing;
+            parent.height = parent.height - measured.height - self.spacing;
+        }
+    }
+}
+
+impl Drawable for Row {
+    fn measure(self, parent: Size, ctx: DrawContext) -> Size {
+        const width = 0.0;
+        const height = 0.0;
+
+        for value in self.children {
+            const measured = value.measure(parent, ctx);
+
+            height = measured.width.max(width);
+            width = width + measured.width + self.spacing;
+        }
+
+        if width > 0.0 {
+            width = width - self.spacing;
+        }
+
+        Size { width, height }
+    }
+
+    fn render(self, point: Point, parent: Size, ctx: DrawContext) {
+        for value in self.children {
+            const measured = value.measure(parent, ctx);
+
+            value.render(point, parent, ctx);
+
+            point.x = point.x + measured.width + self.spacing;
+            parent.width = parent.width - measured.width - self.spacing;
+        }
+    }
+}
+
+impl graphics::Image {
+    fn path(value: string) -> graphics::Image {
+        graphics::Image::Path { value }
+    }
+}
+
+declare GridItem {
+    row: uint_size = 0,
+    row_span: uint_size = 1,
+    column: uint_size = 0,
+    column_span: uint_size = 1,
+    children: Drawable[]
+}
+
+struct Cell {
+    size: Size,
+    position: Point,
+
+    row: uint_size,
+    row_span: uint_size,
+    column: uint_size,
+    column_span: uint_size,
+
+    size_type_u: uint8,
+    size_type_v: uint8,
+
+    next: Option<uint_size>
+}
+
+struct CellGroups {
+    group_1: Option<uint_size> = Option::None,
+    group_2: Option<uint_size> = Option::None,
+    group_3: Option<uint_size> = Option::None,
+    group_4: Option<uint_size> = Option::None
+}
+
+const UNIT_NONE = 0;
+const UNIT_FIXED = 1;
+const UNIT_STAR = 4;
+
+impl Cell {
+    fn is_star_u(self) -> boolean {
+        (self.size_type_u & 4) == 4
+    }
+
+    fn is_star_v(self) -> boolean {
+        (self.size_type_v & 4) == 4
+    }
+
+    fn is_auto_u(self) -> boolean {
+        false
+    }
+
+    fn is_auto_v(self) -> boolean {
+        false
+    }
+}
+
+struct Definition {
+    length: Unit,
+    size: float = 0.0,
+    offset: float = 0.0
+}
+
+impl Unit {
+    fn kind(self) -> uint8 {
+        if self is Unit::Fixed { value } {
+            1
+        } else {
+            4
+        }
+    }
+}
+
+impl Definition {
+    fn new(length: Unit) -> Definition {
+        const size = if length is Unit::Fixed { value } {
+            value
+        } else {
+            0.0
+        };
+
+        Definition {
+            length,
+            size,
+            offset: 0.0
+        }
+    }
+}
+
+declare Grid {
+    columns: Definition[],
+    rows: Definition[],
+    cells: Cell[] = [],
+    children: GridItem[],
+    cell_groups: CellGroups = CellGroups { },
+    spacing: float = 0.0,
+    has_star_cells_u: boolean = false,
+    has_star_cells_v: boolean = false,
+    has_group3_cells_in_auto_rows: boolean = false
+}
+
+fn length_type_for_range(definitions: Definition[], start: uint_size, length: uint_size) -> uint8 {
+    const length_type = 0;
+    const i = Option::Some { value: start + length - 1 };
+
+    while i is Option::Some { value } && (value > start || value == start) {
+        if value > 0 {
+            length_type = (length_type | definitions[value].length.kind());
+
+            i = Option::Some { value: value - 1 };
+        } else {
+            i = Option::None;
+
+            length_type = (length_type | definitions[0].length.kind());
+        }
+    }
+
+    length_type
+}
+
+fn resolve_stars(definitions: Definition[], available_size: float) {
+    const all_weights = 0.0;
+    const taken_size = 0.0;
+
+    for def in definitions {
+        if def.length is Unit::Fixed { value } {
+            taken_size = taken_size + value;
+        } else if def.length is Unit::ParentWeight { value } {
+            all_weights = all_weights + value;
+        }
+    }
+
+    const size_part = (available_size - taken_size) / all_weights;
+
+    for def in definitions {
+        if def.length is Unit::ParentWeight { value } {
+            def.size = size_part * value;
+        }
+    }
+}
+
+impl uint_size {
+    fn min(self, other: uint_size) -> uint_size {
+        if self > other {
+            other
+        } else {
+            self
+        }
+    }
+}
+
+impl Grid {
+    fn validate_cells(self) {
+        const has_star_cells_u = false;
+        const has_star_cells_v = false;
+        const has_group3_cells_in_auto_rows = false;
+        const cell_groups = CellGroups { };
+        const i = 0;
+        const columns = get_size(self.columns);
+        const rows = get_size(self.rows);
+
+        for cell in self.children {
+            const column = cell.column.min(columns - 1);
+            const column_span = cell.column_span.min(columns - column);
+            const row = cell.row.min(rows - 1);
+            const row_span = cell.row_span.min(rows - row);
+
+            const cell = Cell {
+                column,
+                column_span,
+                row,
+                row_span,
+                size_type_u: length_type_for_range(self.columns, column, column_span),
+                size_type_v: length_type_for_range(self.rows, row, row_span),
+                next: Option::None,
+                size: Size { width: 0.0, height: 0.0 },
+                position: Point { x: 0.0, y: 0.0 },
+            };
+
+            has_star_cells_u = (has_star_cells_u | cell.is_star_u());
+            has_star_cells_v = (has_star_cells_v | cell.is_star_v());
+
+            if cell.is_star_v() == false {
+                if cell.is_star_u() == false {
+                    cell.next = cell_groups.group_1;
+                    cell_groups.group_1 = Option::Some { value: i };
+                } else {
+                    cell.next = cell_groups.group_3;
+                    cell_groups.group_3 = Option::Some { value: i };
+                    has_group3_cells_in_auto_rows = (has_group3_cells_in_auto_rows | cell.is_auto_v());
+                }
+            } else if cell.is_auto_u() && cell.is_star_u() == false {
+                cell.next = cell_groups.group_2;
+                cell_groups.group_2 = Option::Some { value: i };
+            } else {
+                cell.next = cell_groups.group_4;
+                cell_groups.group_4 = Option::Some { value: i };
+            }
+
+            self.cells.push(cell);
+
+            i = i + 1;
+        }
+
+        self.cell_groups = cell_groups;
+        self.has_star_cells_u = has_star_cells_u;
+        self.has_star_cells_v = has_star_cells_v;
+        self.has_group3_cells_in_auto_rows = has_group3_cells_in_auto_rows;
+    }
+
+    fn measure_cells_group(self, cells_head: Option<uint_size>) {
+        const i = cells_head;
+
+        while i is Option::Some { value } {
+            const cell = self.cells[value];
+            const height = 0.0;
+            const width = 0.0;
+            const current_row = cell.row;
+            const current_column = cell.column;
+
+            while current_row < (cell.row + cell.row_span) {
+                height = height + self.rows[current_row].size;
+
+                current_row = current_row + 1;
+            }
+
+            while current_column < (cell.column + cell.column_span) {
+                width = width + self.columns[current_column].size;
+
+                current_column = current_column + 1;
+            }
+
+            cell.size.height = height + (((cell.row_span - 1) as float) * self.spacing);
+            cell.size.width = width + (((cell.column_span - 1) as float) * self.spacing);
+
+            i = cell.next;
+        }
+    }
+
+    fn arrange(self, offset: Point) {
+        const columns = get_size(self.columns);
+        const rows = get_size(self.rows);
+        const column = 1;
+        const row = 1;
+
+        while column < columns {
+            const prev = column - 1;
+
+            self.columns[column].offset = self.columns[prev].offset + self.columns[prev].size + self.spacing;
+
+            column = column + 1;
+        }
+
+        while row < rows {
+            const prev = row - 1;
+
+            self.rows[row].offset = self.rows[prev].offset + self.rows[prev].size + self.spacing;
+            
+            row = row + 1;
+        }
+
+        for cell in self.cells {
+            cell.position.x = offset.x + self.columns[cell.column].offset;
+            cell.position.y = offset.y + self.rows[cell.row].offset;
+        }
+    }
+}
+
+impl Drawable for Grid {
+    fn measure(self, parent: Size, ctx: DrawContext) -> Size {
+        const width = 0.0;
+        const height = 0.0;
+
+        //const column = 0;
+
+        //while column < get_size(self.columns) {
+        //    self.columns[column].size = self.columns[column].size - self.spacing;
+//
+        //    column = column + 1;
+        //}
+        //
+        //const row = 0;
+//
+        //while row < get_size(self.rows) {
+        //    self.rows[row].size = self.rows[row].size - self.spacing;
+//
+        //    row = row + 1;
+        //}
+
+        self.validate_cells();
+        self.measure_cells_group(self.cell_groups.group_1);
+
+        if self.has_group3_cells_in_auto_rows == false {
+            if self.has_star_cells_v {
+                resolve_stars(self.rows, parent.height - (((get_size(self.rows) - 1) as float) * self.spacing));
+            }
+
+            self.measure_cells_group(self.cell_groups.group_2);
+
+            if self.has_star_cells_u {
+                resolve_stars(self.columns, parent.width - (((get_size(self.columns) - 1) as float) * self.spacing));
+            }
+
+            self.measure_cells_group(self.cell_groups.group_3);
+        }
+
+        self.measure_cells_group(self.cell_groups.group_4);
+
+        Size { width, height }
+    }
+
+    fn render(self, offset: Point, parent: Size, ctx: DrawContext) {
+        self.measure(parent, ctx);
+        self.arrange(offset);
+
+        const children = get_size(self.children);
+        const current = 0;
+
+        while current < children {
+            const value = self.children[current].children[0];
+            const cell = self.cells[current];
+            const measured = value.measure(cell.size, ctx);
+
+            value.render(cell.position, measured, ctx);
+
+            current = current + 1;
+        }
+    }
+}
+
+Grid {
+    spacing: 12.0,
+    columns: [
+        Definition::new(256.0px),
+        Definition::new(1.0wh),
+        Definition::new(100.0px),
+    ],
+    rows: [
+        Definition::new(64.0px),
+        Definition::new(1.0wh),
+        Definition::new(48.0px),
+    ],
+
+    GridItem {
+        Rectangle {
+            width: 1.0wh,
+            height: 1.0wh,
+            corner_radius: graphics::CornerRadius { top_left: 24.0, top_right: 12.0, bottom_left: 12.0, bottom_right: 12.0 },
+            background: graphics::Color::new(0, 255, 0)
+        }
+    }
+    
+    GridItem {
+        column: 1,
+
+        Rectangle {
+            width: 1.0wh,
+            height: 1.0wh,
+            corner_radius: graphics::CornerRadius { top_left: 12.0, top_right: 12.0, bottom_left: 12.0, bottom_right: 12.0 },
+            background: graphics::Color::new(0, 255, 0)
+        }
+    }
+    
+    GridItem {
+        column: 2,
+
+        Rectangle {
+            width: 1.0wh,
+            height: 1.0wh,
+            corner_radius: graphics::CornerRadius { top_left: 12.0, top_right: 24.0, bottom_left: 12.0, bottom_right: 12.0 },
+            background: graphics::Color::new(0, 255, 0)
+        }
+    }
+
+    GridItem {
+        row: 1,
+
+        Rectangle {
+            width: 1.0wh,
+            height: 1.0wh,
+            corner_radius: graphics::CornerRadius { top_left: 12.0, top_right: 12.0, bottom_left: 12.0, bottom_right: 24.0 },
+            background: graphics::Color::new(0, 255, 0)
+        }
+    }
+
+    GridItem {
+        column: 1,
+        row: 1,
+
+        Rectangle {
+            width: 1.0wh,
+            height: 1.0wh,
+            corner_radius: graphics::CornerRadius { top_left: 12.0, top_right: 12.0, bottom_left: 12.0, bottom_right: 12.0 },
+            background: graphics::Color::new(0, 255, 0)
+        }
+    }
+
+    GridItem {
+        column: 2,
+        row: 1,
+        row_span: 2,
+
+        Rectangle {
+            width: 1.0wh,
+            height: 1.0wh,
+            corner_radius: graphics::CornerRadius { top_left: 12.0, top_right: 12.0, bottom_left: 12.0, bottom_right: 24.0 },
+            background: graphics::Color::new(0, 255, 0)
+        }
+    }
+
+    GridItem {
+        row: 2,
+
+        Rectangle {
+            width: 1.0wh,
+            height: 1.0wh,
+            corner_radius: graphics::CornerRadius { top_left: 12.0, top_right: 12.0, bottom_left: 24.0, bottom_right: 12.0 },
+            background: graphics::Color::new(0, 255, 0)
+        }
+    }
+
+    GridItem {
+        column: 1,
+        row: 2,
+
+        Rectangle {
+            width: 1.0wh,
+            height: 1.0wh,
+            corner_radius: graphics::CornerRadius { top_left: 12.0, top_right: 12.0, bottom_left: 12.0, bottom_right: 12.0 },
+            background: graphics::Color::new(0, 255, 0)
+        }
+    }
+}

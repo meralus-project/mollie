@@ -5,9 +5,10 @@ use std::{
 
 use indexmap::IndexMap;
 use mollie_index::{Idx, IndexVec};
+use mollie_shared::{MaybePositioned, Positioned, Span};
 use serde::Serialize;
 
-use crate::{Adt, AdtKind, AdtRef, AdtVariantRef, FieldType, PrimitiveType, TraitRef, TypeInfo, TypeInfoRef, VTableRef};
+use crate::{Adt, AdtKind, AdtRef, AdtVariantRef, FieldType, FuncArg, PrimitiveType, TraitRef, TypeInfo, TypeInfoRef, VTableRef};
 
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -17,7 +18,7 @@ pub struct Variable {
     pub ty: TypeInfoRef,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize)]
 pub enum TypeUnificationError {
     TypeMismatch(TypeInfoRef, TypeInfoRef),
     UnimplementedTrait(TraitRef, TypeInfoRef),
@@ -32,23 +33,30 @@ pub trait TypeStorage {
 
 #[derive(Debug, Default)]
 pub struct TypeSolver {
-    pub type_infos: IndexVec<TypeInfoRef, TypeInfo>,
+    pub type_infos: IndexVec<TypeInfoRef, MaybePositioned<TypeInfo>>,
     frames: Vec<IndexMap<String, Variable>>,
     pub vtables: IndexMap<FieldType, IndexMap<Option<TraitRef>, VTableRef>>,
-    pub errors: Vec<TypeUnificationError>,
+    pub errors: Vec<Positioned<TypeUnificationError>>,
 }
 
 impl TypeSolver {
     pub fn finalize(&mut self) {
         for (info_ref, info) in self.type_infos.iter_mut() {
-            if let TypeInfo::Unknown(fallback) = info {
+            if let TypeInfo::Unknown(fallback) = &mut info.value {
                 if let Some(fallback) = fallback {
-                    *info = TypeInfo::Ref(*fallback);
-                } else {
-                    self.errors.push(TypeUnificationError::UnknownType(info_ref));
+                    info.value = TypeInfo::Ref(*fallback);
+                } else if let Some(span) = info.span {
+                    self.errors.push(span.wrap(TypeUnificationError::UnknownType(info_ref)));
                 }
             }
         }
+
+        // after finalization and solving, some type mismatch errors may lose their
+        // meaning, since types are now the same
+        self.errors.retain(|err| match &err.value {
+            &TypeUnificationError::TypeMismatch(a, b) => !self.type_infos.info_eq(&self.type_infos[a].value, &self.type_infos[b].value),
+            _ => true,
+        });
     }
 
     pub fn find_vtable(&self, field_type: &FieldType) -> Option<&IndexMap<Option<TraitRef>, VTableRef>> {
@@ -167,7 +175,7 @@ impl TypeSolver {
         (0..self.type_infos.len()).map(TypeInfoRef::new)
     }
 
-    pub fn type_infos(&self) -> impl Iterator<Item = &TypeInfo> {
+    pub fn type_infos(&self) -> impl Iterator<Item = &MaybePositioned<TypeInfo>> {
         self.type_infos.values()
     }
 
@@ -176,58 +184,59 @@ impl TypeSolver {
             TypeInfo::Ref(_) | TypeInfo::Generic(..) | TypeInfo::Unknown(_) => false,
             TypeInfo::Primitive(_) => true,
             TypeInfo::Func(func_args, returns) => {
-                func_args.iter().all(|arg| self.is_constant_info(&self.type_infos[arg.inner()])) && self.is_constant_info(&self.type_infos[*returns])
+                func_args.iter().all(|arg| self.is_constant_info(&self.type_infos[arg.inner()].value))
+                    && self.is_constant_info(&self.type_infos[*returns].value)
             }
-            TypeInfo::Trait(_, type_args) => type_args.iter().all(|type_arg| self.is_constant_info(&self.type_infos[*type_arg])),
-            TypeInfo::Adt(.., type_args) => type_args.iter().all(|type_arg| self.is_constant_info(&self.type_infos[*type_arg])),
-            &TypeInfo::Array(element, _) => self.is_constant_info(&self.type_infos[element]),
+            TypeInfo::Trait(_, type_args) => type_args.iter().all(|type_arg| self.is_constant_info(&self.type_infos[*type_arg].value)),
+            TypeInfo::Adt(.., type_args) => type_args.iter().all(|type_arg| self.is_constant_info(&self.type_infos[*type_arg].value)),
+            &TypeInfo::Array(element, _) => self.is_constant_info(&self.type_infos[element].value),
         }
     }
 
-    pub fn add_info(&mut self, info: TypeInfo) -> TypeInfoRef {
+    pub fn add_info(&mut self, info: TypeInfo, span: Option<Span>) -> TypeInfoRef {
         if self.is_constant_info(&info)
-            && let Some((result, _)) = self.type_infos.iter().find(|(_, i)| i == &&info)
+            && let Some((result, _)) = self.type_infos.iter().find(|(_, i)| i.value == info)
         {
             result
         } else {
             let result = TypeInfoRef(self.type_infos.len());
 
-            self.type_infos.push(info);
+            self.type_infos.push(MaybePositioned::new(info, span));
 
             result
         }
     }
 
     pub fn get_info3(&self, info_ref: TypeInfoRef) -> (TypeInfoRef, &TypeInfo) {
-        match &self.type_infos[info_ref] {
+        match &self.type_infos[info_ref].value {
             &TypeInfo::Ref(info_ref) | &TypeInfo::Generic(_, Some(info_ref)) => self.get_info3(info_ref),
             info => (info_ref, info),
         }
     }
 
     pub fn get_info(&self, info_ref: TypeInfoRef) -> &TypeInfo {
-        match &self.type_infos[info_ref] {
+        match &self.type_infos[info_ref].value {
             &TypeInfo::Ref(info_ref) | &TypeInfo::Generic(_, Some(info_ref)) => self.get_info(info_ref),
             info => info,
         }
     }
 
     pub fn get_info2(&self, info_ref: TypeInfoRef) -> &TypeInfo {
-        match &self.type_infos[info_ref] {
+        match &self.type_infos[info_ref].value {
             &TypeInfo::Unknown(Some(info_ref)) | &TypeInfo::Generic(_, Some(info_ref)) | &TypeInfo::Ref(info_ref) => self.get_info2(info_ref),
             info => info,
         }
     }
 
     pub fn get_maybe_info(&self, info_ref: TypeInfoRef) -> Option<&TypeInfo> {
-        match self.type_infos.get(info_ref) {
+        match self.type_infos.get(info_ref).map(|i| &i.value) {
             Some(&TypeInfo::Ref(info_ref)) => self.get_maybe_info(info_ref),
             info => info,
         }
     }
 
     pub fn get_maybe_info2(&self, info_ref: TypeInfoRef) -> (TypeInfoRef, Option<&TypeInfo>) {
-        match self.type_infos.get(info_ref) {
+        match self.type_infos.get(info_ref).map(|i| &i.value) {
             Some(&TypeInfo::Ref(info_ref)) => self.get_maybe_info2(info_ref),
             info => (info_ref, info),
         }
@@ -235,7 +244,8 @@ impl TypeSolver {
 
     pub fn get_field_type(&self, info_ref: TypeInfoRef) -> FieldType {
         match self.get_info(info_ref) {
-            TypeInfo::Unknown(_) => unimplemented!(),
+            &TypeInfo::Unknown(Some(info_ref)) => self.get_field_type(info_ref),
+            TypeInfo::Unknown(None) => unimplemented!(),
             &TypeInfo::Generic(idx, _) => FieldType::Generic(idx, Some(info_ref)),
             &TypeInfo::Primitive(ty) => FieldType::Primitive(ty),
             TypeInfo::Ref(_) => unreachable!(),
@@ -251,12 +261,12 @@ impl TypeSolver {
         let (ty, ty_val) = self.get_info3(ty);
 
         match ty_val.clone() {
-            TypeInfo::Generic(idx, None) => args.get(idx).copied().unwrap_or_else(|| self.add_info(TypeInfo::Generic(idx, None))),
+            TypeInfo::Generic(idx, None) => args.get(idx).copied().unwrap_or_else(|| self.add_info(TypeInfo::Generic(idx, None), None)),
             TypeInfo::Ref(type_info_ref) => self.solve_generic_args(type_info_ref, args),
             TypeInfo::Array(element, size) => {
                 let element = self.solve_generic_args(element, args);
 
-                self.add_info(TypeInfo::Array(element, size))
+                self.add_info(TypeInfo::Array(element, size), None)
             }
             TypeInfo::Func(func_args, type_info_ref) => {
                 let info = TypeInfo::Func(
@@ -264,7 +274,7 @@ impl TypeSolver {
                     self.solve_generic_args(type_info_ref, args),
                 );
 
-                self.add_info(info)
+                self.add_info(info, None)
             }
             TypeInfo::Trait(trait_ref, type_args) => {
                 if type_args.is_empty() {
@@ -272,7 +282,7 @@ impl TypeSolver {
                 } else {
                     let info = TypeInfo::Trait(trait_ref, type_args.into_iter().map(|arg| self.solve_generic_args(arg, args)).collect());
 
-                    self.add_info(info)
+                    self.add_info(info, None)
                 }
             }
             TypeInfo::Adt(adt_ref, adt_kind, type_args) => {
@@ -281,10 +291,10 @@ impl TypeSolver {
                 } else {
                     let info = TypeInfo::Adt(adt_ref, adt_kind, type_args.into_iter().map(|arg| self.solve_generic_args(arg, args)).collect());
 
-                    self.add_info(info)
+                    self.add_info(info, None)
                 }
             }
-            i => ty,
+            _ => ty,
         }
     }
 
@@ -298,21 +308,29 @@ impl TypeSolver {
         }
 
         match (got_val.clone(), expected_val.cloned()) {
-            (TypeInfo::Generic(_, Some(got)), Some(TypeInfo::Generic(idx, None))) => self.type_infos[expected] = TypeInfo::Generic(idx, Some(got)),
-            (TypeInfo::Unknown(_), Some(TypeInfo::Generic(idx, Some(expected)))) => self.type_infos[got] = TypeInfo::Generic(idx, Some(expected)),
-            (TypeInfo::Generic(idx, None), Some(TypeInfo::Generic(_, Some(expected)))) => self.type_infos[got] = TypeInfo::Generic(idx, Some(expected)),
-            (_, None | Some(TypeInfo::Generic(_, Some(_))))
+            (TypeInfo::Generic(_, Some(got)), Some(TypeInfo::Generic(idx, None))) => self.type_infos[expected].value = TypeInfo::Generic(idx, Some(got)),
+            (TypeInfo::Unknown(_), Some(TypeInfo::Generic(idx, Some(expected))))
+            | (TypeInfo::Generic(idx, None), Some(TypeInfo::Generic(_, Some(expected)))) => self.type_infos[got].value = TypeInfo::Generic(idx, Some(expected)),
+            (_, None | Some(TypeInfo::Generic(_, Some(_)) | TypeInfo::Primitive(PrimitiveType::Any)))
             | (TypeInfo::Generic(_, Some(_)), _)
-            // | (TypeInfo::Unknown(None), Some(TypeInfo::Unknown(None)))
-            // | (TypeInfo::Unknown(Some(_)), Some(TypeInfo::Unknown(Some(_))))
             | (TypeInfo::Primitive(PrimitiveType::Component), Some(TypeInfo::Adt(_, AdtKind::Component, _)))
             | (TypeInfo::Adt(_, AdtKind::Component, _), Some(TypeInfo::Primitive(PrimitiveType::Component))) => (),
-            (_, Some(TypeInfo::Generic(idx, None))) => self.type_infos[expected] = TypeInfo::Generic(idx, Some(got)),
-            (TypeInfo::Generic(idx, None), _) => self.type_infos[got] = TypeInfo::Generic(idx, Some(expected)),
-            (_, Some(TypeInfo::Unknown(None))) => self.type_infos[expected] = TypeInfo::Ref(got),
-            (TypeInfo::Unknown(_), _) => self.type_infos[got] = TypeInfo::Ref(expected),
+            (_, Some(TypeInfo::Generic(idx, None))) => self.type_infos[expected].value = TypeInfo::Generic(idx, Some(got)),
+            (TypeInfo::Generic(idx, None), _) => self.type_infos[got].value = TypeInfo::Generic(idx, Some(expected)),
+            (_, Some(TypeInfo::Unknown(None))) => self.type_infos[expected].value = TypeInfo::Ref(got),
             (_, Some(TypeInfo::Ref(b))) => self.unify(got, b),
             (TypeInfo::Ref(a), _) => self.unify(a, expected),
+            (TypeInfo::Unknown(Some(fallback)), Some(TypeInfo::Trait(trait_ref, _))) => {
+                if self
+                    .find_vtable(&self.get_field_type(fallback))
+                    .is_none_or(|vtables| !vtables.contains_key(&Some(trait_ref)))
+                {
+                    if let Some(span) = self.type_infos[got].span {
+                        self.errors.push(span.wrap(TypeUnificationError::UnimplementedTrait(trait_ref, fallback)));
+                    }
+                }
+            }
+            (TypeInfo::Unknown(_), _) => self.type_infos[got].value = TypeInfo::Ref(expected),
             (TypeInfo::Func(a_args, a_out), Some(TypeInfo::Func(b_args, b_out))) => {
                 for (a, b) in a_args.into_iter().zip(b_args) {
                     self.unify(a.inner(), b.inner());
@@ -325,18 +343,22 @@ impl TypeSolver {
 
                 match (a_size, b_size) {
                     (None, None) => (),
-                    (None, Some(_)) => self.type_infos[expected] = TypeInfo::Array(b, None),
-                    (Some(_), None) => self.type_infos[got] = TypeInfo::Array(a, None),
+                    (None, Some(_)) => self.type_infos[expected].value = TypeInfo::Array(b, None),
+                    (Some(_), None) => self.type_infos[got].value = TypeInfo::Array(a, None),
                     (Some(a_size), Some(b_size)) => {
                         if a_size != b_size {
-                            self.errors.push(TypeUnificationError::ArraySizeMismatch(a_size, b_size));
+                            if let Some(span) = self.type_infos[got].span {
+                                self.errors.push(span.wrap(TypeUnificationError::ArraySizeMismatch(a_size, b_size)));
+                            }
                         }
                     }
                 }
             }
             (TypeInfo::Adt(a_ty, _, a_args), Some(TypeInfo::Adt(b_ty, _, b_args))) => {
                 if a_ty != b_ty {
-                    self.errors.push(TypeUnificationError::TypeMismatch(got, expected));
+                    if let Some(span) = self.type_infos[got].span {
+                        self.errors.push(span.wrap(TypeUnificationError::TypeMismatch(got, expected)));
+                    }
                 }
 
                 for (a, b) in a_args.into_iter().zip(b_args) {
@@ -348,7 +370,9 @@ impl TypeSolver {
                     .find_vtable(&self.get_field_type(expected))
                     .is_none_or(|vtables| !vtables.contains_key(&Some(trait_ref)))
                 {
-                    self.errors.push(TypeUnificationError::UnimplementedTrait(trait_ref, expected));
+                    if let Some(span) = self.type_infos[expected].span {
+                        self.errors.push(span.wrap(TypeUnificationError::UnimplementedTrait(trait_ref, expected)));
+                    }
                 }
             }
             (_, Some(TypeInfo::Trait(trait_ref, _))) => {
@@ -356,12 +380,16 @@ impl TypeSolver {
                     .find_vtable(&self.get_field_type(got))
                     .is_none_or(|vtables| !vtables.contains_key(&Some(trait_ref)))
                 {
-                    self.errors.push(TypeUnificationError::UnimplementedTrait(trait_ref, got));
+                    if let Some(span) = self.type_infos[got].span {
+                        self.errors.push(span.wrap(TypeUnificationError::UnimplementedTrait(trait_ref, got)));
+                    }
                 }
             }
             (a_info, Some(b_info)) => {
-                if a_info != b_info {
-                    self.errors.push(TypeUnificationError::TypeMismatch(expected, got));
+                if !self.type_infos.info_eq(&a_info, &b_info) {
+                    if let Some(span) = self.type_infos[got].span {
+                        self.errors.push(span.wrap(TypeUnificationError::TypeMismatch(expected, got)));
+                    }
                 }
             }
         }
@@ -376,7 +404,7 @@ impl TypeSolver {
     }
 
     pub fn contains_unknown(&self, ty: TypeInfoRef) -> bool {
-        match &self.type_infos[ty] {
+        match &self.type_infos[ty].value {
             TypeInfo::Unknown(fallback) => fallback.is_none(),
             &TypeInfo::Ref(ty) => self.contains_unknown(ty),
             TypeInfo::Func(args, output) => args.iter().any(|&arg| self.contains_unknown(arg.inner())) || self.contains_unknown(*output),
@@ -405,6 +433,17 @@ impl TypeSolver {
                 None => write!(f, "<generic #{generic}>"),
             },
         }
+    }
+
+    pub fn fmt_field_type<S: TypeStorage>(
+        &self,
+        f: &mut fmt::Formatter,
+        field_type: &FieldType,
+        this: Option<TypeInfoRef>,
+        storage: &S,
+        short: bool,
+    ) -> fmt::Result {
+        self.fmt_field(f, field_type, this, storage, &GenericFmt::TypeInfo(&[]), short)
     }
 
     fn fmt_field<S: TypeStorage>(
@@ -601,7 +640,7 @@ impl TypeSolver {
     }
 
     pub fn fmt_type<S: TypeStorage>(&self, f: &mut fmt::Formatter, ty: TypeInfoRef, this: Option<TypeInfoRef>, storage: &S, short: bool) -> fmt::Result {
-        match &self.type_infos[ty] {
+        match &self.type_infos[ty].value {
             TypeInfo::Unknown(fallback) => match fallback {
                 &Some(ty) => {
                     f.write_str("<unknown: fallback = ")?;
@@ -968,4 +1007,44 @@ impl TypeSolver {
 enum GenericFmt<'a> {
     Field(&'a [FieldType], &'a Self),
     TypeInfo(&'a [TypeInfoRef]),
+}
+
+pub trait TypeInfoStorageExt {
+    fn info_eq(&self, a: &TypeInfo, b: &TypeInfo) -> bool;
+}
+
+impl TypeInfoStorageExt for IndexVec<TypeInfoRef, MaybePositioned<TypeInfo>> {
+    fn info_eq(&self, a: &TypeInfo, b: &TypeInfo) -> bool {
+        match (a, b) {
+            (&TypeInfo::Ref(type_info_ref), _) => self.info_eq(&self[type_info_ref].value, b),
+            (_, &TypeInfo::Ref(type_info_ref)) => self.info_eq(a, &self[type_info_ref].value),
+            (_, &TypeInfo::Unknown(Some(type_info_ref))) => self.info_eq(a, &self[type_info_ref].value),
+            (&TypeInfo::Unknown(Some(type_info_ref)), _) => self.info_eq(&self[type_info_ref].value, b),
+            (TypeInfo::Generic(a, a_ref), TypeInfo::Generic(b, b_ref)) => {
+                a == b
+                    && match (a_ref, b_ref) {
+                        (&Some(a_ref), &Some(b_ref)) => self.info_eq(&self[a_ref].value, &self[b_ref].value),
+                        (None, None) => true,
+                        _ => false,
+                    }
+            }
+            (TypeInfo::Primitive(a), TypeInfo::Primitive(b)) => a == b,
+            (TypeInfo::Func(a_args, a_returns), TypeInfo::Func(b_args, b_returns)) => {
+                a_args.iter().zip(b_args).all(|(a, b)| match (a, b) {
+                    (&FuncArg::This(a), &FuncArg::This(b)) | (&FuncArg::Regular(a), &FuncArg::Regular(b)) => self.info_eq(&self[a].value, &self[b].value),
+                    _ => false,
+                }) && self.info_eq(&self[*a_returns].value, &self[*b_returns].value)
+            }
+            (TypeInfo::Trait(a_trait, a_args), TypeInfo::Trait(b_trait, b_args)) => {
+                a_trait == b_trait && a_args.iter().zip(b_args).all(|(&a, &b)| self.info_eq(&self[a].value, &self[b].value))
+            }
+            (TypeInfo::Adt(a_adt, a_kind, a_args), TypeInfo::Adt(b_adt, b_kind, b_args)) => {
+                a_adt == b_adt && a_kind == b_kind && a_args.iter().zip(b_args).all(|(&a, &b)| self.info_eq(&self[a].value, &self[b].value))
+            }
+            (&TypeInfo::Array(a_element, a_size), &TypeInfo::Array(b_element, b_size)) => {
+                self.info_eq(&self[a_element].value, &self[b_element].value) && a_size == b_size
+            }
+            _ => false,
+        }
+    }
 }

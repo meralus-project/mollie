@@ -298,9 +298,6 @@ impl<T: Idx, I: Iterator> Iterator for Enumerate<T, I> {
 
 impl<I: Iterator> IdxEnumerate for I {
     fn enumerate_idx<T: Idx>(self) -> Enumerate<T, Self> {
-        Enumerate {
-            iter: self,
-            counter: T::ZERO,
-        }
+        Enumerate { iter: self, counter: T::ZERO }
     }
 }

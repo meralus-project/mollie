@@ -1,4 +1,17 @@
 use derive_more::derive::{Display, IsVariant, Unwrap};
+use mollie_shared::Positioned;
+
+#[derive(Debug, Display, IsVariant, Unwrap, PartialEq, Clone, PartialOrd)]
+pub enum NumberToken {
+    #[display("{_0}")]
+    #[is_variant]
+    #[unwrap]
+    Float(f32),
+    #[display("{_0}")]
+    #[is_variant]
+    #[unwrap]
+    Int(i64),
+}
 
 #[derive(Debug, Display, IsVariant, Unwrap, PartialEq, Clone, PartialOrd)]
 pub enum Token {
@@ -16,11 +29,7 @@ pub enum Token {
     #[display("{_0}")]
     #[is_variant]
     #[unwrap]
-    Float(f32, Option<String>),
-    #[display("{}", if *_2 { format!("0x{_0:06X}{}", _1.as_deref().unwrap_or_default()) } else { format!("{_0}{}", _1.as_deref().unwrap_or_default()) })]
-    #[is_variant]
-    #[unwrap]
-    Integer(i64, Option<String>, bool),
+    Number(Positioned<NumberToken>, Option<Positioned<String>>),
     #[display("{_0}")]
     #[is_variant]
     #[unwrap]
@@ -154,6 +163,20 @@ impl Token {
     #[must_use]
     pub fn is_ident_and(&self, func: impl FnOnce(&String) -> bool) -> bool {
         if let Self::Ident(value) = self { func(value) } else { false }
+    }
+
+    pub const fn is_integer(&self) -> bool {
+        if let Self::Number(value, _) = self { value.value.is_int() } else { false }
+    }
+
+    pub const fn is_float(&self) -> bool {
+        if let Self::Number(value, _) = self { value.value.is_float() } else { false }
+    }
+
+    pub fn unwrap_integer(self) -> (Positioned<i64>, Option<Positioned<String>>) {
+        let (number, postfix) = self.unwrap_number();
+
+        (number.span.wrap(number.value.unwrap_int()), postfix)
     }
 
     // #[must_use]

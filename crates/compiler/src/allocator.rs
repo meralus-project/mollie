@@ -7,7 +7,6 @@ use std::{
 };
 
 use cranelift::codegen::ir;
-use itertools::Itertools;
 use mollie_index::Idx;
 use mollie_ir::{MollieType, Struct};
 use mollie_typing::{AdtKind, AdtVariantRef};
@@ -213,7 +212,7 @@ impl GarbageCollector {
             .chain(type_layout.fields.iter().filter(|f| f.0 == max_variant).map(|field| (field.2, None))),
         );
 
-        let layout = unsafe { alloc::Layout::from_size_align(size as usize, align as usize).unwrap() };
+        let layout = alloc::Layout::from_size_align(size as usize, align as usize).unwrap();
         let ptr: *mut GcValue<()> = unsafe { alloc::alloc_zeroed(layout) }.cast();
 
         unsafe {

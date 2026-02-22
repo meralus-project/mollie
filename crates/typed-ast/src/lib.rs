@@ -1,4 +1,3 @@
-mod constant;
 mod expression;
 mod statement;
 pub mod visitor;
@@ -6,7 +5,6 @@ pub mod visitor;
 use std::{collections::HashMap, fmt, iter, mem, ops::Index};
 
 use indexmap::IndexMap;
-use itertools::Itertools;
 use mollie_const::ConstantValue;
 use mollie_index::{Idx, IndexVec, new_idx_type};
 use mollie_parser::LangItem;
@@ -76,6 +74,7 @@ pub enum TypeError {
     ModuleIsNotValue,
     NonConstantEvaluable,
     InvalidPostfixFunction { reasons: Vec<Positioned<PostfixRequirement>> },
+    Unification(TypeUnificationError),
     Parse(mollie_parser::ParseError),
 }
 
@@ -96,6 +95,7 @@ impl TypeError {
             Self::ModuleIsNotValue => "module-is-not-value",
             Self::NonConstantEvaluable => "non-constant-evaluable",
             Self::InvalidPostfixFunction { .. } => "invalid-postfix-definition",
+            Self::Unification(_) => "unification",
             Self::Parse(..) => "parse",
         }
     }
@@ -206,7 +206,7 @@ impl TypedAST {
             }
         }
 
-        if checker.current_vtable != Some(vtable) {    
+        if checker.current_vtable != Some(vtable) {
             let vtable_type_args: Box<[_]> = checker.vtables[vtable]
                 .generics
                 .iter()
@@ -388,22 +388,22 @@ impl<S> TypeChecker<S> {
         solver.push_frame();
 
         let core_types = CoreTypes {
-            void: solver.add_info(TypeInfo::Primitive(PrimitiveType::Void)),
-            any: solver.add_info(TypeInfo::Primitive(PrimitiveType::Any)),
-            boolean: solver.add_info(TypeInfo::Primitive(PrimitiveType::Boolean)),
-            int8: solver.add_info(TypeInfo::Primitive(PrimitiveType::Int(IntType::I8))),
-            int16: solver.add_info(TypeInfo::Primitive(PrimitiveType::Int(IntType::I16))),
-            int32: solver.add_info(TypeInfo::Primitive(PrimitiveType::Int(IntType::I32))),
-            int64: solver.add_info(TypeInfo::Primitive(PrimitiveType::Int(IntType::I64))),
-            int_size: solver.add_info(TypeInfo::Primitive(PrimitiveType::Int(IntType::ISize))),
-            uint8: solver.add_info(TypeInfo::Primitive(PrimitiveType::UInt(UIntType::U8))),
-            uint16: solver.add_info(TypeInfo::Primitive(PrimitiveType::UInt(UIntType::U16))),
-            uint32: solver.add_info(TypeInfo::Primitive(PrimitiveType::UInt(UIntType::U32))),
-            uint64: solver.add_info(TypeInfo::Primitive(PrimitiveType::UInt(UIntType::U64))),
-            uint_size: solver.add_info(TypeInfo::Primitive(PrimitiveType::UInt(UIntType::USize))),
-            float: solver.add_info(TypeInfo::Primitive(PrimitiveType::Float)),
-            component: solver.add_info(TypeInfo::Primitive(PrimitiveType::Component)),
-            string: solver.add_info(TypeInfo::Primitive(PrimitiveType::String)),
+            void: solver.add_info(TypeInfo::Primitive(PrimitiveType::Void), None),
+            any: solver.add_info(TypeInfo::Primitive(PrimitiveType::Any), None),
+            boolean: solver.add_info(TypeInfo::Primitive(PrimitiveType::Boolean), None),
+            int8: solver.add_info(TypeInfo::Primitive(PrimitiveType::Int(IntType::I8)), None),
+            int16: solver.add_info(TypeInfo::Primitive(PrimitiveType::Int(IntType::I16)), None),
+            int32: solver.add_info(TypeInfo::Primitive(PrimitiveType::Int(IntType::I32)), None),
+            int64: solver.add_info(TypeInfo::Primitive(PrimitiveType::Int(IntType::I64)), None),
+            int_size: solver.add_info(TypeInfo::Primitive(PrimitiveType::Int(IntType::ISize)), None),
+            uint8: solver.add_info(TypeInfo::Primitive(PrimitiveType::UInt(UIntType::U8)), None),
+            uint16: solver.add_info(TypeInfo::Primitive(PrimitiveType::UInt(UIntType::U16)), None),
+            uint32: solver.add_info(TypeInfo::Primitive(PrimitiveType::UInt(UIntType::U32)), None),
+            uint64: solver.add_info(TypeInfo::Primitive(PrimitiveType::UInt(UIntType::U64)), None),
+            uint_size: solver.add_info(TypeInfo::Primitive(PrimitiveType::UInt(UIntType::USize)), None),
+            float: solver.add_info(TypeInfo::Primitive(PrimitiveType::Float), None),
+            component: solver.add_info(TypeInfo::Primitive(PrimitiveType::Component), None),
+            string: solver.add_info(TypeInfo::Primitive(PrimitiveType::String), None),
         };
 
         Self {
@@ -484,29 +484,42 @@ impl<S> TypeChecker<S> {
         }
         .into_typed_ast(self, ast, Span::default());
 
-        if !self.errors.is_empty() {
-            return Err(TypeErrors(&self.errors.raw));
-        }
+        if let Some(returns) = self.returns {
+            if let Some(expr) = ast[block].value.expr {
+                self.solver.unify(ast[expr].ty, returns);
 
-        if let Some(returns) = self.returns
-            && let &TypeInfo::Trait(t, _) = self.solver.get_info(returns)
-            && let Some(vtables) = self.solver.find_vtable(&FieldType::from_type_info_ref(ast[block].ty, &self.solver))
-            && let Some(&vtable) = vtables.get(&Some(t))
-        {
-            for item in &self.vtables[vtable].used_items {
-                ast.use_item(item.clone());
+                // panic!("{} {} {:#?}", self.display_of_type(ast[expr].ty,
+                // None), self.display_of_type(returns, None),
+                // self.solver.errors);
             }
 
-            let vtable = UsedItem::VTable(ast[block].ty, vtable, Box::new([]));
+            if let &TypeInfo::Trait(t, _) = self.solver.get_info(returns)
+                && let Some(vtables) = self.solver.find_vtable(&FieldType::from_type_info_ref(ast[block].ty, &self.solver))
+                && let Some(&vtable) = vtables.get(&Some(t))
+            {
+                for item in &self.vtables[vtable].used_items {
+                    ast.use_item(item.clone());
+                }
 
-            ast.use_item(vtable);
+                let vtable = UsedItem::VTable(ast[block].ty, vtable, Box::new([]));
+
+                ast.use_item(vtable);
+            }
+        }
+
+        for error in self.solver.errors.drain(..) {
+            self.errors.push(error.map(TypeError::Unification));
+        }
+
+        if !self.errors.is_empty() {
+            return Err(TypeErrors(&self.errors.raw));
         }
 
         Ok(block)
     }
 
     pub fn type_errors(&mut self) -> impl Iterator<Item = TypeErrorDisplay<'_, S>> {
-        mem::take(&mut self.solver.errors).into_iter().map(|error| self.display_of_error(error))
+        mem::take(&mut self.solver.errors).into_iter().map(|error| self.display_of_error(error.value))
     }
 
     pub fn register_module<T: Into<String>>(&mut self, name: T) -> ModuleId {
@@ -563,7 +576,7 @@ impl<S> TypeChecker<S> {
     pub fn register_intrinsic_in_module<T: Into<String>>(&mut self, module: ModuleId, name: T, kind: IntrinsicKind, ty: TypeInfo) {
         self.modules[module]
             .items
-            .insert(name.into(), ModuleItem::Intrinsic(kind, self.solver.add_info(ty)));
+            .insert(name.into(), ModuleItem::Intrinsic(kind, self.solver.add_info(ty, None)));
     }
 
     pub fn instantiate_adt(&mut self, ty: AdtRef, generic_args: &[TypeInfoRef]) -> (TypeInfoRef, FieldType) {
@@ -575,10 +588,10 @@ impl<S> TypeChecker<S> {
             .map(Some)
             .chain(iter::repeat(None))
             .take(generics)
-            .map(|arg| arg.unwrap_or_else(|| self.solver.add_info(TypeInfo::Unknown(None))))
+            .map(|arg| arg.unwrap_or_else(|| self.solver.add_info(TypeInfo::Unknown(None), None)))
             .collect();
 
-        let type_ref = self.solver.add_info(TypeInfo::Adt(ty, kind, args));
+        let type_ref = self.solver.add_info(TypeInfo::Adt(ty, kind, args), None);
 
         (type_ref, FieldType::from_type_info_ref(type_ref, &self.solver))
     }
@@ -693,6 +706,18 @@ impl<S> fmt::Display for TypeDisplay<'_, S> {
     }
 }
 
+pub struct FieldTypeDisplay<'a, 'b, S> {
+    ty: &'a FieldType,
+    this: Option<TypeInfoRef>,
+    checker: &'b TypeChecker<S>,
+}
+
+impl<S> fmt::Display for FieldTypeDisplay<'_, '_, S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.checker.solver.fmt_field_type(f, self.ty, self.this, self.checker, false)
+    }
+}
+
 pub struct TypeInfoDisplay<'a, 'b, S> {
     ty: &'a TypeInfo,
     this: Option<TypeInfoRef>,
@@ -746,6 +771,10 @@ impl<S> TypeChecker<S> {
 
     pub const fn display_of_module(&self, module: ModuleId) -> ModuleDisplay<'_> {
         ModuleDisplay(module, &self.modules)
+    }
+
+    pub const fn display_of_field_type<'a, 'b>(&'b self, ty: &'a FieldType, this: Option<TypeInfoRef>) -> FieldTypeDisplay<'a, 'b, S> {
+        FieldTypeDisplay { ty, this, checker: self }
     }
 
     pub const fn display_of_type(&self, ty: TypeInfoRef, this: Option<TypeInfoRef>) -> TypeDisplay<'_, S> {

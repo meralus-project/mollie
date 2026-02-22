@@ -35,7 +35,7 @@ impl Adt {
                 .get(generic)
                 .copied()
                 .or(fallback)
-                .unwrap_or_else(|| solver.add_info(TypeInfo::Unknown(None))),
+                .unwrap_or_else(|| solver.add_info(TypeInfo::Unknown(None), None)),
             FieldType::Primitive(primitive_type) => match primitive_type {
                 PrimitiveType::Any => core_types.any,
                 PrimitiveType::Int(IntType::ISize) => core_types.int_size,
@@ -58,7 +58,7 @@ impl Adt {
             FieldType::Array(element, size) => {
                 let element = Self::apply_args(element.as_ref(), this, core_types, solver, args);
 
-                solver.add_info(TypeInfo::Array(element, *size))
+                solver.add_info(TypeInfo::Array(element, *size), None)
             }
             FieldType::Func(params, output) => {
                 let params = params
@@ -68,7 +68,7 @@ impl Adt {
 
                 let output = Self::apply_args(output.as_ref(), this, core_types, solver, args);
 
-                solver.add_info(TypeInfo::Func(params, output))
+                solver.add_info(TypeInfo::Func(params, output), None)
             }
             FieldType::Trait(trait_ref, field_types) => {
                 let args = field_types
@@ -76,7 +76,7 @@ impl Adt {
                     .map(|field_type| Self::apply_args(field_type, this, core_types, solver, args))
                     .collect();
 
-                solver.add_info(TypeInfo::Trait(*trait_ref, args))
+                solver.add_info(TypeInfo::Trait(*trait_ref, args), None)
             }
             FieldType::Adt(adt_ref, kind, field_types) => {
                 let args = field_types
@@ -84,7 +84,7 @@ impl Adt {
                     .map(|field_type| Self::apply_args(field_type, this, core_types, solver, args))
                     .collect();
 
-                solver.add_info(TypeInfo::Adt(*adt_ref, *kind, args))
+                solver.add_info(TypeInfo::Adt(*adt_ref, *kind, args), None)
             }
         }
     }

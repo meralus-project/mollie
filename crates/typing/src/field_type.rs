@@ -127,7 +127,7 @@ impl FieldType {
                 .get(generic)
                 .copied()
                 .or(fallback)
-                .unwrap_or_else(|| solver.add_info(TypeInfo::Generic(generic, None))),
+                .unwrap_or_else(|| solver.add_info(TypeInfo::Generic(generic, None), None)),
             Self::Primitive(primitive_type) => match primitive_type {
                 PrimitiveType::Any => core_types.any,
                 PrimitiveType::Int(IntType::ISize) => core_types.int_size,
@@ -150,7 +150,7 @@ impl FieldType {
             Self::Array(element, size) => {
                 let element = element.as_type_info(this, core_types, solver, args);
 
-                solver.add_info(TypeInfo::Array(element, *size))
+                solver.add_info(TypeInfo::Array(element, *size), None)
             }
             Self::Func(params, output) => {
                 let params = params
@@ -159,7 +159,7 @@ impl FieldType {
                     .collect();
                 let output = output.as_type_info(this, core_types, solver, args);
 
-                solver.add_info(TypeInfo::Func(params, output))
+                solver.add_info(TypeInfo::Func(params, output), None)
             }
             Self::Trait(trait_ref, field_types) => {
                 let args = field_types
@@ -167,7 +167,7 @@ impl FieldType {
                     .map(|field_type| field_type.as_type_info(this, core_types, solver, args))
                     .collect();
 
-                solver.add_info(TypeInfo::Trait(*trait_ref, args))
+                solver.add_info(TypeInfo::Trait(*trait_ref, args), None)
             }
             Self::Adt(adt_ref, kind, field_types) => {
                 let args = field_types
@@ -175,7 +175,7 @@ impl FieldType {
                     .map(|field_type| field_type.as_type_info(this, core_types, solver, args))
                     .collect();
 
-                solver.add_info(TypeInfo::Adt(*adt_ref, *kind, args))
+                solver.add_info(TypeInfo::Adt(*adt_ref, *kind, args), None)
             }
         }
     }

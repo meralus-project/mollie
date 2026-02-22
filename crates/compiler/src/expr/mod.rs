@@ -51,9 +51,14 @@ impl<S, M: Module> CompileTypedAST<S, M, MolValue> for ExprRef {
             &Expr::Cast { expr, ty } => {
                 let value = expr.compile(ast, compiler)?.expect_value();
 
-                if let (mollie_typing::TypeInfo::Primitive(got), mollie_typing::TypeInfo::Primitive(cast_to)) =
-                    (compiler.checker.solver.get_info(ast[expr].ty), compiler.checker.solver.get_info(ty))
-                    && let MollieType::Regular(ir_type) = ty.as_ir_type(&compiler.checker.solver, compiler.compiler.isa())
+                if let (mollie_typing::TypeInfo::Primitive(got), mollie_typing::TypeInfo::Primitive(cast_to)) = (
+                    compiler.checker.solver.get_info(ast[expr].ty),
+                    compiler.checker.solver.get_info(compiler.checker.core_types.cast_primitive(ty.value)),
+                ) && let MollieType::Regular(ir_type) = compiler
+                    .checker
+                    .core_types
+                    .cast_primitive(ty.value)
+                    .as_ir_type(&compiler.checker.solver, compiler.compiler.isa())
                 {
                     let ptr_type = compiler.compiler.ptr_type();
                     let a = get_ir_type(*got, ptr_type);
@@ -132,12 +137,12 @@ impl<S, M: Module> CompileTypedAST<S, M, MolValue> for ExprRef {
             }
             Expr::Block(block_ref) => block_ref.compile(ast, compiler),
             Expr::Var(name) => compiler.compile_var_expr(ast, self, name.as_str()),
-            &Expr::Access { target, field } => compiler.compile_field_access_expr(ast, self, target, field),
-            &Expr::VTableAccess { target, func } => compiler.compile_vtable_access(ast, target, func),
+            &Expr::Access { target, field } => compiler.compile_field_access_expr(ast, self, target, field.value),
+            &Expr::VTableAccess { target, func } => compiler.compile_vtable_access(ast, target, func.value),
             &Expr::Index { target, index } => compiler.compile_array_index(ast, self, target, index),
             &Expr::While { condition, block } => compiler.compile_while_expr(ast, condition, block),
             Expr::Array(elements) => compiler.compile_array_expr(ast, self, elements.as_ref()),
-            &Expr::Binary { operator, lhs, rhs } => compiler.compile_bin_expr(ast, lhs, operator, rhs),
+            &Expr::Binary { operator, lhs, rhs } => compiler.compile_bin_expr(ast, lhs, operator.value, rhs),
             Expr::Call { func, args } => compiler.compile_call_expr(ast, *func, args.as_ref()),
             Expr::Closure { args, captures, body } => compiler.compile_closure_expr(ast, self, args.as_ref(), captures.as_ref(), *body),
             Expr::Construct { ty, variant, fields } => compiler.compile_construct(ast, *ty, *variant, fields.as_ref()),

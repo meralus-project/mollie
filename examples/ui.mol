@@ -481,22 +481,6 @@ impl Drawable for Grid {
         const width = 0.0;
         const height = 0.0;
 
-        //const column = 0;
-
-        //while column < get_size(self.columns) {
-        //    self.columns[column].size = self.columns[column].size - self.spacing;
-//
-        //    column = column + 1;
-        //}
-        //
-        //const row = 0;
-//
-        //while row < get_size(self.rows) {
-        //    self.rows[row].size = self.rows[row].size - self.spacing;
-//
-        //    row = row + 1;
-        //}
-
         self.validate_cells();
         self.measure_cells_group(self.cell_groups.group_1);
 
@@ -537,6 +521,8 @@ impl Drawable for Grid {
         }
     }
 }
+
+Size { width: 120.0, height: 120.0 }.hell-hello;
 
 Grid {
     spacing: 12.0,

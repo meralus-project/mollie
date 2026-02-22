@@ -62,11 +62,7 @@ pub enum TypeInfo {
 
 impl TypeInfo {
     pub const fn as_func(&self) -> Option<(&[FuncArg<TypeInfoRef>], TypeInfoRef)> {
-        if let Self::Func(args, returns) = self {
-            Some((args, *returns))
-        } else {
-            None
-        }
+        if let Self::Func(args, returns) = self { Some((args, *returns)) } else { None }
     }
 
     pub const fn is_func(&self) -> bool {

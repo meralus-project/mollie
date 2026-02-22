@@ -7,6 +7,7 @@ use cranelift::{
 use itertools::Itertools;
 use mollie_index::Idx;
 use mollie_ir::{Array, ConstValue, ConstantCompiler, MollieType, compile_constant};
+use mollie_shared::Span;
 use mollie_typed_ast::{ExprRef, TypedAST};
 use mollie_typing::{AdtKind, AdtVariantRef, FieldRef, TypeInfo, TypeInfoRef};
 
@@ -21,9 +22,8 @@ impl<'a, S, M: Module> ConstantCompiler<'a> for FunctionCompiler<'a, S, M> {
         let values = values
             .into_iter()
             .enumerate()
-            .flat_map(|(field, value)| match value {
-                Some(value) => value,
-                None => {
+            .flat_map(|(field, value)| {
+                value.unwrap_or_else(|| {
                     let (field, field_type) = &self.compiler.get_adt_variant(hash, variant).fields[FieldRef::new(field)];
                     let field_type = field_type.index();
 
@@ -31,7 +31,7 @@ impl<'a, S, M: Module> ConstantCompiler<'a> for FunctionCompiler<'a, S, M> {
                         || unimplemented!("can't compile: no value"),
                         |value| compile_constant(field_type, value, self).unwrap_or_else(|| unimplemented!("can't compile: no value")),
                     )
-                }
+                })
             })
             .collect::<Box<[_]>>();
 
@@ -129,7 +129,7 @@ impl<S, M: Module> FunctionCompiler<'_, S, M> {
         ast: &TypedAST,
         ty: TypeInfoRef,
         variant: AdtVariantRef,
-        fields: &[(FieldRef, String, Option<ExprRef>)],
+        fields: &[(FieldRef, String, Option<(ExprRef, Span)>)],
     ) -> CompileResult<MolValue> {
         let mut values = Vec::new();
         let hash = self.hash_of(ty);
@@ -157,7 +157,7 @@ impl<S, M: Module> FunctionCompiler<'_, S, M> {
                 }
 
                 let (got_ty, got) = match property.2 {
-                    Some(expr) => (Some(ast[expr].ty), expr.compile(ast, self)?),
+                    Some(expr) => (Some(ast[expr.0].ty), expr.0.compile(ast, self)?),
                     None => match &field.default_value {
                         Some(value) => (
                             None,
@@ -175,7 +175,13 @@ impl<S, M: Module> FunctionCompiler<'_, S, M> {
 
                 match (field.ty, &got) {
                     (MollieType::Regular(ty), &MolValue::Value(v)) => {
-                        debug_assert_eq!(ty, self.fn_builder.func.dfg.value_type(v), "got incorrect type for {}::{}", self.checker.adt_types[adt_ref].name.as_deref().unwrap_or_default(), property.1);
+                        debug_assert_eq!(
+                            ty,
+                            self.fn_builder.func.dfg.value_type(v),
+                            "got incorrect type for {}::{}",
+                            self.checker.adt_types[adt_ref].name.as_deref().unwrap_or_default(),
+                            property.1
+                        );
 
                         values.push(v);
                     }

@@ -12,11 +12,7 @@ use std::{
 
 pub use cranelift;
 use cranelift::{
-    codegen::{
-        Context,
-        ir::{self, UserFuncName},
-        print_errors::pretty_error,
-    },
+    codegen::{Context, ir, print_errors::pretty_error},
     jit::JITModule,
     module::{DataId, FuncId, Linkage, Module, ModuleError, ModuleResult},
     prelude::{AbiParam, Configurable, FunctionBuilder, FunctionBuilderContext, InstBuilder, Variable, isa::TargetIsa, settings, types},
@@ -352,8 +348,8 @@ impl<M: Module> Compiler<M> {
         }
 
         let mut checker = TypeChecker::new();
-        let element = checker.solver.add_info(TypeInfo::Generic(0, None));
-        let this = checker.solver.add_info(TypeInfo::Array(element, None));
+        let element = checker.solver.add_info(TypeInfo::Generic(0, None), None);
+        let this = checker.solver.add_info(TypeInfo::Array(element, None), None);
 
         let vtable = checker.vtables.insert(VTableGenerator {
             origin_trait: None,
@@ -364,10 +360,10 @@ impl<M: Module> Compiler<M> {
                 trait_func: None,
                 name: String::from("push"),
                 arg_names: vec![String::from("item")],
-                ty: checker.solver.add_info(TypeInfo::Func(
-                    Box::new([FuncArg::This(this), FuncArg::Regular(element)]),
-                    checker.core_types.void,
-                )),
+                ty: checker.solver.add_info(
+                    TypeInfo::Func(Box::new([FuncArg::This(this), FuncArg::Regular(element)]), checker.core_types.void),
+                    None,
+                ),
                 kind: VTableFuncKind::Special(push::<M> as SpecialCase<M>),
             }]),
         });
@@ -426,6 +422,10 @@ impl FuncCompiler<'_> {
         };
 
         self.checker.solver.finalize();
+
+        for error in self.checker.type_errors() {
+            println!("[Compiler/TypeErrors   ] {error}");
+        }
 
         for item in &ast.used_items {
             match item {

@@ -386,7 +386,7 @@ impl<S> VTableBuilder<S> {
                     trait_func,
                     name,
                     arg_names,
-                    ty: checker.solver.add_info(ty),
+                    ty: checker.solver.add_info(ty, None),
                     kind,
                 },
             )
@@ -395,7 +395,7 @@ impl<S> VTableBuilder<S> {
         let vtable = checker.vtables.insert(VTableGenerator {
             origin_trait: None,
             generics: (0..self.generics)
-                .map(|generic| checker.solver.add_info(TypeInfo::Generic(generic, None)))
+                .map(|generic| checker.solver.add_info(TypeInfo::Generic(generic, None), None))
                 .collect(),
             applied_generics: Box::new([]),
             used_items: Vec::new(),

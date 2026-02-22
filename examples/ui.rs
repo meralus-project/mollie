@@ -111,10 +111,7 @@ impl Path {
 
 impl DrawContext {
     pub fn draw_rect(&mut self, x: f32, y: f32, width: f32, height: f32, corner_radius: GcPtr<CornerRadius>, color: GcPtr<Color>) {
-        println!(
-            "[DrawContext/draw_rect ] origin = {x}x{y}, size = {width}x{height}, color = {color} ({:?})",
-            color.type_layout()
-        );
+        tracing::info!(target: "DrawContext/draw_rect", origin = format!("{x}x{y}"), size = format!("{width}x{height}"), color = color.to_string());
 
         let mut paint = Paint::default();
 
@@ -141,10 +138,7 @@ impl DrawContext {
     }
 
     pub fn draw_image(&mut self, x: f32, y: f32, width: f32, height: f32, image: GcPtr<Image>) {
-        println!(
-            "[DrawContext/draw_image] origin = {x}x{y}, size = {width}x{height}, image = {image:?} ({:?})",
-            image.type_layout()
-        );
+        tracing::info!(target: "DrawContext/draw_image", origin = format!("{x}x{y}"), size = format!("{width}x{height}"), image = format!("{image:?}"));
 
         let image = self.images.get_image(image);
         let image_width = image.width() as f32;
@@ -165,7 +159,7 @@ impl DrawContext {
     }
 
     pub fn image_size(&mut self, image: GcPtr<Image>) -> GcPtr<Size> {
-        println!("[DrawContext/image_size] image = {image:?}");
+        tracing::info!(target: "DrawContext/image_size", image = format!("{image:?}"));
 
         let image = self.images.get_image(image);
         let width = image.width() as f32;
@@ -205,12 +199,12 @@ fn init_compiler(func_compiler: &mut FuncCompiler) -> (TypeInfoRef, TypeInfoRef)
         ("get_type_idx", Box::new([FuncArg::Regular(core_types.any)]), core_types.uint_size),
         ("get_size", Box::new([FuncArg::Regular(core_types.any)]), core_types.uint_size),
     ] {
-        let func = func_compiler.checker.solver.add_info(TypeInfo::Func(args, returns));
+        let func = func_compiler.checker.solver.add_info(TypeInfo::Func(args, returns), None);
 
         func_compiler.checker.solver.add_var(name, func);
     }
 
-    let func = func_compiler.checker.solver.add_info(TypeInfo::Func(Box::new([]), core_types.uint_size));
+    let func = func_compiler.checker.solver.add_info(TypeInfo::Func(Box::new([]), core_types.uint_size), None);
 
     let module = func_compiler.checker.register_module("std");
 
@@ -218,7 +212,7 @@ fn init_compiler(func_compiler: &mut FuncCompiler) -> (TypeInfoRef, TypeInfoRef)
         .checker
         .register_func_in_module(module, Func::external("timestamp", func, "ext__get_timestamp"));
 
-    let func_arg = func_compiler.checker.solver.add_info(TypeInfo::Generic(0, None));
+    let func_arg = func_compiler.checker.solver.add_info(TypeInfo::Generic(0, None), None);
     let ty = TypeInfo::Func(Box::new([FuncArg::Regular(func_arg)]), func_compiler.checker.core_types.uint_size);
 
     func_compiler
@@ -290,7 +284,7 @@ fn init_compiler(func_compiler: &mut FuncCompiler) -> (TypeInfoRef, TypeInfoRef)
             .finish(),
     );
 
-    let drawable_info = func_compiler.checker.solver.add_info(TypeInfo::Trait(drawable, Box::new([])));
+    let drawable_info = func_compiler.checker.solver.add_info(TypeInfo::Trait(drawable, Box::new([])), None);
 
     func_compiler.checker.solver.add_var("context", draw_ctx_info);
 
@@ -369,7 +363,9 @@ fn main() {
                 mollie_typed_ast::TypeError::ExpectedFunction { found } => {
                     report.set_message("expected `function`");
                     report.add_label(match found {
-                        NotFunction::Type(found) => label.with_message(format!("found value of type `{}`", provider.checker.display_of_type(found, None))),
+                        NotFunction::Type(found) => {
+                            label.with_message(format!("found value of type `{}`", provider.checker.short_display_of_type(found, None)))
+                        }
                         NotFunction::Adt(adt_ref) => label.with_message(format!("found `{}`", match provider.checker.adt_types[adt_ref].kind {
                             AdtKind::Struct => "struct",
                             AdtKind::Component => "component",
@@ -380,7 +376,7 @@ fn main() {
                             "found primitive type `{}`",
                             provider
                                 .checker
-                                .display_of_type(provider.checker.core_types.cast_primitive(primitive_type), None)
+                                .short_display_of_type(provider.checker.core_types.cast_primitive(primitive_type), None)
                         )),
                     });
                 }
@@ -395,7 +391,7 @@ fn main() {
                 }
                 mollie_typed_ast::TypeError::ExpectedArray { found } => {
                     report.set_message("expected `array`");
-                    report.add_label(label.with_message(format!("found `{}`", provider.checker.display_of_type(found, None))));
+                    report.add_label(label.with_message(format!("found `{}`", provider.checker.short_display_of_type(found, None))));
                 }
                 mollie_typed_ast::TypeError::ExpectedModule { found } => {
                     report.set_message("expected `module`");
@@ -408,13 +404,16 @@ fn main() {
                 }
                 mollie_typed_ast::TypeError::NoField { ty, name } => {
                     report.set_message("no field");
-                    report.add_label(label.with_message(format!("`{}` doesn't have field called `{name}`", provider.checker.display_of_type(ty, None))));
+                    report.add_label(label.with_message(format!(
+                        "`{}` doesn't have field called `{name}`",
+                        provider.checker.short_display_of_type(ty, None)
+                    )));
                 }
                 mollie_typed_ast::TypeError::NonIndexable { ty, name } => {
                     report.set_message("non-indexable value");
                     report.add_label(label.with_message(format!(
                         "`{}` can't have fields and be indexed by `{name}`",
-                        provider.checker.display_of_type(ty, None)
+                        provider.checker.short_display_of_type(ty, None)
                     )));
                 }
                 mollie_typed_ast::TypeError::TypeNotFound { name, module } => {
@@ -468,6 +467,26 @@ fn main() {
                         }
                     });
                 }
+                mollie_typed_ast::TypeError::Unification(error) => match error {
+                    mollie_typing::TypeUnificationError::TypeMismatch(expected, got) => {
+                        report.set_message("type mismatch");
+                        report.add_label(label.with_message(format!(
+                            "expected `{}`, found `{}",
+                            provider.checker.short_display_of_type(expected, None),
+                            provider.checker.short_display_of_type(got, None)
+                        )));
+                    }
+                    mollie_typing::TypeUnificationError::UnimplementedTrait(trait_ref, type_info_ref) => {
+                        report.set_message("unimplemented trait");
+                        report.add_label(label.with_message(format!(
+                            "expected `{}` to implement `{}",
+                            provider.checker.short_display_of_type(type_info_ref, None),
+                            provider.checker.traits[trait_ref].name
+                        )));
+                    }
+                    mollie_typing::TypeUnificationError::ArraySizeMismatch(..) => todo!(),
+                    mollie_typing::TypeUnificationError::UnknownType(_type_info_ref) => todo!(),
+                },
                 mollie_typed_ast::TypeError::NotPostfix { name } => {
                     report.set_message(format!("`{name}` can't be used in postfix context"));
                     report.add_label(label.with_message("tried to use here"));
@@ -487,10 +506,8 @@ fn main() {
 
             report.finish().print(("ui.mol", Source::from(source))).unwrap();
         }
-    }
 
-    for error in provider.checker.type_errors() {
-        println!("[Compiler/TypeErrors   ] {error}");
+        return;
     }
 
     match command {
