@@ -16,6 +16,7 @@ macro_rules! new_idx_type {
         pub struct $name(usize);
 
         impl $crate::Idx for $name {
+            const INVALID: Self = Self(usize::MAX);
             const ZERO: Self = Self(0);
 
             fn new(idx: usize) -> Self {
@@ -31,6 +32,7 @@ macro_rules! new_idx_type {
 
 pub trait Idx: fmt::Debug + Copy + PartialEq + Eq + Hash + 'static {
     const ZERO: Self;
+    const INVALID: Self;
 
     fn new(idx: usize) -> Self;
 
@@ -108,6 +110,12 @@ impl<I: Idx, T> Index<I> for IndexBoxedSlice<I, T> {
 
     fn index(&self, index: I) -> &Self::Output {
         &self.raw[index.index()]
+    }
+}
+
+impl<I: Idx, T> IndexMut<I> for IndexBoxedSlice<I, T> {
+    fn index_mut(&mut self, index: I) -> &mut Self::Output {
+        &mut self.raw[index.index()]
     }
 }
 

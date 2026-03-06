@@ -1,6 +1,7 @@
 use std::{iter, mem};
 
 use indexmap::map::Entry;
+use itertools::Itertools;
 use mollie_const::ConstantValue;
 use mollie_index::{Idx, IdxEnumerate, IndexVec};
 use mollie_parser::{AttributeValue, IndexTarget, LangItem, TypePattern};
@@ -832,16 +833,38 @@ impl<S> IntoTypedAST<S, ExprRef> for mollie_parser::Expr {
 
                 checker.solver.push_frame();
 
-                for arg in closure_expr.args.value {
-                    let ty = checker.solver.add_info(TypeInfo::Unknown(None), Some(span));
+                let returns = if let Some(ty) = checker.infer.take_if(|&mut ty| checker.solver.get_info(ty).is_func()) {
+                    let TypeInfo::Func(known_arg_types, returns) = checker.solver.get_info(ty).clone() else {
+                        unreachable!()
+                    };
 
-                    checker.solver.add_var(&arg.value.0, ty);
+                    for (arg, arg_type) in closure_expr.args.value.into_iter().zip(known_arg_types) {
+                        checker.solver.add_var(&arg.value.0, arg_type.inner());
 
-                    args.push(arg.value.0);
-                    arg_types.push(FuncArg::Regular(ty));
-                }
+                        args.push(arg.value.0);
+                        arg_types.push(arg_type);
+                    }
+
+                    Some(returns)
+                } else {
+                    for arg in closure_expr.args.value {
+                        let ty = checker.solver.add_info(TypeInfo::Unknown(None), Some(span));
+
+                        checker.solver.add_var(&arg.value.0, ty);
+
+                        args.push(arg.value.0);
+                        arg_types.push(FuncArg::Regular(ty));
+                    }
+
+                    None
+                };
 
                 let body = closure_expr.body.into_typed_ast(checker, ast);
+
+                if let Some(returns) = returns {
+                    checker.solver.unify(ast[body].ty, returns);
+                }
+
                 let ty = checker.solver.add_info(TypeInfo::Func(arg_types.into_boxed_slice(), ast[body].ty), Some(span));
 
                 checker.solver.pop_frame();

@@ -1,5 +1,6 @@
 mod expression;
 mod statement;
+mod v2;
 pub mod visitor;
 
 use std::{collections::HashMap, fmt, iter, mem, ops::Index};
@@ -246,11 +247,21 @@ impl Index<StmtRef> for TypedAST {
 
 pub type TraitFunc = (String, Vec<FuncArg<FieldType>>, FieldType);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum VTableFuncKind<S = ()> {
     Local(BlockRef),
     External(&'static str),
     Special(S),
+}
+
+impl<S> fmt::Debug for VTableFuncKind<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Local(arg0) => f.debug_tuple("Local").field(arg0).finish(),
+            Self::External(arg0) => f.debug_tuple("External").field(arg0).finish(),
+            Self::Special(arg0) => f.write_str("<special>"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
@@ -282,7 +293,7 @@ impl Func {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct VTableFunc<T = TypeInfoRef, S = ()> {
     pub trait_func: Option<TraitFuncRef>,
     pub name: String,
@@ -291,13 +302,36 @@ pub struct VTableFunc<T = TypeInfoRef, S = ()> {
     pub kind: VTableFuncKind<S>,
 }
 
-#[derive(Debug)]
+impl<T: fmt::Debug, S> fmt::Debug for VTableFunc<T, S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("VTableFunc")
+            .field("trait_func", &self.trait_func)
+            .field("name", &self.name)
+            .field("arg_names", &self.arg_names)
+            .field("ty", &self.ty)
+            .field("kind", &self.kind)
+            .finish()
+    }
+}
+
 pub struct VTableGenerator<S = ()> {
     pub origin_trait: Option<TraitRef>,
     pub generics: Box<[TypeInfoRef]>,
     pub applied_generics: Box<[TypeInfoRef]>,
     pub used_items: Vec<UsedItem>,
     pub functions: IndexVec<VFuncRef, VTableFunc<TypeInfoRef, S>>,
+}
+
+impl<S> fmt::Debug for VTableGenerator<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("VTableGenerator")
+            .field("origin_trait", &self.origin_trait)
+            .field("generics", &self.generics)
+            .field("applied_generics", &self.applied_generics)
+            .field("used_items", &self.used_items)
+            .field("functions", &self.functions)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -309,6 +343,7 @@ pub enum ModuleItem {
     Intrinsic(IntrinsicKind, TypeInfoRef),
 }
 
+#[derive(Debug)]
 pub struct Module {
     pub parent: Option<ModuleId>,
     pub name: String,
@@ -327,6 +362,7 @@ impl Module {
     }
 }
 
+#[derive(Debug)]
 pub struct Trait {
     pub name: String,
     pub generics: usize,
