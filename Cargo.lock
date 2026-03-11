@@ -895,6 +895,7 @@ dependencies = [
 name = "mollie-parser"
 version = "0.1.0"
 dependencies = [
+ "equivalent",
  "mollie-lexer",
  "mollie-shared",
  "peekmore",
@@ -912,6 +913,7 @@ dependencies = [
 name = "mollie-typed-ast"
 version = "0.1.0"
 dependencies = [
+ "ariadne",
  "indexmap",
  "itertools",
  "mollie-const",

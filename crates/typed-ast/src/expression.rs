@@ -2099,7 +2099,7 @@ impl TypedAST {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Block {
     pub stmts: Box<[StmtRef]>,
     /// Final expression (returning value)
