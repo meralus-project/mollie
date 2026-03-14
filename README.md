@@ -21,3 +21,8 @@ Everything related to its current implementation can be found [here](./docs/READ
 Dual-licensed to be compatible with the Rust project.
 
 Licensed under the [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0) or the [MIT license](http://opensource.org/licenses/MIT), at your option. This project may not be copied, modified, or distributed except according to those terms.
+
+## Sponsors
+
+Although there was no way to support me directly, these people did it anyway:
+- [L420Y](https://github.com/l420y)
