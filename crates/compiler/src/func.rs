@@ -9,6 +9,7 @@ use cranelift::{
 };
 use indexmap::{IndexMap, map::Entry};
 use mollie_ir::MollieType;
+use mollie_shared::Operator;
 use mollie_typed_ast::{ExprRef, TypedASTContext};
 use mollie_typing::{AdtVariantRef, FuncRef, Type, TypeRef, VFuncRef, VTableRef};
 
@@ -115,7 +116,7 @@ pub struct FunctionCompiler<'a, S, T: Module = JITModule> {
     pub(crate) context: FunctionContext,
 
     pub(crate) this: Option<MolValue>,
-    pub(crate) assign_ref: Option<(ExprRef, ExprRef)>,
+    pub(crate) assign_ref: Option<(ExprRef, Operator, ExprRef)>,
     pub(crate) branches: Option<(ir::Block, ir::Block)>,
 
     pub(crate) funcs: IndexMap<FuncKey, ir::FuncRef>,

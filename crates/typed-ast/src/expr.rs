@@ -20,8 +20,8 @@ mollie_index::new_idx_type!(ExprRef);
 
 #[derive(Debug, Clone)]
 pub enum LitExpr {
-    Boolean(bool),
-    Float(f32),
+    Bool(bool),
+    F32(f32),
     Int(i64),
     String(String),
 }
@@ -179,16 +179,16 @@ impl<E> FromParsed<E, mollie_parser::LiteralExpr, ExprRef> for Expr<FirstPass> {
             mollie_parser::LiteralExpr::Number(number, postfix) => match (number.value, postfix) {
                 (mollie_parser::Number::I64(value), Some(postfix)) => {
                     let info = match postfix.value.as_str() {
-                        "uint_size" => TypeInfo::Primitive(PrimitiveType::UInt(UIntType::USize)),
-                        "uint64" => TypeInfo::Primitive(PrimitiveType::UInt(UIntType::U64)),
-                        "uint32" => TypeInfo::Primitive(PrimitiveType::UInt(UIntType::U32)),
-                        "uint16" => TypeInfo::Primitive(PrimitiveType::UInt(UIntType::U16)),
-                        "uint8" => TypeInfo::Primitive(PrimitiveType::UInt(UIntType::U8)),
-                        "int_size" => TypeInfo::Primitive(PrimitiveType::Int(IntType::ISize)),
-                        "int64" => TypeInfo::Primitive(PrimitiveType::Int(IntType::I64)),
-                        "int32" => TypeInfo::Primitive(PrimitiveType::Int(IntType::I32)),
-                        "int16" => TypeInfo::Primitive(PrimitiveType::Int(IntType::I16)),
-                        "int8" => TypeInfo::Primitive(PrimitiveType::Int(IntType::I8)),
+                        "usize" => TypeInfo::Primitive(PrimitiveType::UInt(UIntType::USize)),
+                        "u64" => TypeInfo::Primitive(PrimitiveType::UInt(UIntType::U64)),
+                        "u32" => TypeInfo::Primitive(PrimitiveType::UInt(UIntType::U32)),
+                        "u16" => TypeInfo::Primitive(PrimitiveType::UInt(UIntType::U16)),
+                        "u8" => TypeInfo::Primitive(PrimitiveType::UInt(UIntType::U8)),
+                        "isize" => TypeInfo::Primitive(PrimitiveType::Int(IntType::ISize)),
+                        "i64" => TypeInfo::Primitive(PrimitiveType::Int(IntType::I64)),
+                        "i32" => TypeInfo::Primitive(PrimitiveType::Int(IntType::I32)),
+                        "i16" => TypeInfo::Primitive(PrimitiveType::Int(IntType::I16)),
+                        "i8" => TypeInfo::Primitive(PrimitiveType::Int(IntType::I8)),
                         _ => TypeInfo::Unknown(Some(
                             context
                                 .solver
@@ -234,7 +234,7 @@ impl<E> FromParsed<E, mollie_parser::LiteralExpr, ExprRef> for Expr<FirstPass> {
                             let arg = TypeSolver::type_to_info(&mut context.solver.type_infos, context.solver.context, args[0], &[]);
                             let returns = TypeSolver::type_to_info(&mut context.solver.type_infos, context.solver.context, *returns, &[]);
 
-                            let expr = ast.add_expr(Self::Lit(LitExpr::Float(value)), arg, number.span);
+                            let expr = ast.add_expr(Self::Lit(LitExpr::F32(value)), arg, number.span);
 
                             // if let TypeInfo::Func(args, returns) =
                             // checker.solver.get_info(checker.local_functions[func_ref].ty) {
@@ -285,14 +285,14 @@ impl<E> FromParsed<E, mollie_parser::LiteralExpr, ExprRef> for Expr<FirstPass> {
                     }
                 }
                 (mollie_parser::Number::F32(value), None) => ast.add_expr(
-                    Self::Lit(LitExpr::Float(value)),
-                    context.solver.add_info(TypeInfo::Primitive(PrimitiveType::Float), Some(number.span)),
+                    Self::Lit(LitExpr::F32(value)),
+                    context.solver.add_info(TypeInfo::Primitive(PrimitiveType::F32), Some(number.span)),
                     number.span,
                 ),
             },
-            mollie_parser::LiteralExpr::Boolean(value) => ast.add_expr(
-                Self::Lit(LitExpr::Boolean(value)),
-                context.solver.add_info(TypeInfo::Primitive(PrimitiveType::Boolean), Some(span)),
+            mollie_parser::LiteralExpr::Bool(value) => ast.add_expr(
+                Self::Lit(LitExpr::Bool(value)),
+                context.solver.add_info(TypeInfo::Primitive(PrimitiveType::Bool), Some(span)),
                 span,
             ),
             mollie_parser::LiteralExpr::String(value) => ast.add_expr(
@@ -388,8 +388,8 @@ impl<E> FromParsed<E, mollie_parser::Expr, ExprRef> for Expr<FirstPass> {
                 };
 
                 let variant = match (context.solver.context.adt_types[adt].kind, variant) {
-                    (AdtKind::Struct | AdtKind::Component, None) => AdtVariantRef::ZERO,
-                    (AdtKind::Struct | AdtKind::Component, Some(_)) => todo!(),
+                    (AdtKind::Struct | AdtKind::View, None) => AdtVariantRef::ZERO,
+                    (AdtKind::Struct | AdtKind::View, Some(_)) => todo!(),
                     (AdtKind::Enum, None) => {
                         let ty = context.solver.add_info(TypeInfo::Error, None);
 
@@ -461,7 +461,7 @@ impl<E> FromParsed<E, mollie_parser::Expr, ExprRef> for Expr<FirstPass> {
                 }
 
                 if !node_expr.children.value.is_empty() {
-                    if matches!(context.solver.context.adt_types[adt].kind, AdtKind::Component) {
+                    if matches!(context.solver.context.adt_types[adt].kind, AdtKind::View) {
                         let field = context.solver.context.adt_types[adt].variants[variant]
                             .fields
                             .iter()
@@ -491,10 +491,10 @@ impl<E> FromParsed<E, mollie_parser::Expr, ExprRef> for Expr<FirstPass> {
 
                             fields[field].2 = value;
                         } else {
-                            todo!("error: this component type can't have children");
+                            todo!("error: this view type can't have children");
                         }
                     } else {
-                        todo!("error: children-syntax is available only for component types");
+                        todo!("error: children-syntax is available only for view types");
                     }
                 }
 
@@ -546,9 +546,14 @@ impl<E> FromParsed<E, mollie_parser::Expr, ExprRef> for Expr<FirstPass> {
                 context.solver.unify(ast[rhs].ty, ast[lhs].ty);
 
                 let ty = match binary_expr.operator.value {
-                    Operator::Equal | Operator::NotEqual | Operator::LessThan | Operator::GreaterThan => context
+                    Operator::Equal
+                    | Operator::NotEqual
+                    | Operator::LessThan
+                    | Operator::LessThanEqual
+                    | Operator::GreaterThan
+                    | Operator::GreaterThanEqual => context
                         .solver
-                        .add_info(TypeInfo::Primitive(PrimitiveType::Boolean), Some(binary_expr.operator.span)),
+                        .add_info(TypeInfo::Primitive(PrimitiveType::Bool), Some(binary_expr.operator.span)),
                     _ => ast[lhs].ty,
                 };
 
@@ -585,8 +590,8 @@ impl<E> FromParsed<E, mollie_parser::Expr, ExprRef> for Expr<FirstPass> {
                     TypePathResult::Adt(adt, type_info_refs, variant) => {
                         let ty = context.solver.add_info(TypeInfo::Adt(adt, type_info_refs), None);
                         let variant = match (context.solver.context.adt_types[adt].kind, variant) {
-                            (AdtKind::Struct | AdtKind::Component, None) => AdtVariantRef::ZERO,
-                            (AdtKind::Struct | AdtKind::Component, Some(_)) => todo!(),
+                            (AdtKind::Struct | AdtKind::View, None) => AdtVariantRef::ZERO,
+                            (AdtKind::Struct | AdtKind::View, Some(_)) => todo!(),
                             (AdtKind::Enum, None) => {
                                 let ty = context.solver.add_info(TypeInfo::Error, None);
 
@@ -680,7 +685,7 @@ impl<E> FromParsed<E, mollie_parser::Expr, ExprRef> for Expr<FirstPass> {
             }
             mollie_parser::Expr::IfElse(if_else_expr) => {
                 let condition = Self::from_parsed(if_else_expr.condition.value, ast, context, if_else_expr.condition.span);
-                let expected = context.solver.add_info(TypeInfo::Primitive(PrimitiveType::Boolean), None);
+                let expected = context.solver.add_info(TypeInfo::Primitive(PrimitiveType::Bool), None);
 
                 context.solver.unify(ast[condition].ty, expected);
 
@@ -705,7 +710,7 @@ impl<E> FromParsed<E, mollie_parser::Expr, ExprRef> for Expr<FirstPass> {
             }
             mollie_parser::Expr::While(while_expr) => {
                 let condition = Self::from_parsed(while_expr.condition.value, ast, context, while_expr.condition.span);
-                let expected = context.solver.add_info(TypeInfo::Primitive(PrimitiveType::Boolean), None);
+                let expected = context.solver.add_info(TypeInfo::Primitive(PrimitiveType::Bool), None);
 
                 context.solver.unify(ast[condition].ty, expected);
 
@@ -848,7 +853,7 @@ impl<E> FromParsed<E, mollie_parser::Expr, ExprRef> for Expr<FirstPass> {
                                 values: Box::new([(FieldRef::new(1), for_in.name.value.0, None)]),
                             },
                         },
-                        context.solver.add_info(TypeInfo::Primitive(PrimitiveType::Boolean), None),
+                        context.solver.add_info(TypeInfo::Primitive(PrimitiveType::Bool), None),
                         span,
                     );
 
@@ -905,27 +910,26 @@ impl<E> FromParsed<E, mollie_parser::Expr, ExprRef> for Expr<FirstPass> {
 
                 ast.add_expr(
                     Self::IsPattern { target, pattern },
-                    context.solver.add_info(TypeInfo::Primitive(PrimitiveType::Boolean), None),
+                    context.solver.add_info(TypeInfo::Primitive(PrimitiveType::Bool), None),
                     span,
                 )
             }
             mollie_parser::Expr::Cast(expr, new_type) => {
                 let expr = Self::from_parsed(expr.value, ast, context, expr.span);
                 let ty = match new_type.value {
-                    mollie_parser::PrimitiveType::IntSize => PrimitiveType::Int(IntType::ISize),
-                    mollie_parser::PrimitiveType::Int64 => PrimitiveType::Int(IntType::I64),
-                    mollie_parser::PrimitiveType::Int32 => PrimitiveType::Int(IntType::I32),
-                    mollie_parser::PrimitiveType::Int16 => PrimitiveType::Int(IntType::I16),
-                    mollie_parser::PrimitiveType::Int8 => PrimitiveType::Int(IntType::I8),
-                    mollie_parser::PrimitiveType::UIntSize => PrimitiveType::UInt(UIntType::USize),
-                    mollie_parser::PrimitiveType::UInt64 => PrimitiveType::UInt(UIntType::U64),
-                    mollie_parser::PrimitiveType::UInt32 => PrimitiveType::UInt(UIntType::U32),
-                    mollie_parser::PrimitiveType::UInt16 => PrimitiveType::UInt(UIntType::U16),
-                    mollie_parser::PrimitiveType::UInt8 => PrimitiveType::UInt(UIntType::U8),
-                    mollie_parser::PrimitiveType::Float => PrimitiveType::Float,
-                    mollie_parser::PrimitiveType::Boolean => PrimitiveType::Boolean,
+                    mollie_parser::PrimitiveType::ISize => PrimitiveType::Int(IntType::ISize),
+                    mollie_parser::PrimitiveType::I64 => PrimitiveType::Int(IntType::I64),
+                    mollie_parser::PrimitiveType::I32 => PrimitiveType::Int(IntType::I32),
+                    mollie_parser::PrimitiveType::I16 => PrimitiveType::Int(IntType::I16),
+                    mollie_parser::PrimitiveType::I8 => PrimitiveType::Int(IntType::I8),
+                    mollie_parser::PrimitiveType::USize => PrimitiveType::UInt(UIntType::USize),
+                    mollie_parser::PrimitiveType::U64 => PrimitiveType::UInt(UIntType::U64),
+                    mollie_parser::PrimitiveType::U32 => PrimitiveType::UInt(UIntType::U32),
+                    mollie_parser::PrimitiveType::U16 => PrimitiveType::UInt(UIntType::U16),
+                    mollie_parser::PrimitiveType::U8 => PrimitiveType::UInt(UIntType::U8),
+                    mollie_parser::PrimitiveType::F32 => PrimitiveType::F32,
+                    mollie_parser::PrimitiveType::Bool => PrimitiveType::Bool,
                     mollie_parser::PrimitiveType::String => PrimitiveType::String,
-                    mollie_parser::PrimitiveType::Component => PrimitiveType::Component,
                     mollie_parser::PrimitiveType::Void => PrimitiveType::Void,
                 };
 
@@ -1097,13 +1101,13 @@ impl IntoConstVal for ExprRef {
                     PrimitiveType::UInt(UIntType::U8) => ConstantValue::U8(value.try_into().map_err(|_| ())?),
                     _ => panic!("wrong type for integer"),
                 },
-                (&LitExpr::Float(value), Type::Primitive(PrimitiveType::Float)) => ConstantValue::Float(value),
-                (&LitExpr::Boolean(value), Type::Primitive(PrimitiveType::Boolean)) => ConstantValue::Boolean(value),
+                (&LitExpr::F32(value), Type::Primitive(PrimitiveType::F32)) => ConstantValue::F32(value),
+                (&LitExpr::Bool(value), Type::Primitive(PrimitiveType::Bool)) => ConstantValue::Bool(value),
                 (LitExpr::String(value), Type::Primitive(PrimitiveType::String)) => ConstantValue::String(value.clone()),
                 (literal, _) => panic!("wrong type for literal: expected {} for {literal:?}", type_context.display_of(ast[self].ty)),
             },
             Expr::IfElse { condition, block, otherwise } => {
-                if condition.into_const_val(ast, type_context, const_context)? == ConstantValue::Boolean(true) {
+                if condition.into_const_val(ast, type_context, const_context)? == ConstantValue::Bool(true) {
                     block.into_const_val(ast, type_context, const_context)?
                 } else if let Some(block) = otherwise {
                     block.into_const_val(ast, type_context, const_context)?
@@ -1122,7 +1126,7 @@ impl IntoConstVal for ExprRef {
             }
             Expr::Var(name) => const_context.search_var(name).map_or_else(|| panic!("no variable called {name}"), Clone::clone),
             Expr::While { condition, block } => {
-                while condition.into_const_val(ast, type_context, const_context)? == ConstantValue::Boolean(true) {
+                while condition.into_const_val(ast, type_context, const_context)? == ConstantValue::Bool(true) {
                     block.into_const_val(ast, type_context, const_context)?;
                 }
 
@@ -1149,7 +1153,7 @@ impl IntoConstVal for ExprRef {
                 (ConstantValue::U64(a), Operator::Add, ConstantValue::U64(b)) => ConstantValue::U64(a + b),
                 (ConstantValue::ISize(a), Operator::Add, ConstantValue::ISize(b)) => ConstantValue::ISize(a + b),
                 (ConstantValue::USize(a), Operator::Add, ConstantValue::USize(b)) => ConstantValue::USize(a + b),
-                (ConstantValue::Float(a), Operator::Add, ConstantValue::Float(b)) => ConstantValue::Float(a + b),
+                (ConstantValue::F32(a), Operator::Add, ConstantValue::F32(b)) => ConstantValue::F32(a + b),
                 (ConstantValue::I8(a), Operator::Sub, ConstantValue::I8(b)) => ConstantValue::I8(a - b),
                 (ConstantValue::U8(a), Operator::Sub, ConstantValue::U8(b)) => ConstantValue::U8(a - b),
                 (ConstantValue::I16(a), Operator::Sub, ConstantValue::I16(b)) => ConstantValue::I16(a - b),
@@ -1160,7 +1164,7 @@ impl IntoConstVal for ExprRef {
                 (ConstantValue::U64(a), Operator::Sub, ConstantValue::U64(b)) => ConstantValue::U64(a - b),
                 (ConstantValue::ISize(a), Operator::Sub, ConstantValue::ISize(b)) => ConstantValue::ISize(a - b),
                 (ConstantValue::USize(a), Operator::Sub, ConstantValue::USize(b)) => ConstantValue::USize(a - b),
-                (ConstantValue::Float(a), Operator::Sub, ConstantValue::Float(b)) => ConstantValue::Float(a - b),
+                (ConstantValue::F32(a), Operator::Sub, ConstantValue::F32(b)) => ConstantValue::F32(a - b),
                 (ConstantValue::I8(a), Operator::Mul, ConstantValue::I8(b)) => ConstantValue::I8(a * b),
                 (ConstantValue::U8(a), Operator::Mul, ConstantValue::U8(b)) => ConstantValue::U8(a * b),
                 (ConstantValue::I16(a), Operator::Mul, ConstantValue::I16(b)) => ConstantValue::I16(a * b),
@@ -1171,7 +1175,7 @@ impl IntoConstVal for ExprRef {
                 (ConstantValue::U64(a), Operator::Mul, ConstantValue::U64(b)) => ConstantValue::U64(a * b),
                 (ConstantValue::ISize(a), Operator::Mul, ConstantValue::ISize(b)) => ConstantValue::ISize(a * b),
                 (ConstantValue::USize(a), Operator::Mul, ConstantValue::USize(b)) => ConstantValue::USize(a * b),
-                (ConstantValue::Float(a), Operator::Mul, ConstantValue::Float(b)) => ConstantValue::Float(a * b),
+                (ConstantValue::F32(a), Operator::Mul, ConstantValue::F32(b)) => ConstantValue::F32(a * b),
                 (ConstantValue::I8(a), Operator::Div, ConstantValue::I8(b)) => ConstantValue::I8(a / b),
                 (ConstantValue::U8(a), Operator::Div, ConstantValue::U8(b)) => ConstantValue::U8(a / b),
                 (ConstantValue::I16(a), Operator::Div, ConstantValue::I16(b)) => ConstantValue::I16(a / b),
@@ -1182,13 +1186,13 @@ impl IntoConstVal for ExprRef {
                 (ConstantValue::U64(a), Operator::Div, ConstantValue::U64(b)) => ConstantValue::U64(a / b),
                 (ConstantValue::ISize(a), Operator::Div, ConstantValue::ISize(b)) => ConstantValue::ISize(a / b),
                 (ConstantValue::USize(a), Operator::Div, ConstantValue::USize(b)) => ConstantValue::USize(a / b),
-                (ConstantValue::Float(a), Operator::Div, ConstantValue::Float(b)) => ConstantValue::Float(a / b),
-                (ConstantValue::Boolean(a), Operator::And, ConstantValue::Boolean(b)) => ConstantValue::Boolean(a && b),
-                (ConstantValue::Boolean(a), Operator::Or, ConstantValue::Boolean(b)) => ConstantValue::Boolean(a || b),
-                (a, Operator::Equal, b) => ConstantValue::Boolean(a == b),
-                (a, Operator::NotEqual, b) => ConstantValue::Boolean(a != b),
-                (a, Operator::GreaterThan, b) => ConstantValue::Boolean(a > b),
-                (a, Operator::LessThan, b) => ConstantValue::Boolean(a < b),
+                (ConstantValue::F32(a), Operator::Div, ConstantValue::F32(b)) => ConstantValue::F32(a / b),
+                (ConstantValue::Bool(a), Operator::And, ConstantValue::Bool(b)) => ConstantValue::Bool(a && b),
+                (ConstantValue::Bool(a), Operator::Or, ConstantValue::Bool(b)) => ConstantValue::Bool(a || b),
+                (a, Operator::Equal, b) => ConstantValue::Bool(a == b),
+                (a, Operator::NotEqual, b) => ConstantValue::Bool(a != b),
+                (a, Operator::GreaterThan, b) => ConstantValue::Bool(a > b),
+                (a, Operator::LessThan, b) => ConstantValue::Bool(a < b),
                 (a, op, b) => panic!("wrong binary operation: {a:?} {op} {b:?}"),
             },
             Expr::Call { .. } => todo!(),

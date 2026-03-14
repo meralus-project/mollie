@@ -1,4 +1,4 @@
-mod component_decl;
+mod view_decl;
 mod enum_decl;
 mod expression;
 mod func_decl;
@@ -12,7 +12,7 @@ use mollie_lexer::Token;
 use mollie_shared::{LangItem, Positioned};
 
 pub use self::{
-    component_decl::{ComponentDecl, ComponentProperty},
+    view_decl::{ViewDecl, ViewProperty},
     enum_decl::EnumDecl,
     expression::*,
     func_decl::{Argument, FuncDecl, FuncModifier},
@@ -76,7 +76,7 @@ pub enum Stmt {
     Expression(Expr),
     VariableDecl(VariableDecl),
     StructDecl(StructDecl),
-    ComponentDecl(ComponentDecl),
+    ViewDecl(ViewDecl),
     TraitDecl(TraitDecl),
     EnumDecl(EnumDecl),
     FuncDecl(FuncDecl),
@@ -97,12 +97,12 @@ impl Parse for Stmt {
         };
 
         match parser.peek().map(|v| &v.value) {
-            Some(Token::Declare) => Ok(ComponentDecl::parse(parser, attributes)?.map(Self::ComponentDecl)),
+            Some(Token::View) => Ok(ViewDecl::parse(parser, attributes)?.map(Self::ViewDecl)),
             Some(Token::Struct) => Ok(StructDecl::parse(parser, attributes)?.map(Self::StructDecl)),
             Some(Token::Enum) => Ok(EnumDecl::parse(parser, attributes)?.map(Self::EnumDecl)),
             Some(Token::Let | Token::Const) => Ok(VariableDecl::parse(parser)?.map(Self::VariableDecl)),
             Some(Token::Impl) => Ok(Impl::parse(parser)?.map(Self::Impl)),
-            Some(Token::Fn | Token::Postfix | Token::Public) => Ok(FuncDecl::parse(parser)?.map(Self::FuncDecl)),
+            Some(Token::Func | Token::Postfix | Token::Public) => Ok(FuncDecl::parse(parser)?.map(Self::FuncDecl)),
             Some(Token::Trait) => Ok(TraitDecl::parse(parser, attributes)?.map(Self::TraitDecl)),
             Some(Token::Import) => Ok(Import::parse(parser)?.map(Self::Import)),
             Some(_) => Ok(Expr::parse(parser)?.map(Self::Expression)),

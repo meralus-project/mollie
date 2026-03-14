@@ -11,7 +11,7 @@ impl<S, M: Module> FunctionCompiler<'_, S, M> {
                 MollieType::Regular(ty) => self.fn_builder.ins().iconst(ty, value),
                 MollieType::Fat(..) => return Ok(MolValue::Nothing),
             },
-            &LitExpr::Float(value) => self.fn_builder.ins().f32const(value),
+            &LitExpr::F32(value) => self.fn_builder.ins().f32const(value),
             LitExpr::String(value) => {
                 let data_id = self.compiler.codegen.static_data(value.as_bytes())?;
                 let data_id = self.compiler.codegen.module.declare_data_in_func(data_id, self.fn_builder.func);
@@ -21,7 +21,7 @@ impl<S, M: Module> FunctionCompiler<'_, S, M> {
 
                 return Ok(MolValue::FatPtr(ptr, size));
             }
-            &LitExpr::Boolean(value) => self.fn_builder.ins().iconst(ir::types::I8, i64::from(value)),
+            &LitExpr::Bool(value) => self.fn_builder.ins().iconst(ir::types::I8, i64::from(value)),
         }))
     }
 }

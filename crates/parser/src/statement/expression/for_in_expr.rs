@@ -17,7 +17,7 @@ impl Parse for ForInExpr {
 
         parser.consume(&Token::In)?;
 
-        let target = Expr::parse_pratt_expr(parser, Precedence::PLessGreater, true)?;
+        let target = Expr::parse_pratt_expr(parser, Precedence::Cmp, true)?;
         let block = BlockExpr::parse(parser)?;
 
         Ok(start.between(&block).wrap(Self {

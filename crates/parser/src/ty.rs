@@ -5,20 +5,19 @@ use crate::{Ident, Parse, ParseResult, Parser, TypePathExpr, TypePathSegment};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub enum PrimitiveType {
-    IntSize,
-    Int64,
-    Int32,
-    Int16,
-    Int8,
-    UIntSize,
-    UInt64,
-    UInt32,
-    UInt16,
-    UInt8,
-    Float,
-    Boolean,
+    ISize,
+    I64,
+    I32,
+    I16,
+    I8,
+    USize,
+    U64,
+    U32,
+    U16,
+    U8,
+    F32,
+    Bool,
     String,
-    Component,
     Void,
 }
 
@@ -26,20 +25,19 @@ impl Parse for PrimitiveType {
     fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
         parser.consume_map(|token| match token {
             Token::Ident(value) => match value.as_str() {
-                "uint_size" => Some(Self::UIntSize),
-                "int64" => Some(Self::Int64),
-                "int32" => Some(Self::Int32),
-                "int16" => Some(Self::Int16),
-                "int8" => Some(Self::Int8),
-                "int_size" => Some(Self::IntSize),
-                "uint64" => Some(Self::UInt64),
-                "uint32" => Some(Self::UInt32),
-                "uint16" => Some(Self::UInt16),
-                "uint8" => Some(Self::UInt8),
-                "float" => Some(Self::Float),
-                "boolean" => Some(Self::Boolean),
+                "isize" => Some(Self::ISize),
+                "i64" => Some(Self::I64),
+                "i32" => Some(Self::I32),
+                "i16" => Some(Self::I16),
+                "i8" => Some(Self::I8),
+                "usize" => Some(Self::USize),
+                "u64" => Some(Self::U64),
+                "u32" => Some(Self::U32),
+                "u16" => Some(Self::U16),
+                "u8" => Some(Self::U8),
+                "f32" => Some(Self::F32),
+                "bool" => Some(Self::Bool),
                 "string" => Some(Self::String),
-                "component" => Some(Self::Component),
                 "void" => Some(Self::Void),
                 _ => None,
             },
@@ -93,7 +91,7 @@ impl Type {
         PrimitiveType::parse(parser)
             .map(|v| v.map(Self::Primitive))
             .or_else(|_| {
-                let start = parser.consume(&Token::Fn)?;
+                let start = parser.consume(&Token::Func)?;
                 let args = parser.consume_separated_in(&Token::Comma, &Token::ParenOpen, &Token::ParenClose)?;
                 let returns = if parser.try_consume(&Token::Arrow) {
                     Some(Box::new(Self::parse(parser)?))
@@ -130,7 +128,7 @@ impl Parse for Type {
 
         let value = if parser.try_consume(&Token::BracketOpen) {
             let size = parser
-                .consume_if(Token::is_integer)
+                .consume_if(Token::is_i64)
                 .map(|v| v.map(Token::unwrap_integer))
                 .map_or(None, |size| size.value.0.value.try_into().ok().map(|v| size.span.wrap(v)));
 

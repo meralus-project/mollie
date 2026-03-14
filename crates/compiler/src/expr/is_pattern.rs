@@ -37,7 +37,7 @@ impl<S, M: Module> FunctionCompiler<'_, S, M> {
                         Ok(MolValue::Value(
                             if matches!(
                                 (target_ty, expr_ty),
-                                (Type::Primitive(PrimitiveType::Float), Type::Primitive(PrimitiveType::Float))
+                                (Type::Primitive(PrimitiveType::F32), Type::Primitive(PrimitiveType::F32))
                             ) {
                                 compiler.fn_builder.ins().fcmp(FloatCC::Equal, target, value)
                             } else {

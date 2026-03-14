@@ -8,7 +8,7 @@ use crate::{AdtVariantRef, FieldRef, ty::TypeRef};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 pub enum AdtKind {
     Struct,
-    Component,
+    View,
     Enum,
 }
 

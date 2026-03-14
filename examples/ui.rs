@@ -205,7 +205,7 @@ fn init_compiler<E>(context: &mut TypedASTContext<E>) -> (TypeRef, TypeRef) {
         (None, None, "println_fat", func::<(&str,), ()>(&mut context.type_context)),
         (None, None, "println_str", func::<(&str,), ()>(&mut context.type_context)),
         (None, None, "println_bool", func::<(bool,), ()>(&mut context.type_context)),
-        (None, None, "println_float", func::<(f32,), ()>(&mut context.type_context)),
+        (None, None, "println_f32", func::<(f32,), ()>(&mut context.type_context)),
         (None, None, "println_addr", func::<(AnyType,), ()>(&mut context.type_context)),
         (None, None, "get_type_idx", func::<(AnyType,), usize>(&mut context.type_context)),
         (None, None, "get_size", func::<(&[AnyType],), usize>(&mut context.type_context)),
@@ -288,19 +288,19 @@ fn init_compiler<E>(context: &mut TypedASTContext<E>) -> (TypeRef, TypeRef) {
         .finish();
     let drawable = context.type_context.types.get_or_add(Type::Trait(drawable, Box::new([])));
 
-    let float = context.type_context.core_types.float;
+    let f32 = context.type_context.core_types.f32;
 
     VTableBuilder::new(context, draw_ctx_ty)
         .func(
             "draw_rect",
             "DrawContext_draw_rect",
-            [draw_ctx_ty, float, float, float, float, corner_radius_ty, color_ty],
+            [draw_ctx_ty, f32, f32, f32, f32, corner_radius_ty, color_ty],
             void,
         )
         .func(
             "draw_image",
             "DrawContext_draw_image",
-            [draw_ctx_ty, float, float, float, float, image_ty],
+            [draw_ctx_ty, f32, f32, f32, f32, image_ty],
             void,
         )
         .func("image_size", "DrawContext_image_size", [draw_ctx_ty, image_ty], size_ty)

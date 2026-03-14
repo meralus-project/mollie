@@ -142,19 +142,18 @@ impl Compiler {
             core_types: CoreTypes {
                 void: TypeLayout::static_of::<bool>(),
                 any: TypeLayout::static_of::<bool>(),
-                boolean: TypeLayout::static_of::<bool>(),
-                int8: TypeLayout::static_of::<i8>(),
-                int16: TypeLayout::static_of::<i16>(),
-                int32: TypeLayout::static_of::<i32>(),
-                int64: TypeLayout::static_of::<i64>(),
-                int_size: TypeLayout::static_of::<isize>(),
-                uint8: TypeLayout::static_of::<u8>(),
-                uint16: TypeLayout::static_of::<u16>(),
-                uint32: TypeLayout::static_of::<u32>(),
-                uint64: TypeLayout::static_of::<u64>(),
-                uint_size: TypeLayout::static_of::<usize>(),
-                float: TypeLayout::static_of::<f32>(),
-                component: TypeLayout::static_of::<usize>(),
+                bool: TypeLayout::static_of::<bool>(),
+                i8: TypeLayout::static_of::<i8>(),
+                i16: TypeLayout::static_of::<i16>(),
+                i32: TypeLayout::static_of::<i32>(),
+                i64: TypeLayout::static_of::<i64>(),
+                isize: TypeLayout::static_of::<isize>(),
+                u8: TypeLayout::static_of::<u8>(),
+                u16: TypeLayout::static_of::<u16>(),
+                u32: TypeLayout::static_of::<u32>(),
+                u64: TypeLayout::static_of::<u64>(),
+                usize: TypeLayout::static_of::<usize>(),
+                f32: TypeLayout::static_of::<f32>(),
                 string: TypeLayout::static_of::<&str>(),
             },
             codegen: CodeGenerator::new(
@@ -164,7 +163,7 @@ impl Compiler {
                     ("println_bool", do_println_bool as *const u8),
                     ("println_addr", do_println_addr as *const u8),
                     ("println_str", do_println_str as *const u8),
-                    ("println_float", do_println_f32 as *const u8),
+                    ("println_f32", do_println_f32 as *const u8),
                     ("molalloc", allocator::alloc as *const u8),
                     ("molalloc_arr", allocator::alloc_array as *const u8),
                     ("molrealloc_arr", allocator::realloc_array as *const u8),
@@ -193,7 +192,7 @@ impl Compiler {
         compiler.import_fn("println_str", [ptr_type, ptr_type])?;
         compiler.import_fn("println_bool", [types::I8])?;
         compiler.import_fn("println_addr", [types::I64])?;
-        compiler.import_fn("println_float", [types::F32])?;
+        compiler.import_fn("println_f32", [types::F32])?;
 
         let println_frame_addr_id = {
             let mut ctx = compiler.codegen.module.make_context();
@@ -1046,14 +1045,13 @@ impl AsIrType for TypeRef {
             Type::Primitive(primitive_type) => match primitive_type {
                 PrimitiveType::Any => unimplemented!(),
                 PrimitiveType::Int(IntType::ISize) | PrimitiveType::UInt(UIntType::USize) => MollieType::Regular(isa.pointer_type()),
-                PrimitiveType::String | PrimitiveType::Component => MollieType::Fat(isa.pointer_type(), isa.pointer_type()),
+                PrimitiveType::String => MollieType::Fat(isa.pointer_type(), isa.pointer_type()),
                 PrimitiveType::Int(IntType::I64) | PrimitiveType::UInt(UIntType::U64) => MollieType::Regular(ir::types::I64),
                 PrimitiveType::Int(IntType::I32) | PrimitiveType::UInt(UIntType::U32) => MollieType::Regular(ir::types::I32),
                 PrimitiveType::Int(IntType::I16) | PrimitiveType::UInt(UIntType::U16) => MollieType::Regular(ir::types::I16),
-                PrimitiveType::Int(IntType::I8) | PrimitiveType::UInt(UIntType::U8) | PrimitiveType::Boolean => MollieType::Regular(ir::types::I8),
-                PrimitiveType::Float => MollieType::Regular(ir::types::F32),
+                PrimitiveType::Int(IntType::I8) | PrimitiveType::UInt(UIntType::U8) | PrimitiveType::Bool => MollieType::Regular(ir::types::I8),
+                PrimitiveType::F32 => MollieType::Regular(ir::types::F32),
                 PrimitiveType::Void => unimplemented!(),
-                PrimitiveType::Null => unimplemented!(),
             },
             Type::Array(..) | Type::Adt(..) | Type::Func(..) => MollieType::Regular(isa.pointer_type()),
             Type::Trait(..) => MollieType::Fat(isa.pointer_type(), isa.pointer_type()),

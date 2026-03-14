@@ -35,8 +35,20 @@ impl<S, M: Module> FunctionCompiler<'_, S, M> {
             let offset = self.fn_builder.ins().imul_imm(index, i64::from(size));
             let ptr = self.fn_builder.ins().iadd(ptr, offset);
 
-            if let Some((_, assign)) = self.assign_ref.take_if(|(lhs_ref, _)| *lhs_ref == expr) {
+            if let Some((_, operator, assign)) = self.assign_ref.take_if(|(lhs_ref, ..)| *lhs_ref == expr) {
                 if let MolValue::Value(value) = assign.compile(ast, self)? {
+                    let value = match operator {
+                        mollie_shared::Operator::Assign => value,
+                        op if let MollieType::Regular(ty) = element_type
+                            && let Some(operator) = op.lower() =>
+                        {
+                            let current_value = self.fn_builder.ins().load(ty, ir::MemFlags::trusted(), ptr, 0);
+
+                            self.bin_op(current_value, ast[expr].ty, operator, value, ast[assign].ty)
+                        }
+                        _ => return Ok(MolValue::Nothing),
+                    };
+
                     self.fn_builder.ins().store(ir::MemFlags::trusted(), value, ptr, 0);
 
                     return Ok(MolValue::Nothing);

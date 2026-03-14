@@ -18,55 +18,6 @@ impl<S, M: Module> FunctionCompiler<'_, S, M> {
         let func_ty = ast[func].ty;
 
         if let Type::Func(arg_types, returns) = &self.type_context.type_context.types[func_ty] {
-            // let v = match func {
-            //     FuncSource::Explicit(func) => ,
-            //     FuncSource::Expr(func) => func.compile(ast, self)?,
-            // FuncSource::Intrinsic(kind, _) => match kind {
-            //     mollie_typed_ast::IntrinsicKind::SizeOf => todo!(),
-            //     mollie_typed_ast::IntrinsicKind::AlignOf => todo!(),
-            //     mollie_typed_ast::IntrinsicKind::SizeOfValue => {
-            //         fn get_size<S, M: Module>(ty: TypeInfoRef, func_compiler:
-            // &FunctionCompiler<'_, S, M>) -> usize {             let ptr_type
-            // = func_compiler.compiler.ptr_type();
-
-            //             match func_compiler.type_context.solver.get_info(ty) {
-            //                 TypeInfo::Primitive(primitive_type) => match primitive_type {
-            //                     PrimitiveType::Any => unimplemented!(),
-            //                     PrimitiveType::Int(IntType::ISize)
-            //                     | PrimitiveType::UInt(UIntType::USize)
-            //                     | PrimitiveType::String
-            //                     | PrimitiveType::Component => ptr_type.bytes() as usize,
-            //                     PrimitiveType::Int(IntType::I64) |
-            // PrimitiveType::UInt(UIntType::U64) => 8,
-            // PrimitiveType::Int(IntType::I32) | PrimitiveType::UInt(UIntType::U32) |
-            // PrimitiveType::Float => 4,
-            // PrimitiveType::Int(IntType::I16) | PrimitiveType::UInt(UIntType::U16) => 2,
-            //                     PrimitiveType::Int(IntType::I8) |
-            // PrimitiveType::UInt(UIntType::U8) | PrimitiveType::Boolean => 1,
-            //                     PrimitiveType::Void => 0,
-            //                     PrimitiveType::Null => unimplemented!(),
-            //                 },
-            //                 TypeInfo::Func(..) | TypeInfo::Trait(..) | TypeInfo::Array(_,
-            // None) => ptr_type.bytes() as usize,
-            // TypeInfo::Adt(..) => {                     let hash =
-            // func_compiler.hash_of(ty);
-
-            //                     func_compiler.compiler.adt_types[&hash].type_layout.size
-            //                 }
-            //                 &TypeInfo::Array(type_info_ref, Some(size)) =>
-            // get_size(type_info_ref, func_compiler) * size,                 _
-            // => unimplemented!(),             }
-            //         }
-
-            //         let size = get_size(ast[args[0]].ty, self);
-
-            //         return Ok(MolValue::Value(
-            //             self.fn_builder.ins().iconst(self.compiler.ptr_type(),
-            // size.cast_signed() as i64),         ));
-            //     }
-            //     mollie_typed_ast::IntrinsicKind::AlignOfValue => todo!(),
-            // },
-            // };
             let v = func.compile(ast, self)?;
 
             let mut arg_values = Vec::new();
@@ -102,38 +53,12 @@ impl<S, M: Module> FunctionCompiler<'_, S, M> {
                 }
             }
 
-            let value = match v {
-                MolValue::FuncRef(func) => {
-                    let result = self.fn_builder.ins().call(func, &arg_values);
-
-                    match self.fn_builder.inst_results(result) {
-                        [] => MolValue::Nothing,
-                        &[value] => MolValue::Value(value),
-                        &[value, metadata]
-                            if returns != &self.type_context.type_context.core_types.void
-                                && returns.as_ir_type(&self.type_context.type_context.types, self.compiler.isa()).is_fat() =>
-                        {
-                            MolValue::FatPtr(value, metadata)
-                        }
-                        values => MolValue::Values(values.to_vec()),
-                    }
-                }
+            let result = match v {
+                MolValue::FuncRef(func) => self.fn_builder.ins().call(func, &arg_values),
                 MolValue::CaptureFuncRef(func, captures) => {
                     arg_values.push(captures);
 
-                    let result = self.fn_builder.ins().call(func, &arg_values);
-
-                    match self.fn_builder.inst_results(result) {
-                        [] => MolValue::Nothing,
-                        &[value] => MolValue::Value(value),
-                        &[value, metadata]
-                            if returns != &self.type_context.type_context.core_types.void
-                                && returns.as_ir_type(&self.type_context.type_context.types, self.compiler.isa()).is_fat() =>
-                        {
-                            MolValue::FatPtr(value, metadata)
-                        }
-                        values => MolValue::Values(values.to_vec()),
-                    }
+                    self.fn_builder.ins().call(func, &arg_values)
                 }
                 MolValue::Value(func_addr) => {
                     let mut signature = self.compiler.codegen.module.make_signature();
@@ -159,19 +84,8 @@ impl<S, M: Module> FunctionCompiler<'_, S, M> {
                     }
 
                     let sig = self.fn_builder.import_signature(signature);
-                    let result = self.fn_builder.ins().call_indirect(sig, func_addr, &arg_values);
 
-                    match self.fn_builder.inst_results(result) {
-                        [] => MolValue::Nothing,
-                        &[value] => MolValue::Value(value),
-                        &[value, metadata]
-                            if returns != &self.type_context.type_context.core_types.void
-                                && returns.as_ir_type(&self.type_context.type_context.types, self.compiler.isa()).is_fat() =>
-                        {
-                            MolValue::FatPtr(value, metadata)
-                        }
-                        values => MolValue::Values(values.to_vec()),
-                    }
+                    self.fn_builder.ins().call_indirect(sig, func_addr, &arg_values)
                 }
                 MolValue::FatPtr(func_addr, captures) => {
                     arg_values.push(captures);
@@ -201,24 +115,23 @@ impl<S, M: Module> FunctionCompiler<'_, S, M> {
                     }
 
                     let sig = self.fn_builder.import_signature(signature);
-                    let result = self.fn_builder.ins().call_indirect(sig, func_addr, &arg_values);
 
-                    match self.fn_builder.inst_results(result) {
-                        [] => MolValue::Nothing,
-                        &[value] => MolValue::Value(value),
-                        &[value, metadata]
-                            if returns != &self.type_context.type_context.core_types.void
-                                && returns.as_ir_type(&self.type_context.type_context.types, self.compiler.isa()).is_fat() =>
-                        {
-                            MolValue::FatPtr(value, metadata)
-                        }
-                        values => MolValue::Values(values.to_vec()),
-                    }
+                    self.fn_builder.ins().call_indirect(sig, func_addr, &arg_values)
                 }
-                _ => MolValue::Nothing,
+                _ => return Ok(MolValue::Nothing),
             };
 
-            Ok(value)
+            Ok(match self.fn_builder.inst_results(result) {
+                [] => MolValue::Nothing,
+                &[value] => MolValue::Value(value),
+                &[value, metadata]
+                    if returns != &self.type_context.type_context.core_types.void
+                        && returns.as_ir_type(&self.type_context.type_context.types, self.compiler.isa()).is_fat() =>
+                {
+                    MolValue::FatPtr(value, metadata)
+                }
+                values => MolValue::Values(values.to_vec()),
+            })
         } else {
             unimplemented!("how is this possible");
         }

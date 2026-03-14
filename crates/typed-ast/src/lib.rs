@@ -590,13 +590,13 @@ impl TypedAST<FirstPass> {
             Expr::IfElse { condition, block, otherwise } => {
                 let condition = self.solve_expr(ast, condition, context);
 
-                if context.solver.context.types[ast[condition].ty] != Type::Primitive(PrimitiveType::Boolean) {
+                if context.solver.context.types[ast[condition].ty] != Type::Primitive(PrimitiveType::Bool) {
                     let ty = context.solver.context.types.get_or_add(Type::Error);
 
                     return ast.add_expr(
                         Expr::Error(context.solver.context.error(
                             TypeError::Unexpected {
-                                expected: TypeErrorValue::PrimitiveType(PrimitiveType::Boolean),
+                                expected: TypeErrorValue::PrimitiveType(PrimitiveType::Bool),
                                 found: TypeErrorValue::ExplicitType(ast[condition].ty),
                             },
                             ast[condition].span,
@@ -614,13 +614,13 @@ impl TypedAST<FirstPass> {
             Expr::While { condition, block } => {
                 let condition = self.solve_expr(ast, condition, context);
 
-                if context.solver.context.types[ast[condition].ty] != Type::Primitive(PrimitiveType::Boolean) {
+                if context.solver.context.types[ast[condition].ty] != Type::Primitive(PrimitiveType::Bool) {
                     let ty = context.solver.context.types.get_or_add(Type::Error);
 
                     return ast.add_expr(
                         Expr::Error(context.solver.context.error(
                             TypeError::Unexpected {
-                                expected: TypeErrorValue::PrimitiveType(PrimitiveType::Boolean),
+                                expected: TypeErrorValue::PrimitiveType(PrimitiveType::Bool),
                                 found: TypeErrorValue::ExplicitType(ast[condition].ty),
                             },
                             ast[condition].span,
@@ -1191,8 +1191,8 @@ mod tests {
             match &self.ast[self.expr].value {
                 Expr::Var(name) => f.write_str(name),
                 Expr::Lit(value) => match value {
-                    LitExpr::Boolean(value) => write!(f, "{value}"),
-                    LitExpr::Float(value) => write!(f, "{value}"),
+                    LitExpr::Bool(value) => write!(f, "{value}"),
+                    LitExpr::F32(value) => write!(f, "{value}"),
                     LitExpr::Int(value) => write!(f, "{value}{}", TypeFmt {
                         storage: self.storage,
                         ty: self.ast[self.expr].ty
@@ -1358,7 +1358,7 @@ mod tests {
         #[allow(unused_variables)]
         let source = "{
             let hello = 12;
-            let hello2 = [1, 2, 4int16];
+            let hello2 = [1, 2, 4i16];
             let volua = |a, b| { a + b };
 
             enum Option<T> {
@@ -1375,7 +1375,7 @@ mod tests {
             }
 
             trait Hello<T> {
-                fn hello(self) -> A<T>;
+                func hello(self) -> A<T>;
             }
 
             struct C<T> {
@@ -1383,15 +1383,15 @@ mod tests {
             }
 
             impl<T> Hello<T> for A<T> {
-                fn hello(self) -> A<T> {
+                func hello(self) -> A<T> {
                     let hew = A { value: true };
 
                     A { value: self.value }
                 }
             }
 
-            fn println(input: int64) -> int64 {
-                let dengi = Option::Some { value: A { value: 5int16 } };
+            func println(input: i64) -> i64 {
+                let dengi = Option::Some { value: A { value: 5i16 } };
 
                 input + 32
             }
@@ -1418,7 +1418,7 @@ mod tests {
                 println(value);
             }
 
-            hello = 54uint_size;
+            hello = 54usize;
 
             calc_smth(|b| { b * 2 });
 
@@ -1427,7 +1427,7 @@ mod tests {
             let damn = B { value: A { value: 50 } };
             let volua2 = |a| { a.value.value - hello };
 
-            damn = B { value: A { value: 50uint_size } };
+            damn = B { value: A { value: 50usize } };
             damn.val;
             damn();
             volua2(damn);
@@ -1442,35 +1442,26 @@ mod tests {
         let source = include_str!("../../../examples/ui.mol");
         let (stmts, final_stmt) = mollie_parser::parse_statements_until(&mut Parser::new(Lexer::lex(source)), &Token::EOF).unwrap();
 
-        // {
-        //     let mut hello = 12;
-        //     let volua = |a, b| { a + b };
-
-        //     hello = 54i64;
-
-        //     hello + 4 + volua(1, 2)
-        // }
-
         let mut ast = TypedAST::default();
         let mut context = TypedASTContext::<()>::new(TypeContext::new());
 
-        let uint_size = context.type_context.types.get_or_add(Type::Primitive(PrimitiveType::UInt(UIntType::USize)));
+        let usize = context.type_context.types.get_or_add(Type::Primitive(PrimitiveType::UInt(UIntType::USize)));
         let string = context.type_context.types.get_or_add(Type::Primitive(PrimitiveType::String));
-        let boolean = context.type_context.types.get_or_add(Type::Primitive(PrimitiveType::Boolean));
+        let bool = context.type_context.types.get_or_add(Type::Primitive(PrimitiveType::Bool));
         let any = context.type_context.types.get_or_add(Type::Primitive(PrimitiveType::Any));
-        let float = context.type_context.types.get_or_add(Type::Primitive(PrimitiveType::Float));
+        let f32 = context.type_context.types.get_or_add(Type::Primitive(PrimitiveType::F32));
         let void = context.type_context.types.get_or_add(Type::Primitive(PrimitiveType::Void));
 
         for (name, args, returns) in [
-            ("println", Box::new([uint_size]) as Box<[_]>, void),
+            ("println", Box::new([usize]) as Box<[_]>, void),
             ("println_frame_addr", Box::new([]), void),
             ("println_fat", Box::new([string]), void),
             ("println_str", Box::new([string]), void),
-            ("println_bool", Box::new([boolean]), void),
-            ("println_float", Box::new([float]), void),
+            ("println_bool", Box::new([bool]), void),
+            ("println_f32", Box::new([f32]), void),
             ("println_addr", Box::new([any]), void),
-            ("get_type_idx", Box::new([any]), uint_size),
-            ("get_size", Box::new([any]), uint_size),
+            ("get_type_idx", Box::new([any]), usize),
+            ("get_size", Box::new([any]), usize),
         ] {
             let ty = context.type_context.types.get_or_add(Type::Func(args, returns));
 
@@ -1483,7 +1474,7 @@ mod tests {
             });
         }
 
-        let func = context.type_context.types.get_or_add(Type::Func(Box::new([]), uint_size));
+        let func = context.type_context.types.get_or_add(Type::Func(Box::new([]), usize));
         let module = context.type_context.register_module("std");
 
         context.functions.push(FunctionBody::Import("__ext__get_timestamp"));
@@ -1557,7 +1548,7 @@ mod tests {
             ]),
         });
 
-        let uint8 = context.type_context.types.get_or_add(Type::Primitive(PrimitiveType::UInt(UIntType::U8)));
+        let u8 = context.type_context.types.get_or_add(Type::Primitive(PrimitiveType::UInt(UIntType::U8)));
 
         context.type_context.register_adt_in_module(module, Adt {
             name: Some("Color".into()),
@@ -1570,17 +1561,17 @@ mod tests {
                 fields: IndexBoxedSlice::from_iter([
                     AdtVariantField {
                         name: "red".into(),
-                        ty: uint8,
+                        ty: u8,
                         default_value: None,
                     },
                     AdtVariantField {
                         name: "blue".into(),
-                        ty: uint8,
+                        ty: u8,
                         default_value: None,
                     },
                     AdtVariantField {
                         name: "green".into(),
-                        ty: uint8,
+                        ty: u8,
                         default_value: None,
                     },
                 ]),
@@ -1598,22 +1589,22 @@ mod tests {
                 fields: IndexBoxedSlice::from_iter([
                     AdtVariantField {
                         name: "top_left".into(),
-                        ty: float,
+                        ty: f32,
                         default_value: None,
                     },
                     AdtVariantField {
                         name: "top_right".into(),
-                        ty: float,
+                        ty: f32,
                         default_value: None,
                     },
                     AdtVariantField {
                         name: "bottom_left".into(),
-                        ty: float,
+                        ty: f32,
                         default_value: None,
                     },
                     AdtVariantField {
                         name: "bottom_right".into(),
-                        ty: float,
+                        ty: f32,
                         default_value: None,
                     },
                 ]),
@@ -1631,12 +1622,12 @@ mod tests {
                 fields: IndexBoxedSlice::from_iter([
                     AdtVariantField {
                         name: "width".into(),
-                        ty: float,
+                        ty: f32,
                         default_value: None,
                     },
                     AdtVariantField {
                         name: "height".into(),
-                        ty: float,
+                        ty: f32,
                         default_value: None,
                     },
                 ]),
@@ -1654,12 +1645,12 @@ mod tests {
                 fields: IndexBoxedSlice::from_iter([
                     AdtVariantField {
                         name: "x".into(),
-                        ty: float,
+                        ty: f32,
                         default_value: None,
                     },
                     AdtVariantField {
                         name: "y".into(),
-                        ty: float,
+                        ty: f32,
                         default_value: None,
                     },
                 ]),

@@ -51,7 +51,7 @@ pub struct FuncDecl {
 impl Parse for FuncDecl {
     fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
         let modifiers = parser.consume_while(|parser| parser.check_one_of(&[Token::Public, Token::Postfix]))?;
-        let start = parser.consume(&Token::Fn)?;
+        let start = parser.consume(&Token::Func)?;
         let name = Ident::parse(parser)?;
 
         let args_start = parser.consume(&Token::ParenOpen)?;

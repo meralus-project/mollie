@@ -6,11 +6,11 @@ pub enum NumberToken {
     #[display("{_0}")]
     #[is_variant]
     #[unwrap]
-    Float(f32),
+    F32(f32),
     #[display("{_0}")]
     #[is_variant]
     #[unwrap]
-    Int(i64),
+    I64(i64),
 }
 
 #[derive(Debug, Display, IsVariant, Unwrap, PartialEq, Clone, PartialOrd)]
@@ -33,15 +33,15 @@ pub enum Token {
     #[display("{_0}")]
     #[is_variant]
     #[unwrap]
-    Boolean(bool),
+    Bool(bool),
     #[display("import")]
     Import,
     #[display("public")]
     Public,
     #[display("self")]
     This,
-    #[display("declare")]
-    Declare,
+    #[display("view")]
+    View,
     #[display("inherits")]
     Inherits,
     #[display("as")]
@@ -72,16 +72,14 @@ pub enum Token {
     Else,
     #[display("loop")]
     Loop,
-    #[display("null")]
-    Null,
     #[display("postfix")]
     Postfix,
     #[display("fn")]
-    Fn,
+    Func,
     #[display("@")]
     Attr,
-    // #[display("match")]
-    // Match,
+    #[display("switch")]
+    Switch,
     #[display("[")]
     BracketOpen,
     #[display("]")]
@@ -102,14 +100,22 @@ pub enum Token {
     Semi,
     #[display("-")]
     Minus,
+    #[display("-=")]
+    MinusEq,
     #[display("+")]
     Plus,
+    #[display("+=")]
+    PlusEq,
     #[display("/")]
     Slash,
+    #[display("/=")]
+    SlashEq,
     #[display("*")]
     Star,
-    // #[display("=>")]
-    // FatArrow,
+    #[display("*=")]
+    StarEq,
+    #[display("=>")]
+    FatArrow,
     #[display("->")]
     Arrow,
     #[display("=")]
@@ -122,14 +128,16 @@ pub enum Token {
     Not,
     #[display("|")]
     Or,
+    #[display("|=")]
+    OrEq,
     #[display("||")]
     OrOr,
     #[display("&")]
     And,
+    #[display("&=")]
+    AndEq,
     #[display("&&")]
     AndAnd,
-    // #[display("#")]
-    // Pound,
     #[display("?")]
     Question,
     #[display("%")]
@@ -140,10 +148,12 @@ pub enum Token {
     Less,
     #[display(">")]
     Greater,
+    #[display("<=")]
+    LessEq,
+    #[display(">=")]
+    GreaterEq,
     #[display(".")]
     Dot,
-    // #[display("new")]
-    // New,
     #[display("impl")]
     Impl,
     #[display("trait")]
@@ -165,18 +175,18 @@ impl Token {
         if let Self::Ident(value) = self { func(value) } else { false }
     }
 
-    pub const fn is_integer(&self) -> bool {
-        if let Self::Number(value, _) = self { value.value.is_int() } else { false }
+    pub const fn is_i64(&self) -> bool {
+        if let Self::Number(value, _) = self { value.value.is_i_64() } else { false }
     }
 
-    pub const fn is_float(&self) -> bool {
-        if let Self::Number(value, _) = self { value.value.is_float() } else { false }
+    pub const fn is_f32(&self) -> bool {
+        if let Self::Number(value, _) = self { value.value.is_f_32() } else { false }
     }
 
     pub fn unwrap_integer(self) -> (Positioned<i64>, Option<Positioned<String>>) {
         let (number, postfix) = self.unwrap_number();
 
-        (number.span.wrap(number.value.unwrap_int()), postfix)
+        (number.span.wrap(number.value.unwrap_i_64()), postfix)
     }
 
     // #[must_use]

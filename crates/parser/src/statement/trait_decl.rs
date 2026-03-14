@@ -45,7 +45,7 @@ impl Parse for TraitFunction {
             items
         };
 
-        let start = parser.consume(&Token::Fn)?;
+        let start = parser.consume(&Token::Func)?;
         let name = Ident::parse(parser)?;
 
         parser.consume(&Token::ParenOpen)?;

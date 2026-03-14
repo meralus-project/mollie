@@ -189,8 +189,8 @@ mollie_types! {
     u64    => Type::Primitive(PrimitiveType::UInt(UIntType::  U64)),
     isize  => Type::Primitive(PrimitiveType::Int (IntType ::ISize)),
     usize  => Type::Primitive(PrimitiveType::UInt(UIntType::USize)),
-    f32    => Type::Primitive(PrimitiveType::Float                ),
-    bool   => Type::Primitive(PrimitiveType::Boolean              ),
+    f32    => Type::Primitive(PrimitiveType::F32                ),
+    bool   => Type::Primitive(PrimitiveType::Bool              ),
     &str   => Type::Primitive(PrimitiveType::String               ),
     String => Type::Primitive(PrimitiveType::String               )
 }

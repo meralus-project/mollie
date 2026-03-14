@@ -15,18 +15,18 @@ pub struct Lexer;
 impl Lexer {
     fn lex_reserved(ident: String) -> Token {
         match ident.as_str() {
-            "true" => Token::Boolean(true),
-            "false" => Token::Boolean(false),
+            "true" => Token::Bool(true),
+            "false" => Token::Bool(false),
             "self" => Token::This,
-            "declare" => Token::Declare,
+            "view" => Token::View,
             "inherits" => Token::Inherits,
             "as" => Token::As,
             "from" => Token::From,
             "struct" => Token::Struct,
             "enum" => Token::Enum,
             "import" => Token::Import,
-            // "match" => Token::Match,
-            "fn" => Token::Fn,
+            "switch" => Token::Switch,
+            "func" => Token::Func,
             "trait" => Token::Trait,
             "impl" => Token::Impl,
             "const" => Token::Const,
@@ -39,7 +39,6 @@ impl Lexer {
             "loop" => Token::Loop,
             "if" => Token::If,
             "else" => Token::Else,
-            "null" => Token::Null,
             "is" => Token::Is,
             _ => Token::Ident(ident),
         }
@@ -64,8 +63,26 @@ impl Lexer {
                 }
             }
             ';' => Some(Token::Semi),
-            '+' => Some(Token::Plus),
-            '*' => Some(Token::Star),
+            '+' => {
+                if chars.next_if_eq(&'=').is_some() {
+                    span.end += 1;
+                    span.range.add_columns(1);
+
+                    Some(Token::PlusEq)
+                } else {
+                    Some(Token::Plus)
+                }
+            }
+            '*' => {
+                if chars.next_if_eq(&'=').is_some() {
+                    span.end += 1;
+                    span.range.add_columns(1);
+
+                    Some(Token::StarEq)
+                } else {
+                    Some(Token::Star)
+                }
+            }
             '/' => {
                 if chars.next_if_eq(&'/').is_some() {
                     let mut utf8size = 0;
@@ -82,6 +99,11 @@ impl Lexer {
                     span.range.set_column(0);
 
                     None
+                } else if chars.next_if_eq(&'=').is_some() {
+                    span.end += 1;
+                    span.range.add_columns(1);
+
+                    Some(Token::SlashEq)
                 } else {
                     Some(Token::Slash)
                 }
@@ -92,6 +114,11 @@ impl Lexer {
                     span.range.add_columns(1);
 
                     Some(Token::EqEq)
+                } else if chars.next_if_eq(&'>').is_some() {
+                    span.end += 1;
+                    span.range.add_columns(1);
+
+                    Some(Token::FatArrow)
                 } else {
                     Some(Token::Eq)
                 }
@@ -102,6 +129,11 @@ impl Lexer {
                     span.range.add_columns(1);
 
                     Some(Token::AndAnd)
+                } else if chars.next_if_eq(&'=').is_some() {
+                    span.end += 1;
+                    span.range.add_columns(1);
+
+                    Some(Token::AndEq)
                 } else {
                     Some(Token::And)
                 }
@@ -112,6 +144,11 @@ impl Lexer {
                     span.range.add_columns(1);
 
                     Some(Token::OrOr)
+                } else if chars.next_if_eq(&'=').is_some() {
+                    span.end += 1;
+                    span.range.add_columns(1);
+
+                    Some(Token::OrEq)
                 } else {
                     Some(Token::Or)
                 }
@@ -141,21 +178,39 @@ impl Lexer {
             // '#' => Token::Pound,
             '@' => Some(Token::Attr),
             '?' => Some(Token::Question),
-            '>' => Some(Token::Greater),
-            '<' => Some(Token::Less),
+            '>' => {
+                if chars.next_if_eq(&'=').is_some() {
+                    span.end += 1;
+                    span.range.add_columns(1);
+
+                    Some(Token::GreaterEq)
+                } else {
+                    Some(Token::Greater)
+                }
+            }
+            '<' => {
+                if chars.next_if_eq(&'=').is_some() {
+                    span.end += 1;
+                    span.range.add_columns(1);
+
+                    Some(Token::LessEq)
+                } else {
+                    Some(Token::Less)
+                }
+            }
             character => Some(Token::Unknown(character)),
         }
     }
 
-    fn len_utf8(char: char) -> u32 {
+    const fn len_utf8(char: char) -> u32 {
         const MAX_ONE_B: u32 = 0x80;
         const MAX_TWO_B: u32 = 0x800;
         const MAX_THREE_B: u32 = 0x10000;
 
         match char as u32 {
             ..MAX_ONE_B => 1,
-            ..MAX_TWO_B => 2,
-            ..MAX_THREE_B => 3,
+            MAX_ONE_B..MAX_TWO_B => 2,
+            MAX_TWO_B..MAX_THREE_B => 3,
             _ => 4,
         }
     }
@@ -193,7 +248,7 @@ impl Lexer {
             span.start = span.end;
             span.end += hex.len() + 2;
 
-            tokens.push(span.wrap(Token::Number(span.wrap(NumberToken::Int(i64::from_str_radix(&hex, 16).unwrap())), None)));
+            tokens.push(span.wrap(Token::Number(span.wrap(NumberToken::I64(i64::from_str_radix(&hex, 16).unwrap())), None)));
         } else {
             let mut size = 1;
             let mut value = String::from(character);
@@ -212,15 +267,15 @@ impl Lexer {
             span.range.end_column += size;
 
             let mut number = span.wrap(if value.contains('.') {
-                NumberToken::Float(value.parse().unwrap())
+                NumberToken::F32(value.parse().unwrap())
             } else {
-                NumberToken::Int(value.parse().unwrap())
+                NumberToken::I64(value.parse().unwrap())
             });
 
             if neg {
                 match &mut number.value {
-                    NumberToken::Float(value) => *value = value.neg(),
-                    NumberToken::Int(value) => *value = value.neg(),
+                    NumberToken::F32(value) => *value = value.neg(),
+                    NumberToken::I64(value) => *value = value.neg(),
                 }
             }
 
@@ -248,7 +303,7 @@ impl Lexer {
             tokens.push(
                 number
                     .span
-                    .between(postfix.as_ref().map(|postfix| postfix.span).unwrap_or(number.span))
+                    .between(postfix.as_ref().map_or(number.span, |postfix| postfix.span))
                     .wrap(Token::Number(number, postfix)),
             );
         }
@@ -292,6 +347,13 @@ impl Lexer {
                         span.end += 2;
 
                         tokens.push(span.wrap(Token::Arrow));
+
+                        span.range.add_columns(2);
+                    } else if chars.next_if_eq(&'=').is_some() {
+                        span.start = span.end;
+                        span.end += 2;
+
+                        tokens.push(span.wrap(Token::MinusEq));
 
                         span.range.add_columns(2);
                     } else {
@@ -355,11 +417,11 @@ mod tests {
 
     use crate::{Lexer, NumberToken, Token};
 
-    fn assert_lex_single_eq(input: &str, output: Token) {
+    fn assert_lex_single_eq(input: &str, output: &Token) {
         let lexed = Lexer::lex(input);
 
         assert!(!lexed.is_empty());
-        assert_eq!(lexed[0].value, output);
+        assert_eq!(&lexed[0].value, output);
     }
 
     fn assert_lex_eq<T: IntoIterator<Item = (Token, Span)>>(input: &str, output: T) {
@@ -389,27 +451,27 @@ mod tests {
 
         assert_lex_single_eq(
             "123",
-            Token::Number(Span::new(0, 3, SpanRange::new(0, 0, 0, 3)).wrap(NumberToken::Int(123)), None),
+            &Token::Number(Span::new(0, 3, SpanRange::new(0, 0, 0, 3)).wrap(NumberToken::I64(123)), None),
         );
 
         assert_lex_single_eq(
             "123.0",
-            Token::Number(Span::new(0, 5, SpanRange::new(0, 0, 0, 5)).wrap(NumberToken::Float(123.0)), None),
+            &Token::Number(Span::new(0, 5, SpanRange::new(0, 0, 0, 5)).wrap(NumberToken::F32(123.0)), None),
         );
 
         assert_lex_single_eq(
-            "123float",
-            Token::Number(
-                Span::new(0, 3, SpanRange::new(0, 0, 0, 3)).wrap(NumberToken::Int(123)),
-                Some(Span::new(3, 8, SpanRange::new(0, 3, 0, 8)).wrap(String::from("float"))),
+            "123f32",
+            &Token::Number(
+                Span::new(0, 3, SpanRange::new(0, 0, 0, 3)).wrap(NumberToken::I64(123)),
+                Some(Span::new(3, 8, SpanRange::new(0, 3, 0, 8)).wrap(String::from("f32"))),
             ),
         );
 
         assert_lex_single_eq(
-            "123.0float",
-            Token::Number(
-                Span::new(0, 5, SpanRange::new(0, 0, 0, 5)).wrap(NumberToken::Float(123.0)),
-                Some(Span::new(5, 10, SpanRange::new(0, 5, 0, 10)).wrap(String::from("float"))),
+            "123.0f32",
+            &Token::Number(
+                Span::new(0, 5, SpanRange::new(0, 0, 0, 5)).wrap(NumberToken::F32(123.0)),
+                Some(Span::new(5, 10, SpanRange::new(0, 5, 0, 10)).wrap(String::from("f32"))),
             ),
         );
     }

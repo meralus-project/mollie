@@ -10,6 +10,12 @@ It is still at a fairly early stage of development.
 
 > **Note**: Mollie is part of the Meralus Project. However, you can also use it separately.
 
+## Documentation
+
+The language documentation can be found [here](./lang-docs/README.md).
+
+Everything related to its current implementation can be found [here](./docs/README.md) and on docs.rs once all the crates have been published.
+
 ## License
 
 Dual-licensed to be compatible with the Rust project.

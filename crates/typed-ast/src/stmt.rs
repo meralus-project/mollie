@@ -107,8 +107,8 @@ impl<E> FromParsed<E, mollie_parser::Stmt, Option<StmtRef>> for Stmt {
 
                 None
             }
-            mollie_parser::Stmt::ComponentDecl(component_decl) => {
-                for (index, name) in component_decl.name.value.generics.iter().enumerate() {
+            mollie_parser::Stmt::ViewDecl(view_decl) => {
+                for (index, name) in view_decl.name.value.generics.iter().enumerate() {
                     let ty_info = context.solver.add_info(TypeInfo::Generic(index), Some(name.span));
                     let ty = context.solver.context.types.get_or_add(Type::Generic(index));
 
@@ -116,9 +116,9 @@ impl<E> FromParsed<E, mollie_parser::Stmt, Option<StmtRef>> for Stmt {
                 }
 
                 let mut variants = IndexVec::new();
-                let mut fields = IndexVec::with_capacity(component_decl.properties.len());
+                let mut fields = IndexVec::with_capacity(view_decl.properties.len());
 
-                for property in component_decl.properties {
+                for property in view_decl.properties {
                     let name = property.value.name.value.0;
                     let ty = Type::from_parsed(property.value.ty.value, ast, context, property.value.ty.span);
                     let default_value = match property.value.default_value {
@@ -154,7 +154,7 @@ impl<E> FromParsed<E, mollie_parser::Stmt, Option<StmtRef>> for Stmt {
                     fields: fields.into_boxed_slice(),
                 });
 
-                for name in &component_decl.name.value.generics {
+                for name in &view_decl.name.value.generics {
                     context.solver.available_generics.remove(&name.value.0);
                 }
 
@@ -162,13 +162,13 @@ impl<E> FromParsed<E, mollie_parser::Stmt, Option<StmtRef>> for Stmt {
 
                 context.solver.context.modules[ast.module]
                     .items
-                    .insert(component_decl.name.value.name.value.0.clone(), ModuleItem::Adt(adt_ref));
+                    .insert(view_decl.name.value.name.value.0.clone(), ModuleItem::Adt(adt_ref));
 
                 context.solver.context.adt_types.push(Adt {
-                    name: Some(component_decl.name.value.name.value.0),
+                    name: Some(view_decl.name.value.name.value.0),
                     collectable: true,
-                    kind: AdtKind::Component,
-                    generics: component_decl.name.value.generics.len(),
+                    kind: AdtKind::View,
+                    generics: view_decl.name.value.generics.len(),
                     variants: variants.into_boxed_slice(),
                 });
 

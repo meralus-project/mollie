@@ -3,8 +3,6 @@ use std::{
     mem::discriminant,
 };
 
-use mollie_parser::{Expr, LiteralExpr};
-
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum ConstantValue {
     I8(i8),
@@ -17,14 +15,14 @@ pub enum ConstantValue {
     U64(u64),
     ISize(isize),
     USize(usize),
-    Float(f32),
-    Boolean(bool),
+    F32(f32),
+    Bool(bool),
     Array(Box<[Self]>),
     String(String),
     Construct {
         ty: usize,
         variant: usize,
-        fields: Box<[(usize, Option<ConstantValue>)]>,
+        fields: Box<[(usize, Option<Self>)]>,
     },
     Nothing,
 }
@@ -99,21 +97,12 @@ impl From<usize> for ConstantValue {
 
 impl From<f32> for ConstantValue {
     fn from(value: f32) -> Self {
-        Self::Float(value)
+        Self::F32(value)
     }
 }
 
 impl From<bool> for ConstantValue {
     fn from(value: bool) -> Self {
-        Self::Boolean(value)
-    }
-}
-
-impl ConstantValue {
-    pub const fn is_constant(value: &Expr) -> bool {
-        matches!(
-            value,
-            Expr::Literal(LiteralExpr::Boolean(_) | LiteralExpr::Number(_, _) | LiteralExpr::String(_))
-        )
+        Self::Bool(value)
     }
 }

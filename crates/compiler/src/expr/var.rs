@@ -10,11 +10,21 @@ use crate::{
 
 impl<S, M: Module> FunctionCompiler<'_, S, M> {
     pub fn compile_var_expr(&mut self, ast: &TypedAST, expr: ExprRef, name: &str) -> CompileResult<MolValue> {
-        if let Some((_, value_ref)) = self.assign_ref.take_if(|(lhs_ref, _)| *lhs_ref == expr) {
+        if let Some((_, operator, value_ref)) = self.assign_ref.take_if(|(lhs_ref, ..)| *lhs_ref == expr) {
             let value = value_ref.compile(ast, self)?;
 
             match (self.get_var(name), value) {
                 (Some(Var::Regular(v)), MolValue::Value(value)) => {
+                    let value = match operator {
+                        mollie_shared::Operator::Assign => value,
+                        op if let Some(operator) = op.lower() => {
+                            let current_value = self.fn_builder.use_var(v);
+
+                            self.bin_op(current_value, ast[value_ref].ty, operator, value, ast[value_ref].ty)
+                        }
+                        _ => return Ok(MolValue::Nothing),
+                    };
+
                     self.fn_builder.def_var(v, value);
 
                     Ok(MolValue::Nothing)
@@ -25,7 +35,7 @@ impl<S, M: Module> FunctionCompiler<'_, S, M> {
 
                     Ok(MolValue::Nothing)
                 }
-                _ => unimplemented!(),
+                (var, value) => unimplemented!("var: {var:?}, value: {value:?}"),
             }
         } else if let Some(v) = self.get_var(name) {
             match v {

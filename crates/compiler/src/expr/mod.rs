@@ -44,7 +44,7 @@ fn get_ir_type(primitive: PrimitiveType, ptr_type: ir::Type) -> ir::Type {
             UIntType::U16 => ir::types::I16,
             UIntType::U8 => ir::types::I8,
         },
-        PrimitiveType::Float => ir::types::F32,
+        PrimitiveType::F32 => ir::types::F32,
         _ => unimplemented!(),
     }
 }
@@ -67,14 +67,14 @@ impl<S, M: Module> CompileTypedAST<S, M, MolValue> for ExprRef {
                     let a = get_ir_type(got, ptr_type);
                     let b = get_ir_type(cast_to, ptr_type);
 
-                    let value = if got.is_integer() && cast_to.is_integer() {
-                        if got.is_signed_integer() && cast_to.is_signed_integer() {
+                    let value = if got.is_num() && cast_to.is_num() {
+                        if got.is_int() && cast_to.is_int() {
                             match a.bytes().cmp(&b.bytes()) {
                                 Ordering::Less => compiler.fn_builder.ins().sextend(ir_type, value),
                                 Ordering::Equal => value,
                                 Ordering::Greater => compiler.fn_builder.ins().ireduce(ir_type, value),
                             }
-                        } else if got.is_unsigned_integer() && cast_to.is_unsigned_integer() {
+                        } else if got.is_uint() && cast_to.is_uint() {
                             match a.bytes().cmp(&b.bytes()) {
                                 Ordering::Less => compiler.fn_builder.ins().uextend(ir_type, value),
                                 Ordering::Equal => value,
@@ -83,7 +83,7 @@ impl<S, M: Module> CompileTypedAST<S, M, MolValue> for ExprRef {
                         } else {
                             match a.bytes().cmp(&b.bytes()) {
                                 Ordering::Less => {
-                                    if cast_to.is_signed_integer() {
+                                    if cast_to.is_int() {
                                         compiler.fn_builder.ins().sextend(ir_type, value)
                                     } else {
                                         compiler.fn_builder.ins().uextend(ir_type, value)
@@ -93,10 +93,10 @@ impl<S, M: Module> CompileTypedAST<S, M, MolValue> for ExprRef {
                                 Ordering::Greater => compiler.fn_builder.ins().ireduce(ir_type, value),
                             }
                         }
-                    } else if got.is_float() && cast_to.is_integer() {
+                    } else if got.is_f32() && cast_to.is_num() {
                         let value = match a.bytes().cmp(&b.bytes()) {
                             Ordering::Less => {
-                                if cast_to.is_signed_integer() {
+                                if cast_to.is_int() {
                                     compiler.fn_builder.ins().sextend(ir::types::I32, value)
                                 } else {
                                     compiler.fn_builder.ins().uextend(ir::types::I32, value)
@@ -106,15 +106,15 @@ impl<S, M: Module> CompileTypedAST<S, M, MolValue> for ExprRef {
                             Ordering::Greater => compiler.fn_builder.ins().ireduce(ir::types::I32, value),
                         };
 
-                        if cast_to.is_signed_integer() {
+                        if cast_to.is_int() {
                             compiler.fn_builder.ins().fcvt_to_sint(ir_type, value)
                         } else {
                             compiler.fn_builder.ins().fcvt_to_uint(ir_type, value)
                         }
-                    } else if got.is_integer() && cast_to.is_float() {
+                    } else if got.is_num() && cast_to.is_f32() {
                         let value = match a.bytes().cmp(&b.bytes()) {
                             Ordering::Less => {
-                                if cast_to.is_signed_integer() {
+                                if cast_to.is_int() {
                                     compiler.fn_builder.ins().sextend(ir::types::I32, value)
                                 } else {
                                     compiler.fn_builder.ins().uextend(ir::types::I32, value)
@@ -124,7 +124,7 @@ impl<S, M: Module> CompileTypedAST<S, M, MolValue> for ExprRef {
                             Ordering::Greater => compiler.fn_builder.ins().ireduce(ir::types::I32, value),
                         };
 
-                        if cast_to.is_signed_integer() {
+                        if cast_to.is_int() {
                             compiler.fn_builder.ins().fcvt_from_sint(ir_type, value)
                         } else {
                             compiler.fn_builder.ins().fcvt_from_uint(ir_type, value)

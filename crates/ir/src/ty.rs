@@ -122,8 +122,8 @@ pub fn compile_constant<'a, C: ConstantCompiler<'a>>(element_type: usize, consta
         ConstantValue::U64(value) => ConstValue::Value(compiler.ins().iconst(ir::types::I64, i64::try_from(value).ok()?)),
         ConstantValue::ISize(value) => ConstValue::Value(compiler.ins().iconst(ptr_type, i64::try_from(value).ok()?)),
         ConstantValue::USize(value) => ConstValue::Value(compiler.ins().iconst(ptr_type, i64::try_from(value).ok()?)),
-        ConstantValue::Float(value) => ConstValue::Value(compiler.ins().f32const(value)),
-        ConstantValue::Boolean(value) => ConstValue::Value(compiler.ins().iconst(ir::types::I8, i64::from(value))),
+        ConstantValue::F32(value) => ConstValue::Value(compiler.ins().f32const(value)),
+        ConstantValue::Bool(value) => ConstValue::Value(compiler.ins().iconst(ir::types::I8, i64::from(value))),
         ConstantValue::Array(values) => {
             let element = compiler.get_array_element(element_type);
             let values = values

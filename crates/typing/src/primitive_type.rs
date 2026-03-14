@@ -32,37 +32,27 @@ pub enum PrimitiveType {
     Any,
     Int(IntType),
     UInt(UIntType),
-    Float,
-    Boolean,
+    F32,
+    Bool,
     String,
-    Component,
     Void,
-    Null,
 }
 
 impl PrimitiveType {
-    pub const fn is_component(&self) -> bool {
-        matches!(self, Self::Component)
-    }
-
-    pub const fn is_number(&self) -> bool {
-        matches!(self, Self::Int(_) | Self::UInt(_) | Self::Float)
-    }
-
-    pub const fn is_integer(&self) -> bool {
+    pub const fn is_num(&self) -> bool {
         matches!(self, Self::Int(_) | Self::UInt(_))
     }
 
-    pub const fn is_signed_integer(&self) -> bool {
+    pub const fn is_int(&self) -> bool {
         matches!(self, Self::Int(_))
     }
 
-    pub const fn is_unsigned_integer(&self) -> bool {
+    pub const fn is_uint(&self) -> bool {
         matches!(self, Self::UInt(_))
     }
 
-    pub const fn is_float(&self) -> bool {
-        matches!(self, Self::Float)
+    pub const fn is_f32(&self) -> bool {
+        matches!(self, Self::F32)
     }
 }
 
@@ -80,12 +70,10 @@ impl fmt::Display for PrimitiveType {
             Self::UInt(UIntType::U32) => f.write_str("u32"),
             Self::UInt(UIntType::U16) => f.write_str("u16"),
             Self::UInt(UIntType::U8) => f.write_str("u8"),
-            Self::Float => f.write_str("float"),
-            Self::Boolean => f.write_str("boolean"),
+            Self::F32 => f.write_str("f32"),
+            Self::Bool => f.write_str("bool"),
             Self::String => f.write_str("string"),
-            Self::Component => f.write_str("component"),
             Self::Void => f.write_str("void"),
-            Self::Null => f.write_str("null"),
         }
     }
 }

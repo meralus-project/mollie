@@ -855,9 +855,6 @@ dependencies = [
 [[package]]
 name = "mollie-const"
 version = "0.1.0"
-dependencies = [
- "mollie-parser",
-]
 
 [[package]]
 name = "mollie-fmt"
@@ -903,16 +900,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "mollie-macros"
-version = "0.1.0"
-
-[[package]]
 name = "mollie-parser"
 version = "0.1.0"
 dependencies = [
  "equivalent",
  "mollie-lexer",
  "mollie-shared",
+ "mollie-typing",
  "peekmore",
  "serde",
 ]

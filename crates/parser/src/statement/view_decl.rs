@@ -4,14 +4,14 @@ use mollie_shared::Positioned;
 use crate::{Attribute, Expr, Ident, NameWithGenerics, NodeExpr, Parse, ParseResult, Parser, Type};
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
-pub struct ComponentProperty {
+pub struct ViewProperty {
     pub name: Positioned<Ident>,
     pub nullable: Option<Positioned<bool>>,
     pub ty: Positioned<Type>,
     pub default_value: Option<Positioned<Expr>>,
 }
 
-impl Parse for ComponentProperty {
+impl Parse for ViewProperty {
     fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
         parser.verify_if(Token::is_ident)?;
         parser.verify2_if(|token| matches!(token, Token::Colon | Token::Question))?;
@@ -35,17 +35,17 @@ impl Parse for ComponentProperty {
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
-pub struct ComponentDecl {
+pub struct ViewDecl {
     pub attributes: Vec<Positioned<Attribute>>,
     pub name: Positioned<NameWithGenerics>,
     pub inherits: Option<Positioned<Ident>>,
-    pub properties: Vec<Positioned<ComponentProperty>>,
+    pub properties: Vec<Positioned<ViewProperty>>,
     pub view: Option<Positioned<NodeExpr>>,
 }
 
-impl ComponentDecl {
+impl ViewDecl {
     pub fn parse(parser: &mut Parser, attributes: Vec<Positioned<Attribute>>) -> ParseResult<Positioned<Self>> {
-        parser.consume(&Token::Declare)?;
+        parser.consume(&Token::View)?;
 
         let name = NameWithGenerics::parse(parser)?;
 
@@ -64,7 +64,7 @@ impl ComponentDecl {
                 parser.consume(&Token::Comma)?;
             }
 
-            match ComponentProperty::parse(parser) {
+            match ViewProperty::parse(parser) {
                 Ok(property) => properties.push(property),
                 Err(_) => break,
             }

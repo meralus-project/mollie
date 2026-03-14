@@ -34,21 +34,21 @@ pub enum SizeType {
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub enum LiteralExpr {
     Number(Positioned<Number>, Option<Positioned<String>>),
-    Boolean(bool),
+    Bool(bool),
     String(String),
 }
 
 impl Parse for LiteralExpr {
     fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
         parser
-            .consume_if(|token| matches!(token, Token::Boolean(_) | Token::Number(..) | Token::String(_) | Token::Null))
+            .consume_if(|token| matches!(token, Token::Bool(_) | Token::Number(..) | Token::String(_)))
             .map(|token| {
                 token.span.wrap(match token.value {
-                    Token::Boolean(value) => Self::Boolean(value),
+                    Token::Bool(value) => Self::Bool(value),
                     Token::Number(value, postfix) => Self::Number(
                         value.map(|value| match value {
-                            NumberToken::Float(value) => Number::F32(value),
-                            NumberToken::Int(value) => Number::I64(value),
+                            NumberToken::F32(value) => Number::F32(value),
+                            NumberToken::I64(value) => Number::I64(value),
                         }),
                         postfix,
                     ),

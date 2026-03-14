@@ -2,7 +2,7 @@ use cranelift::{codegen::ir, module::Module, prelude::InstBuilder};
 use itertools::Itertools;
 use mollie_ir::{Array, MollieType};
 use mollie_typed_ast::{ExprRef, TypedAST};
-use mollie_typing::{PrimitiveType, Type, TypeRef};
+use mollie_typing::{Type, TypeRef};
 
 use crate::{AsIrType, CompileTypedAST, MolValue, allocator::TypeLayout, error::CompileResult, func::FunctionCompiler};
 
@@ -10,7 +10,7 @@ impl<S, M: Module> FunctionCompiler<'_, S, M> {
     pub fn type_layout_of(&self, ty: TypeRef) -> &'static TypeLayout {
         match self.type_context.type_context.types[ty] {
             Type::Primitive(primitive) => self.compiler.core_types.cast_primitive(primitive),
-            Type::Func(..) | Type::Adt(..) | Type::Array(..) => self.compiler.core_types.uint_size,
+            Type::Func(..) | Type::Adt(..) | Type::Array(..) => self.compiler.core_types.usize,
             Type::Trait(..) => self.compiler.core_types.string,
             _ => self.compiler.core_types.void,
         }
@@ -31,13 +31,7 @@ impl<S, M: Module> FunctionCompiler<'_, S, M> {
 
             for expr_ref in elements {
                 if let MolValue::Value(value) = expr_ref.compile(ast, self)? {
-                    if matches!(self.type_context.type_context.types[element], Type::Primitive(PrimitiveType::Component)) {
-                        let hash = self.type_context.type_context.types.hash_of(ast[*expr_ref].ty);
-                        let metadata = self.fn_builder.ins().iconst(self.compiler.ptr_type(), hash.cast_signed());
-
-                        values.push(value);
-                        values.push(metadata);
-                    } else if let Type::Trait(t, _) = self.type_context.type_context.types[element] {
+                    if let Type::Trait(t, _) = self.type_context.type_context.types[element] {
                         let hash = self.type_context.type_context.types.hash_of(ast[*expr_ref].ty);
                         let data_id = self
                             .compiler

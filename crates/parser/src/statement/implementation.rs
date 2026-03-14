@@ -14,7 +14,7 @@ pub struct ImplFunction {
 
 impl Parse for ImplFunction {
     fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
-        let start = parser.consume(&Token::Fn)?;
+        let start = parser.consume(&Token::Func)?;
 
         let name = Ident::parse(parser)?;
 
