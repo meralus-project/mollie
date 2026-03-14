@@ -24,7 +24,9 @@ Licensed under the [Apache License, Version 2.0](http://www.apache.org/licenses/
 
 ## Sponsors
 
-Although there was no way to support me directly, these people did it anyway:
+If you'd like, you can support me on [Boosty](https://boosty.to/aiving). Patreon will be available later.
+
+Some of people that did it:
 
 - [Y4r0sl4v](https://github.com/yaroslav957)
 - [Aern-d](https://github.com/Aern-do)
