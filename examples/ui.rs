@@ -4,19 +4,19 @@ use std::{
     time::{Duration, Instant},
 };
 
-use ariadne::{Config, Label, Report, ReportKind, Source};
+use ariadne::{Config, Report, ReportKind, Source};
 use mollie::{
-    AdtBuilder, GcPtr, Generic, TraitBuilder, VTableBuilder,
-    compiler::{Compiler, FuncCompiler, allocator::GARBAGE_COLLECTOR},
-    typed_ast::Func,
-    typing::{AdtKind, FieldType, FuncArg, TypeInfo, TypeInfoRef},
+    AdtBuilder, AnyType, GcPtr, Generic, TraitBuilder, VTableBuilder,
+    compiler::{Compiler, allocator::GARBAGE_COLLECTOR},
+    func,
 };
 use mollie_compiler::{allocator::TypeLayout, error::CompileError};
 use mollie_index::Idx;
-use mollie_typed_ast::{IntrinsicKind, InvalidTypePathSegmentReason, ModuleId, NotFunction};
-use mollie_typing::PrimitiveType;
+use mollie_typed_ast::{FunctionBody, TypedASTContext};
+use mollie_typing::{Func, ModuleId, Type, TypeRef};
 use tiny_skia::{FillRule, FilterQuality, Paint, PathBuilder, Pattern, Pixmap, Point, Rect, SpreadMode, Transform};
-use tracing::level_filters::LevelFilter;
+use tracing::{Level, level_filters::LevelFilter};
+use tracing_subscriber::{Layer, filter::filter_fn, layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Color {
@@ -111,10 +111,7 @@ impl Path {
 
 impl DrawContext {
     pub fn draw_rect(&mut self, x: f32, y: f32, width: f32, height: f32, corner_radius: GcPtr<CornerRadius>, color: GcPtr<Color>) {
-        println!(
-            "[DrawContext/draw_rect ] origin = {x}x{y}, size = {width}x{height}, color = {color} ({:?})",
-            color.type_layout()
-        );
+        tracing::info!(target: "DrawContext/draw_rect", origin = format!("{x}x{y}"), size = format!("{width}x{height}"), color = %color);
 
         let mut paint = Paint::default();
 
@@ -141,10 +138,7 @@ impl DrawContext {
     }
 
     pub fn draw_image(&mut self, x: f32, y: f32, width: f32, height: f32, image: GcPtr<Image>) {
-        println!(
-            "[DrawContext/draw_image] origin = {x}x{y}, size = {width}x{height}, image = {image:?} ({:?})",
-            image.type_layout()
-        );
+        tracing::info!(target: "DrawContext/draw_image", origin = format!("{x}x{y}"), size = format!("{width}x{height}"), image = format!("{image:?}"));
 
         let image = self.images.get_image(image);
         let image_width = image.width() as f32;
@@ -165,7 +159,7 @@ impl DrawContext {
     }
 
     pub fn image_size(&mut self, image: GcPtr<Image>) -> GcPtr<Size> {
-        println!("[DrawContext/image_size] image = {image:?}");
+        tracing::info!(target: "DrawContext/image_size", image = format!("{image:?}"));
 
         let image = self.images.get_image(image);
         let width = image.width() as f32;
@@ -187,149 +181,144 @@ pub fn get_timestamp() -> usize {
         .as_secs() as usize
 }
 
-fn init_compiler(func_compiler: &mut FuncCompiler) -> (TypeInfoRef, TypeInfoRef) {
-    let core_types = &func_compiler.checker.core_types;
+fn init_compiler<E>(context: &mut TypedASTContext<E>) -> (TypeRef, TypeRef) {
+    // let std = mollie::module! {
+    //     fn println(input: usize);
+    //     fn println_frame_addr();
+    //     fn println_fat(input: &str);
+    //     fn println_str(input: &str);
+    //     fn println_bool(input: bool);
+    //     fn println_float(input: f32);
+    //     fn println_addr(input: AnyType);
+    //     fn get_type_idx(input: AnyType) -> usize;
+    //     fn get_size(input: &[AnyType]) -> usize;
 
-    for (name, args, returns) in [
+    //     #[from = "ext__get_timestamp"]
+    //     fn timestamp() -> usize;
+    // };
+
+    let module = context.type_context.register_module("std");
+
+    for (module, external_name, name, ty) in [
+        (None, None, "println", func::<(usize,), ()>(&mut context.type_context)),
+        (None, None, "println_frame_addr", func::<(), ()>(&mut context.type_context)),
+        (None, None, "println_fat", func::<(&str,), ()>(&mut context.type_context)),
+        (None, None, "println_str", func::<(&str,), ()>(&mut context.type_context)),
+        (None, None, "println_bool", func::<(bool,), ()>(&mut context.type_context)),
+        (None, None, "println_float", func::<(f32,), ()>(&mut context.type_context)),
+        (None, None, "println_addr", func::<(AnyType,), ()>(&mut context.type_context)),
+        (None, None, "get_type_idx", func::<(AnyType,), usize>(&mut context.type_context)),
+        (None, None, "get_size", func::<(&[AnyType],), usize>(&mut context.type_context)),
         (
-            "println",
-            Box::new([FuncArg::Regular(core_types.uint_size)]) as Box<[FuncArg<TypeInfoRef>]>,
-            core_types.void,
+            Some(module),
+            Some("ext__get_timestamp"),
+            "timestamp",
+            func::<(), usize>(&mut context.type_context),
         ),
-        ("println_frame_addr", Box::new([]), core_types.void),
-        ("println_fat", Box::new([FuncArg::Regular(core_types.string)]), core_types.void),
-        ("println_str", Box::new([FuncArg::Regular(core_types.string)]), core_types.void),
-        ("println_bool", Box::new([FuncArg::Regular(core_types.boolean)]), core_types.void),
-        ("println_float", Box::new([FuncArg::Regular(core_types.float)]), core_types.void),
-        ("println_addr", Box::new([FuncArg::Regular(core_types.any)]), core_types.void),
-        ("get_type_idx", Box::new([FuncArg::Regular(core_types.any)]), core_types.uint_size),
-        ("get_size", Box::new([FuncArg::Regular(core_types.any)]), core_types.uint_size),
     ] {
-        let func = func_compiler.checker.solver.add_info(TypeInfo::Func(args, returns));
-
-        func_compiler.checker.solver.add_var(name, func);
+        context.functions.push(FunctionBody::Import(external_name.unwrap_or(name)));
+        context.type_context.register_func_in_module(module.unwrap_or(ModuleId::ZERO), Func {
+            postfix: false,
+            name: name.to_string(),
+            arg_names: Vec::new(),
+            ty,
+        });
     }
 
-    let func = func_compiler.checker.solver.add_info(TypeInfo::Func(Box::new([]), core_types.uint_size));
+    // let func_arg = context.type_context.solver.add_info(TypeInfo::Generic(0,
+    // None), None);
+    // let ty = TypeInfo::Func(Box::new([FuncArg::Regular(func_arg)]),
+    // context.type_context.core_types.uint_size);
 
-    let module = func_compiler.checker.register_module("std");
+    // context
+    //     .type_context
+    //     .register_intrinsic_in_module(module, "size_of_val",
+    // IntrinsicKind::SizeOfValue, ty);
 
-    func_compiler
-        .checker
-        .register_func_in_module(module, Func::external("timestamp", func, "ext__get_timestamp"));
+    AdtBuilder::new_enum(&mut context.type_context, "Option")
+        .add_generic()
+        .variant("Some")
+        .field::<Generic<0>>("value")
+        .variant("None")
+        .finish_in_module(module);
 
-    let func_arg = func_compiler.checker.solver.add_info(TypeInfo::Generic(0, None));
-    let ty = TypeInfo::Func(Box::new([FuncArg::Regular(func_arg)]), func_compiler.checker.core_types.uint_size);
+    let module = context.type_context.register_module("graphics");
+    let image_ty = AdtBuilder::new_enum(&mut context.type_context, "Image")
+        .variant("Path")
+        .field::<&str>("value")
+        .variant("Url")
+        .field::<&str>("value")
+        .finish_in_module(module);
+    let image_ty = context.type_context.types.get_or_add(Type::Adt(image_ty, Box::new([])));
 
-    func_compiler
-        .checker
-        .register_intrinsic_in_module(module, "size_of_val", IntrinsicKind::SizeOfValue, ty);
+    let color_ty = AdtBuilder::new_struct(&mut context.type_context, "Color")
+        .field::<u8>("red")
+        .field::<u8>("green")
+        .field::<u8>("blue")
+        .finish_in_module(module);
+    let color_ty = context.type_context.types.get_or_add(Type::Adt(color_ty, Box::new([])));
 
-    func_compiler.checker.register_adt_in_module(
-        module,
-        AdtBuilder::new_enum("Option")
-            .add_generic()
-            .variant("Some")
-            .field::<Generic<0>>("value")
-            .variant("None")
-            .finish(),
-    );
+    let corner_radius_ty = AdtBuilder::new_struct(&mut context.type_context, "CornerRadius")
+        .field::<f32>("top_left")
+        .field::<f32>("top_right")
+        .field::<f32>("bottom_left")
+        .field::<f32>("bottom_right")
+        .finish_in_module(module);
+    let corner_radius_ty = context.type_context.types.get_or_add(Type::Adt(corner_radius_ty, Box::new([])));
 
-    let module = func_compiler.checker.register_module("graphics");
-    let image_ty = func_compiler.checker.register_adt_in_module(
-        module,
-        AdtBuilder::new_enum("Image")
-            .variant("Path")
-            .field::<&str>("value")
-            .variant("Url")
-            .field::<&str>("value")
-            .finish(),
-    );
+    let size_ty = AdtBuilder::new_struct(&mut context.type_context, "Size")
+        .field::<f32>("width")
+        .field::<f32>("height")
+        .finish_in_module(module);
+    let size_ty = context.type_context.types.get_or_add(Type::Adt(size_ty, Box::new([])));
 
-    let color_ty = func_compiler.checker.register_adt_in_module(
-        module,
-        AdtBuilder::new_struct("Color")
-            .field::<u8>("red")
-            .field::<u8>("green")
-            .field::<u8>("blue")
-            .finish(),
-    );
+    let point_ty = AdtBuilder::new_struct(&mut context.type_context, "Point")
+        .field::<f32>("x")
+        .field::<f32>("y")
+        .finish_in_module(module);
+    let point_ty = context.type_context.types.get_or_add(Type::Adt(point_ty, Box::new([])));
 
-    let corner_radius_ty = func_compiler.checker.register_adt_in_module(
-        module,
-        AdtBuilder::new_struct("CornerRadius")
-            .field::<f32>("top_left")
-            .field::<f32>("top_right")
-            .field::<f32>("bottom_left")
-            .field::<f32>("bottom_right")
-            .finish(),
-    );
+    let draw_ctx_ty = AdtBuilder::new_struct(&mut context.type_context, "DrawContext").non_gc_collectable().finish();
+    let draw_ctx_ty = context.type_context.types.get_or_add(Type::Adt(draw_ctx_ty, Box::new([])));
 
-    let size_ty = func_compiler
-        .checker
-        .register_adt_in_module(module, AdtBuilder::new_struct("Size").field::<f32>("width").field::<f32>("height").finish());
+    let void = context.type_context.core_types.void;
+    let drawable = TraitBuilder::new(&mut context.type_context, "Drawable")
+        .func("measure", [("size", size_ty), ("draw_context", draw_ctx_ty)], size_ty)
+        .func("render", [("origin", point_ty), ("size", size_ty), ("draw_context", draw_ctx_ty)], void)
+        .finish();
+    let drawable = context.type_context.types.get_or_add(Type::Trait(drawable, Box::new([])));
 
-    let point_ty = func_compiler
-        .checker
-        .register_adt_in_module(module, AdtBuilder::new_struct("Point").field::<f32>("x").field::<f32>("y").finish());
+    let float = context.type_context.core_types.float;
 
-    let (corner_radius_info, _) = func_compiler.checker.instantiate_adt(corner_radius_ty, &[]);
-    let (color_info, _) = func_compiler.checker.instantiate_adt(color_ty, &[]);
-    let (image_info, _) = func_compiler.checker.instantiate_adt(image_ty, &[]);
-    let (size_info, size_ft) = func_compiler.checker.instantiate_adt(size_ty, &[]);
-    let (_, point_ft) = func_compiler.checker.instantiate_adt(point_ty, &[]);
-    let draw_ctx_ty = func_compiler
-        .checker
-        .register_adt(AdtBuilder::new_struct("DrawContext").non_gc_collectable().finish());
-    let (draw_ctx_info, draw_ctx_ft) = func_compiler.checker.instantiate_adt(draw_ctx_ty, &[]);
-
-    let drawable = func_compiler.checker.register_trait(
-        TraitBuilder::new("Drawable")
-            .func("measure", [size_ft.clone(), draw_ctx_ft.clone()], size_ft.clone())
-            .func("render", [point_ft, size_ft, draw_ctx_ft], FieldType::Primitive(PrimitiveType::Void))
-            .finish(),
-    );
-
-    let drawable_info = func_compiler.checker.solver.add_info(TypeInfo::Trait(drawable, Box::new([])));
-
-    func_compiler.checker.solver.add_var("context", draw_ctx_info);
-
-    VTableBuilder::new(FieldType::Adt(draw_ctx_ty, AdtKind::Struct, Box::new([])))
+    VTableBuilder::new(context, draw_ctx_ty)
         .func(
             "draw_rect",
             "DrawContext_draw_rect",
-            [
-                draw_ctx_info,
-                func_compiler.checker.core_types.float,
-                func_compiler.checker.core_types.float,
-                func_compiler.checker.core_types.float,
-                func_compiler.checker.core_types.float,
-                corner_radius_info,
-                color_info,
-            ],
-            func_compiler.checker.core_types.void,
+            [draw_ctx_ty, float, float, float, float, corner_radius_ty, color_ty],
+            void,
         )
         .func(
             "draw_image",
             "DrawContext_draw_image",
-            [
-                draw_ctx_info,
-                func_compiler.checker.core_types.float,
-                func_compiler.checker.core_types.float,
-                func_compiler.checker.core_types.float,
-                func_compiler.checker.core_types.float,
-                image_info,
-            ],
-            func_compiler.checker.core_types.void,
+            [draw_ctx_ty, float, float, float, float, image_ty],
+            void,
         )
-        .func("image_size", "DrawContext_image_size", [draw_ctx_info, image_info], size_info)
-        .finish(&mut func_compiler.checker);
+        .func("image_size", "DrawContext_image_size", [draw_ctx_ty, image_ty], size_ty)
+        .finish();
 
-    (draw_ctx_info, drawable_info)
+    (draw_ctx_ty, drawable)
 }
 
 fn main() {
-    tracing_subscriber::fmt().with_max_level(LevelFilter::INFO).init();
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_filter(LevelFilter::INFO)
+                .with_filter(filter_fn(|metadata| {
+                    !(metadata.target() == "cranelift_jit::backend" && metadata.level() == &Level::INFO)
+                })),
+        )
+        .init();
 
     let source = include_str!("./ui.mol");
     let mut args = std::env::args();
@@ -349,7 +338,7 @@ fn main() {
     .unwrap();
     let mut provider = compiler.start_compiling();
 
-    let (draw_ctx_info, drawable_info) = init_compiler(&mut provider);
+    let (draw_ctx_info, drawable_info) = init_compiler(&mut provider.context);
 
     let pointer_type = provider.compiler.ptr_type();
 
@@ -358,139 +347,20 @@ fn main() {
     if let Err(CompileError::Type(errors)) = provider.compile(
         "<main>",
         vec![(String::from("context"), pointer_type, draw_ctx_info)],
-        vec![(String::from("comp"), pointer_type, drawable_info)],
+        Some((pointer_type, drawable_info)),
         source,
     ) {
         for error in errors {
             let mut report = Report::build(ReportKind::Error, ("ui.mol", error.span.start..error.span.end)).with_config(Config::new().with_compact(true));
-            let label = Label::new(("ui.mol", error.span.start..error.span.end)).with_color(ariadne::Color::Cyan);
 
-            match error.value {
-                mollie_typed_ast::TypeError::ExpectedFunction { found } => {
-                    report.set_message("expected `function`");
-                    report.add_label(match found {
-                        NotFunction::Type(found) => label.with_message(format!("found value of type `{}`", provider.checker.display_of_type(found, None))),
-                        NotFunction::Adt(adt_ref) => label.with_message(format!("found `{}`", match provider.checker.adt_types[adt_ref].kind {
-                            AdtKind::Struct => "struct",
-                            AdtKind::Component => "component",
-                            AdtKind::Enum => "enum",
-                        })),
-                        NotFunction::Trait(_) => label.with_message("found `trait`"),
-                        NotFunction::Primitive(primitive_type) => label.with_message(format!(
-                            "found primitive type `{}`",
-                            provider
-                                .checker
-                                .display_of_type(provider.checker.core_types.cast_primitive(primitive_type), None)
-                        )),
-                    });
-                }
-                mollie_typed_ast::TypeError::ExpectedConstructable { found } => {
-                    report.set_message("expected `struct`, `enum` or `component`");
-                    report.add_label(label.with_message(format!("found `{}`", match found {
-                        mollie_typed_ast::NonConstructable::Trait => "trait",
-                        mollie_typed_ast::NonConstructable::Function => "function",
-                        mollie_typed_ast::NonConstructable::Generic => "generic",
-                        mollie_typed_ast::NonConstructable::Module => "module",
-                    })));
-                }
-                mollie_typed_ast::TypeError::ExpectedArray { found } => {
-                    report.set_message("expected `array`");
-                    report.add_label(label.with_message(format!("found `{}`", provider.checker.display_of_type(found, None))));
-                }
-                mollie_typed_ast::TypeError::ExpectedModule { found } => {
-                    report.set_message("expected `module`");
-                    report.add_label(label.with_message(format!("found `{}`", match found {
-                        mollie_typed_ast::NotModule::Trait => "trait",
-                        mollie_typed_ast::NotModule::Function => "function",
-                        mollie_typed_ast::NotModule::Generic => "generic",
-                        mollie_typed_ast::NotModule::Adt => "adt",
-                    })));
-                }
-                mollie_typed_ast::TypeError::NoField { ty, name } => {
-                    report.set_message("no field");
-                    report.add_label(label.with_message(format!("`{}` doesn't have field called `{name}`", provider.checker.display_of_type(ty, None))));
-                }
-                mollie_typed_ast::TypeError::NonIndexable { ty, name } => {
-                    report.set_message("non-indexable value");
-                    report.add_label(label.with_message(format!(
-                        "`{}` can't have fields and be indexed by `{name}`",
-                        provider.checker.display_of_type(ty, None)
-                    )));
-                }
-                mollie_typed_ast::TypeError::TypeNotFound { name, module } => {
-                    report.set_message("type not found");
-                    report.add_label(if module == ModuleId::ZERO {
-                        label.with_message(format!("there's no type called `{name}`"))
-                    } else {
-                        label.with_message(format!("there's no type called `{name}` in `{}`", provider.checker.display_of_module(module)))
-                    });
-                }
-                mollie_typed_ast::TypeError::InvalidPostfixFunction { reasons } => {
-                    report.set_message("invalid postfix function definition");
-
-                    for reason in reasons {
-                        let label = Label::new(("ui.mol", reason.span.start..reason.span.end)).with_color(ariadne::Color::Cyan);
-
-                        report.add_label(match reason.value {
-                            mollie_typed_ast::PostfixRequirement::NoGenerics => label.with_message("generics are not allowed in postfix context"),
-                            mollie_typed_ast::PostfixRequirement::OneArgument => label.with_message("one argument is expected"),
-                            mollie_typed_ast::PostfixRequirement::OnlyOneArgument => label.with_message("multiple arguments are not allowed"),
-                            mollie_typed_ast::PostfixRequirement::ArgumentType => {
-                                label.with_message("argument type must be either an (unsigned) integer or a float")
-                            }
-                        });
-                    }
-                }
-                mollie_typed_ast::TypeError::NoVariable { name } => {
-                    report.set_message(format!("there's no variable called `{name}`"));
-                    report.add_label(label.with_message("tried to access here"));
-                }
-                mollie_typed_ast::TypeError::NoFunction { name, postfix } => {
-                    if postfix {
-                        report.set_message(format!("there's no postfix function called `{name}`"));
-                        report.add_label(label.with_message("tried to use here"));
-                    } else {
-                        report.set_message(format!("there's no function called `{name}`"));
-                        report.add_label(label.with_message("tried to call here"));
-                    }
-                }
-                mollie_typed_ast::TypeError::InvalidTypePathSegment { reason, module } => {
-                    report.set_message("invalid type-path segment");
-                    report.add_label(if module == ModuleId::ZERO {
-                        match reason {
-                            InvalidTypePathSegmentReason::Variable(_) => label.with_message("expected `type`, found `variable`"),
-                            InvalidTypePathSegmentReason::Primitive(_) => label.with_message("primitive types are not allowed in this context"),
-                        }
-                    } else {
-                        match reason {
-                            InvalidTypePathSegmentReason::Variable(_) => unreachable!(),
-                            InvalidTypePathSegmentReason::Primitive(_) => label.with_message("primitive types are not allowed in type paths"),
-                        }
-                    });
-                }
-                mollie_typed_ast::TypeError::NotPostfix { name } => {
-                    report.set_message(format!("`{name}` can't be used in postfix context"));
-                    report.add_label(label.with_message("tried to use here"));
-                }
-                mollie_typed_ast::TypeError::ModuleIsNotValue => {
-                    report.set_message("expected `value`");
-                    report.add_label(label.with_message("found `module`"));
-                }
-                mollie_typed_ast::TypeError::NonConstantEvaluable => {
-                    report.set_message("expression can't be evaluated at compile-time");
-                    report.add_label(label.with_message("this expression"));
-                }
-                mollie_typed_ast::TypeError::Parse(parse_error) => {
-                    report.set_message(parse_error);
-                }
-            };
+            error
+                .value
+                .add_to_report(("ui.mol", error.span.start..error.span.end), &mut report, &provider.context.type_context);
 
             report.finish().print(("ui.mol", Source::from(source))).unwrap();
         }
-    }
 
-    for error in provider.checker.type_errors() {
-        println!("[Compiler/TypeErrors   ] {error}");
+        return;
     }
 
     match command {
@@ -552,7 +422,7 @@ fn main() {
                             render: fn(*mut (), point: GcPtr<Point>, parent: GcPtr<Size>, ctx: &mut DrawContext),
                         }
 
-                        let trait_ref = provider.checker.find_trait("Drawable");
+                        let trait_ref = provider.context.type_context.find_trait("Drawable");
 
                         if let Some(vtable) = unsafe { compiler.get_vtable_ptr::<Drawable>(hash, trait_ref) } {
                             (vtable.render)(

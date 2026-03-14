@@ -132,7 +132,7 @@ impl Parse for Type {
             let size = parser
                 .consume_if(Token::is_integer)
                 .map(|v| v.map(Token::unwrap_integer))
-                .map_or(None, |size| size.value.0.try_into().ok().map(|v| size.span.wrap(v)));
+                .map_or(None, |size| size.value.0.value.try_into().ok().map(|v| size.span.wrap(v)));
 
             let end = parser.consume(&Token::BracketClose)?;
 

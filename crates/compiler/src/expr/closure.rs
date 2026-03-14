@@ -6,7 +6,7 @@ use cranelift::{
 use mollie_index::Idx;
 use mollie_ir::{MollieType, Struct};
 use mollie_typed_ast::{BlockRef, ExprRef, TypedAST};
-use mollie_typing::{AdtKind, AdtVariantRef, TypeInfo};
+use mollie_typing::{AdtKind, AdtVariantRef, Arg, Type, TypeRef};
 
 use crate::{
     AsIrType, CompileTypedAST, MolValue, Var,
@@ -20,23 +20,22 @@ impl<S, M: Module> FunctionCompiler<'_, S, M> {
         &mut self,
         ast: &TypedAST,
         expr: ExprRef,
-        args: &[String],
-        captures: &[(String, mollie_typing::Variable)],
+        args: &[Arg<TypeRef>],
+        captures: &[(String, TypeRef)],
         body: BlockRef,
     ) -> CompileResult<MolValue> {
         let captures_tuple = Struct::new(
             captures
                 .iter()
-                .map(|(_, capture)| (capture.ty.as_ir_type(&self.checker.solver, self.compiler.isa()), None)),
+                .map(|(_, ty)| (ty.as_ir_type(&self.type_context.type_context.types, self.compiler.isa()), None)),
         );
 
         let mut signature = self.compiler.codegen.module.make_signature();
 
-        if let TypeInfo::Func(args, returns) = self.checker.solver.get_info(ast[expr].ty) {
+        if let Type::Func(args, returns) = &self.type_context.type_context.types[ast[expr].ty] {
             for arg in args {
-                if arg.as_inner() != &self.checker.core_types.void {
-                    arg.as_inner()
-                        .as_ir_type(&self.checker.solver, self.compiler.isa())
+                if arg != &self.type_context.type_context.core_types.void {
+                    arg.as_ir_type(&self.type_context.type_context.types, self.compiler.isa())
                         .add_to_params(&mut signature.params);
                 }
             }
@@ -45,9 +44,9 @@ impl<S, M: Module> FunctionCompiler<'_, S, M> {
                 signature.params.push(ir::AbiParam::new(self.compiler.ptr_type()));
             }
 
-            if returns != &self.checker.core_types.void {
+            if returns != &self.type_context.type_context.core_types.void {
                 returns
-                    .as_ir_type(&self.checker.solver, self.compiler.isa())
+                    .as_ir_type(&self.type_context.type_context.types, self.compiler.isa())
                     .add_to_params(&mut signature.returns);
             }
         }
@@ -55,15 +54,16 @@ impl<S, M: Module> FunctionCompiler<'_, S, M> {
         let mut ctx = self.compiler.codegen.module.make_context();
         let mut fn_builder_ctx = FunctionBuilderContext::new();
 
-        let mut compiler = FunctionCompiler::new_anonymous(signature, self.compiler, self.checker, &mut ctx, &mut fn_builder_ctx)?;
+        let mut compiler = FunctionCompiler::new_anonymous(signature, self.compiler, self.type_context, &mut ctx, &mut fn_builder_ctx)?;
 
         let mut index = 0;
 
-        if let TypeInfo::Func(arg_types, _) = compiler.checker.solver.get_info(ast[expr].ty) {
-            for (name, (is_fat, arg_type)) in args.iter().zip(arg_types.iter().map(|arg_type| {
-                let arg_type = arg_type.inner();
-
-                (arg_type.as_ir_type(&compiler.checker.solver, compiler.compiler.isa()).is_fat(), arg_type)
+        if let Type::Func(arg_types, _) = &compiler.type_context.type_context.types[ast[expr].ty] {
+            for (arg, (is_fat, arg_type)) in args.iter().zip(arg_types.iter().map(|&arg_type| {
+                (
+                    arg_type.as_ir_type(&compiler.type_context.type_context.types, compiler.compiler.isa()).is_fat(),
+                    arg_type,
+                )
             })) {
                 let value = compiler.fn_builder.block_params(compiler.entry_block)[index];
                 let ty = compiler.fn_builder.func.signature.params[index].value_type;
@@ -82,11 +82,14 @@ impl<S, M: Module> FunctionCompiler<'_, S, M> {
                     compiler
                         .frames
                         .current_mut()
-                        .insert(name.clone(), Variable::new(Var::Fat(var, metadata_var), arg_type));
+                        .insert(arg.name.clone(), Variable::new(Var::Fat(var, metadata_var), arg_type));
 
                     index += 2;
                 } else {
-                    compiler.frames.current_mut().insert(name.clone(), Variable::new(Var::Regular(var), arg_type));
+                    compiler
+                        .frames
+                        .current_mut()
+                        .insert(arg.name.clone(), Variable::new(Var::Regular(var), arg_type));
 
                     index += 1;
                 }
@@ -96,8 +99,7 @@ impl<S, M: Module> FunctionCompiler<'_, S, M> {
         if !captures.is_empty() {
             let ptr = compiler.fn_builder.block_params(compiler.entry_block)[index];
 
-            for ((name, var), field) in captures.iter().zip(&captures_tuple.fields) {
-                let arg_type = var.ty;
+            for ((name, arg_type), field) in captures.iter().zip(&captures_tuple.fields) {
                 let var = match field.ty {
                     MollieType::Regular(ty) => {
                         let value_var = compiler.fn_builder.declare_var(ty);
@@ -123,7 +125,7 @@ impl<S, M: Module> FunctionCompiler<'_, S, M> {
                     }
                 };
 
-                compiler.frames.current_mut().insert(name.clone(), Variable::new(var, arg_type));
+                compiler.frames.current_mut().insert(name.clone(), Variable::new(var, *arg_type));
             }
         }
 
@@ -144,19 +146,19 @@ impl<S, M: Module> FunctionCompiler<'_, S, M> {
             let fields = captures
                 .iter()
                 .zip(&captures_tuple.fields)
-                .map(|((_, field_var), field)| {
-                    let info = self.checker.solver.get_info(field_var.ty);
+                .map(|(&(_, field_ty), field)| {
+                    let info = &self.type_context.type_context.types[field_ty];
                     let offset = field.offset.cast_unsigned();
-                    let ir_type = field_var.ty.as_ir_type(&self.checker.solver, self.compiler.isa());
+                    let ir_type = field_ty.as_ir_type(&self.type_context.type_context.types, self.compiler.isa());
 
-                    if info.is_adt() {
+                    if matches!(info, Type::Adt(..)) {
                         (AdtVariantRef::ZERO, offset, ir_type, TypeLayoutField::Collectable)
-                    } else if let &TypeInfo::Array(element, _) = info {
-                        let info = self.checker.solver.get_info(element);
+                    } else if let &Type::Array(element, _) = info {
+                        let info = &self.type_context.type_context.types[element];
 
-                        if info.is_adt() {
+                        if matches!(info, Type::Adt(..)) {
                             (AdtVariantRef::ZERO, offset, ir_type, TypeLayoutField::ArrayOfRegular)
-                        } else if info.is_trait() {
+                        } else if matches!(info, Type::Trait(..)) {
                             (AdtVariantRef::ZERO, offset, ir_type, TypeLayoutField::ArrayOfFat)
                         } else {
                             (AdtVariantRef::ZERO, offset, ir_type, TypeLayoutField::Regular)

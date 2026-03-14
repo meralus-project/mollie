@@ -6,9 +6,9 @@ use std::{
     str::Chars,
 };
 
-use mollie_shared::{Positioned, Span};
+use mollie_shared::{Positioned, Span, SpanRange};
 
-pub use crate::token::Token;
+pub use crate::token::{NumberToken, Token};
 
 pub struct Lexer;
 
@@ -56,7 +56,7 @@ impl Lexer {
             ':' => {
                 if chars.next_if_eq(&':').is_some() {
                     span.end += 1;
-                    span.column += 1;
+                    span.range.add_columns(1);
 
                     Some(Token::PathSep)
                 } else {
@@ -78,8 +78,8 @@ impl Lexer {
 
                     span.start = span.end;
                     span.end += utf8size + 2;
-                    span.line += 1;
-                    span.column = 0;
+                    span.range.add_lines(1);
+                    span.range.set_column(0);
 
                     None
                 } else {
@@ -89,7 +89,7 @@ impl Lexer {
             '=' => {
                 if chars.next_if_eq(&'=').is_some() {
                     span.end += 1;
-                    span.column += 1;
+                    span.range.add_columns(1);
 
                     Some(Token::EqEq)
                 } else {
@@ -99,7 +99,7 @@ impl Lexer {
             '&' => {
                 if chars.next_if_eq(&'&').is_some() {
                     span.end += 1;
-                    span.column += 1;
+                    span.range.add_columns(1);
 
                     Some(Token::AndAnd)
                 } else {
@@ -109,7 +109,7 @@ impl Lexer {
             '|' => {
                 if chars.next_if_eq(&'|').is_some() {
                     span.end += 1;
-                    span.column += 1;
+                    span.range.add_columns(1);
 
                     Some(Token::OrOr)
                 } else {
@@ -120,7 +120,7 @@ impl Lexer {
             '.' => {
                 if chars.next_if_eq(&'.').is_some() {
                     span.end += 1;
-                    span.column += 1;
+                    span.range.add_columns(1);
 
                     Some(Token::DotDot)
                 } else {
@@ -131,7 +131,7 @@ impl Lexer {
             '!' => {
                 if chars.next_if_eq(&'=').is_some() {
                     span.end += 1;
-                    span.column += 1;
+                    span.range.add_columns(1);
 
                     Some(Token::NotEq)
                 } else {
@@ -147,20 +147,33 @@ impl Lexer {
         }
     }
 
-    fn parse_string(chars: &mut Peekable<Chars>) -> (Token, usize, usize) {
+    fn len_utf8(char: char) -> u32 {
+        const MAX_ONE_B: u32 = 0x80;
+        const MAX_TWO_B: u32 = 0x800;
+        const MAX_THREE_B: u32 = 0x10000;
+
+        match char as u32 {
+            ..MAX_ONE_B => 1,
+            ..MAX_TWO_B => 2,
+            ..MAX_THREE_B => 3,
+            _ => 4,
+        }
+    }
+
+    fn parse_string(chars: &mut Peekable<Chars>) -> (Token, u32, u32) {
         let mut size = 0;
         let mut utf8size = 0;
         let mut data = String::new();
 
         while let Some(character) = chars.next_if(|character| character != &'"') {
             size += 1;
-            utf8size += character.len_utf8();
+            utf8size += Self::len_utf8(character);
 
             if character == '\\'
                 && let Some(character) = chars.next()
             {
                 size += 1;
-                utf8size += character.len_utf8();
+                utf8size += Self::len_utf8(character);
 
                 data.push(character);
             }
@@ -174,55 +187,70 @@ impl Lexer {
     }
 
     fn lex_number(chars: &mut Peekable<Chars>, tokens: &mut Vec<Positioned<Token>>, span: &mut Span, character: char, neg: bool) {
-        let mut value = iter::once(character)
-            .chain(iter::from_fn(|| chars.by_ref().next_if(char::is_ascii_digit)))
-            .collect::<String>();
-
-        if value == "0" && chars.next_if_eq(&'x').is_some() {
+        if character == '0' && chars.next_if_eq(&'x').is_some() {
             let hex = iter::from_fn(|| chars.by_ref().next_if(char::is_ascii_hexdigit)).collect::<String>();
 
             span.start = span.end;
             span.end += hex.len() + 2;
 
-            tokens.push(span.wrap(Token::Integer(i64::from_str_radix(&hex, 16).unwrap(), None, true)));
+            tokens.push(span.wrap(Token::Number(span.wrap(NumberToken::Int(i64::from_str_radix(&hex, 16).unwrap())), None)));
         } else {
-            if chars.next_if_eq(&'.').is_some() && chars.peek().is_some_and(char::is_ascii_digit) {
-                value.push('.');
-                value.push_str(&iter::from_fn(|| chars.by_ref().next_if(char::is_ascii_digit)).collect::<String>());
+            let mut size = 1;
+            let mut value = String::from(character);
+
+            while let Some(c) = chars.next_if(|c| c.is_ascii_digit() || matches!(c, '.' | '_')) {
+                size += 1;
+
+                if c != '_' {
+                    value.push(c);
+                }
             }
 
-            let postfix = if chars.peek().is_some_and(|c| c.is_ascii_alphabetic() || c == &'%') {
-                if chars.next_if_eq(&'%').is_some() {
-                    Some("%".to_string())
-                } else {
-                    Some(iter::from_fn(|| chars.by_ref().next_if(|c| c.is_ascii_alphanumeric() || c == &'_')).collect::<String>())
+            span.start = span.end;
+            span.end += value.len();
+            span.range.start_column = span.range.end_column;
+            span.range.end_column += size;
+
+            let mut number = span.wrap(if value.contains('.') {
+                NumberToken::Float(value.parse().unwrap())
+            } else {
+                NumberToken::Int(value.parse().unwrap())
+            });
+
+            if neg {
+                match &mut number.value {
+                    NumberToken::Float(value) => *value = value.neg(),
+                    NumberToken::Int(value) => *value = value.neg(),
                 }
+            }
+
+            let postfix = if let Some(c) = chars.next_if(char::is_ascii_alphabetic) {
+                let mut size = 1;
+                let mut postfix = String::from(c);
+
+                while let Some(c) = chars.next_if(|c| c.is_ascii_alphanumeric() || c == &'_') {
+                    size += 1;
+                    postfix.push(c);
+                }
+
+                span.start = span.end;
+                span.end += postfix.len();
+                span.range.start_column = span.range.end_column;
+                span.range.end_column += size;
+
+                let postfix = span.wrap(postfix);
+
+                Some(postfix)
             } else {
                 None
             };
 
-            span.start = span.end;
-            span.end += value.len() + postfix.as_ref().map(String::len).unwrap_or_default();
-
-            if value.contains('.') {
-                let mut value: f32 = value.parse().unwrap();
-
-                if neg {
-                    value = value.neg();
-                }
-
-                tokens.push(span.wrap(Token::Float(value, postfix)));
-            } else {
-                let mut value: i64 = value.parse().unwrap();
-
-                if neg {
-                    value = value.neg();
-                }
-
-                tokens.push(span.wrap(Token::Integer(value, postfix, false)));
-            }
-
-            span.column += value.len();
+            tokens.push(
+                number
+                    .span
+                    .between(postfix.as_ref().map(|postfix| postfix.span).unwrap_or(number.span))
+                    .wrap(Token::Number(number, postfix)),
+            );
         }
     }
 
@@ -232,20 +260,24 @@ impl Lexer {
     pub fn lex<T: AsRef<str>>(data: T) -> Vec<Positioned<Token>> {
         let mut tokens = vec![];
         let mut chars = data.as_ref().chars().peekable();
-        let mut span = Span::new(0, 0, 0, 0);
+        let mut span = Span::new(0, 0, SpanRange::from_single(0, 0));
 
         while let Some(character) = chars.next() {
             match character {
                 'A'..='Z' | 'a'..='z' => {
-                    let ident = iter::once(character)
-                        .chain(iter::from_fn(|| {
-                            chars.by_ref().next_if(|s| s.is_ascii_alphanumeric() || s == &'-' || s == &'_')
-                        }))
-                        .collect::<String>();
-
                     span.start = span.end;
-                    span.end += ident.len();
-                    span.column += ident.len();
+                    span.range.start_column = span.range.end_column;
+                    span.end += 1;
+                    span.range.end_column += 1;
+
+                    let mut ident = String::from(character);
+
+                    while let Some(c) = chars.by_ref().next_if(|s| s.is_ascii_alphanumeric() || s == &'-' || s == &'_') {
+                        span.end += 1;
+                        span.range.end_column += 1;
+
+                        ident.push(c);
+                    }
 
                     tokens.push(span.wrap(Self::lex_reserved(ident)));
                 }
@@ -261,14 +293,14 @@ impl Lexer {
 
                         tokens.push(span.wrap(Token::Arrow));
 
-                        span.column += 2;
+                        span.range.add_columns(2);
                     } else {
                         span.start = span.end;
                         span.end += 1;
 
                         tokens.push(span.wrap(Token::Minus));
 
-                        span.column += 1;
+                        span.range.add_columns(1);
                     }
                 }
                 '"' => {
@@ -277,10 +309,12 @@ impl Lexer {
                     let (value, size, utf8size) = Self::parse_string(&mut chars);
 
                     span.start = span.end;
-                    span.end += utf8size + 2;
-                    span.column += size + 2;
+                    span.end += utf8size as usize + 2;
+                    span.range.end_column += size + 2;
 
                     tokens.push(span.wrap(value));
+
+                    span.range.start_column += size + 2;
                 }
                 character => {
                     span.start = span.end;
@@ -288,10 +322,10 @@ impl Lexer {
 
                     if character.is_ascii_whitespace() {
                         if character == '\n' {
-                            span.line += 1;
-                            span.column = 0;
+                            span.range.add_lines(1);
+                            span.range.set_column(0);
                         } else {
-                            span.column += 1;
+                            span.range.add_columns(1);
                         }
 
                         continue;
@@ -300,14 +334,83 @@ impl Lexer {
                     if let Some(token) = Self::lex_other(&mut chars, &mut span, character) {
                         tokens.push(span.wrap(token));
 
-                        span.column += 1;
+                        span.range.add_columns(1);
                     }
                 }
             }
         }
 
+        span.start = span.end;
+        span.range.start_column = span.range.end_column;
+
         tokens.push(span.wrap(Token::EOF));
 
         tokens
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use mollie_shared::{Span, SpanRange};
+
+    use crate::{Lexer, NumberToken, Token};
+
+    fn assert_lex_single_eq(input: &str, output: Token) {
+        let lexed = Lexer::lex(input);
+
+        assert!(!lexed.is_empty());
+        assert_eq!(lexed[0].value, output);
+    }
+
+    fn assert_lex_eq<T: IntoIterator<Item = (Token, Span)>>(input: &str, output: T) {
+        let lexed = Lexer::lex(input);
+
+        assert!(!lexed.is_empty());
+        assert_eq!(lexed, output.into_iter().map(|(token, span)| span.wrap(token)).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_number_parsing() {
+        assert_lex_eq("bruh", [
+            (Token::ident("bruh"), Span::new(0, 4, SpanRange::new(0, 0, 0, 4))),
+            (Token::EOF, Span::new(4, 4, SpanRange::new(0, 4, 0, 4))),
+        ]);
+
+        assert_lex_eq("\"bruh\"", [
+            (Token::String(String::from("bruh")), Span::new(0, 6, SpanRange::new(0, 0, 0, 6))),
+            (Token::EOF, Span::new(6, 6, SpanRange::new(0, 6, 0, 6))),
+        ]);
+
+        assert_lex_eq("\"bruh\" \"bruh\"", [
+            (Token::String(String::from("bruh")), Span::new(0, 6, SpanRange::new(0, 0, 0, 6))),
+            (Token::String(String::from("bruh")), Span::new(7, 13, SpanRange::new(0, 7, 0, 13))),
+            (Token::EOF, Span::new(13, 13, SpanRange::new(0, 13, 0, 13))),
+        ]);
+
+        assert_lex_single_eq(
+            "123",
+            Token::Number(Span::new(0, 3, SpanRange::new(0, 0, 0, 3)).wrap(NumberToken::Int(123)), None),
+        );
+
+        assert_lex_single_eq(
+            "123.0",
+            Token::Number(Span::new(0, 5, SpanRange::new(0, 0, 0, 5)).wrap(NumberToken::Float(123.0)), None),
+        );
+
+        assert_lex_single_eq(
+            "123float",
+            Token::Number(
+                Span::new(0, 3, SpanRange::new(0, 0, 0, 3)).wrap(NumberToken::Int(123)),
+                Some(Span::new(3, 8, SpanRange::new(0, 3, 0, 8)).wrap(String::from("float"))),
+            ),
+        );
+
+        assert_lex_single_eq(
+            "123.0float",
+            Token::Number(
+                Span::new(0, 5, SpanRange::new(0, 0, 0, 5)).wrap(NumberToken::Float(123.0)),
+                Some(Span::new(5, 10, SpanRange::new(0, 5, 0, 10)).wrap(String::from("float"))),
+            ),
+        );
     }
 }

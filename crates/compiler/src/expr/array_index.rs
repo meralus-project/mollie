@@ -20,7 +20,7 @@ impl<S, M: Module> FunctionCompiler<'_, S, M> {
         let index = index.compile(ast, self)?;
 
         if let (&MolValue::Value(ptr), &MolValue::Value(index)) = (&target, &index) {
-            let element_type = ast[expr].ty.as_ir_type(&self.checker.solver, self.compiler.isa());
+            let element_type = ast[expr].ty.as_ir_type(&self.type_context.type_context.types, self.compiler.isa());
             let size = match element_type {
                 MollieType::Fat(ty, metadata_ty) => ty.bytes() + metadata_ty.bytes(),
                 MollieType::Regular(ty) => ty.bytes(),

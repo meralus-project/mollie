@@ -1,13 +1,12 @@
 use cranelift::{
     codegen::ir,
     frontend::FuncInstBuilder,
-    module::{DataDescription, Module},
     prelude::{FunctionBuilder, InstBuilder, isa::TargetIsa},
 };
 use itertools::Itertools;
 use mollie_const::ConstantValue;
 
-use crate::{FatPtr, MollieType, stack_alloc};
+use crate::{MollieType, stack_alloc};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Field {
@@ -70,6 +69,7 @@ pub trait ConstantCompiler<'a> {
     fn ins<'short>(&'short mut self) -> FuncInstBuilder<'short, 'a>;
 }
 
+#[derive(Debug)]
 pub enum ConstValue {
     Value(ir::Value),
     FatPtr(ir::Value, ir::Value),

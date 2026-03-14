@@ -3,7 +3,7 @@ use std::{
     mem::discriminant,
 };
 
-use mollie_lexer::Token;
+use mollie_lexer::{NumberToken, Token};
 use mollie_shared::Positioned;
 
 use crate::{Parse, ParseResult, Parser};
@@ -33,7 +33,7 @@ pub enum SizeType {
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub enum LiteralExpr {
-    Number(Number, Option<String>),
+    Number(Positioned<Number>, Option<Positioned<String>>),
     Boolean(bool),
     String(String),
 }
@@ -41,17 +41,17 @@ pub enum LiteralExpr {
 impl Parse for LiteralExpr {
     fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
         parser
-            .consume_if(|token| {
-                matches!(
-                    token,
-                    Token::Boolean(_) | Token::Integer(..) | Token::String(_) | Token::Float(..) | Token::Null
-                )
-            })
+            .consume_if(|token| matches!(token, Token::Boolean(_) | Token::Number(..) | Token::String(_) | Token::Null))
             .map(|token| {
                 token.span.wrap(match token.value {
                     Token::Boolean(value) => Self::Boolean(value),
-                    Token::Integer(value, postfix, _) => Self::Number(Number::I64(value), postfix),
-                    Token::Float(value, postfix) => Self::Number(Number::F32(value), postfix),
+                    Token::Number(value, postfix) => Self::Number(
+                        value.map(|value| match value {
+                            NumberToken::Float(value) => Number::F32(value),
+                            NumberToken::Int(value) => Number::I64(value),
+                        }),
+                        postfix,
+                    ),
                     Token::String(value) => Self::String(value),
                     _ => unreachable!(),
                 })

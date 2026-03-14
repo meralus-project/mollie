@@ -7,7 +7,6 @@ use std::{
 };
 
 use cranelift::codegen::ir;
-use itertools::Itertools;
 use mollie_index::Idx;
 use mollie_ir::{MollieType, Struct};
 use mollie_typing::{AdtKind, AdtVariantRef};
@@ -103,8 +102,6 @@ impl GarbageCollector {
 
         for &(variant, offset, _, ty) in root.layout.fields {
             if variant == current_variant {
-                println!("Marking {variant:?}:{offset}:{ty:?} of {root:?}");
-
                 match ty {
                     TypeLayoutField::Regular => (),
                     TypeLayoutField::Collectable => {
@@ -174,8 +171,6 @@ impl GarbageCollector {
     /// All objects in [`GarbageCollector::roots`] should point to valid data.
     pub unsafe fn collect(&mut self) {
         for &root in &self.roots {
-            println!("Marking root");
-
             unsafe { Self::mark(root) };
         }
 
@@ -213,7 +208,7 @@ impl GarbageCollector {
             .chain(type_layout.fields.iter().filter(|f| f.0 == max_variant).map(|field| (field.2, None))),
         );
 
-        let layout = unsafe { alloc::Layout::from_size_align(size as usize, align as usize).unwrap() };
+        let layout = alloc::Layout::from_size_align(size as usize, align as usize).unwrap();
         let ptr: *mut GcValue<()> = unsafe { alloc::alloc_zeroed(layout) }.cast();
 
         unsafe {

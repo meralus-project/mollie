@@ -1,4 +1,4 @@
-use mollie_shared::Operator;
+use mollie_shared::{Operator, Span};
 use mollie_typing::{FieldRef, TypeInfoRef};
 
 pub use self::default_visitors::*;
@@ -50,7 +50,7 @@ pub trait Visitor {
         visit_closure(self, ast, args, body);
     }
 
-    fn visit_construct(&mut self, ast: &TypedAST, ty: TypeInfoRef, fields: &[(FieldRef, String, Option<ExprRef>)]) {
+    fn visit_construct(&mut self, ast: &TypedAST, ty: TypeInfoRef, fields: &[(FieldRef, String, Option<(ExprRef, Span)>)]) {
         visit_construct(self, ast, ty, fields);
     }
 
@@ -80,7 +80,7 @@ pub trait Visitor {
 
 #[allow(unused_variables)]
 mod default_visitors {
-    use mollie_shared::Operator;
+    use mollie_shared::{Operator, Span};
     use mollie_typing::{FieldRef, TypeInfoRef};
 
     use super::Visitor;
@@ -142,10 +142,10 @@ mod default_visitors {
         visitor.visit_block(ast, body);
     }
 
-    pub fn visit_construct<T: Visitor + ?Sized>(visitor: &mut T, ast: &TypedAST, ty: TypeInfoRef, fields: &[(FieldRef, String, Option<ExprRef>)]) {
+    pub fn visit_construct<T: Visitor + ?Sized>(visitor: &mut T, ast: &TypedAST, ty: TypeInfoRef, fields: &[(FieldRef, String, Option<(ExprRef, Span)>)]) {
         for field in fields {
             if let Some(expr) = field.2 {
-                visitor.visit_expr(ast, expr);
+                visitor.visit_expr(ast, expr.0);
             }
         }
     }
@@ -196,12 +196,12 @@ mod default_visitors {
             &Expr::Block(block) => visitor.visit_block(ast, block),
             Expr::Var(name) => visitor.visit_var(ast, name.as_str()),
             &Expr::Cast { expr, .. } => visitor.visit_expr(ast, expr),
-            &Expr::VTableAccess { target, func } => visitor.visit_vtable_access(ast, target, func),
-            &Expr::Access { target, field } => visitor.visit_access(ast, target, field),
+            &Expr::VTableAccess { target, func } => visitor.visit_vtable_access(ast, target, func.value),
+            &Expr::Access { target, field } => visitor.visit_access(ast, target, field.value),
             &Expr::Index { target, index } => visitor.visit_index(ast, target, index),
             &Expr::While { condition, block } => visitor.visit_while(ast, condition, block),
             Expr::Array(elements) => visitor.visit_array(ast, elements.as_ref()),
-            &Expr::Binary { operator, lhs, rhs } => visitor.visit_binary(ast, lhs, rhs, operator),
+            &Expr::Binary { operator, lhs, rhs } => visitor.visit_binary(ast, lhs, rhs, operator.value),
             Expr::Call { func, args } => visitor.visit_call(ast, *func, args.as_ref()),
             Expr::Closure { args, captures, body } => visitor.visit_closure(ast, args.as_ref(), *body),
             Expr::Construct { ty, variant, fields } => visitor.visit_construct(ast, *ty, fields.as_ref()),

@@ -125,7 +125,7 @@ impl<'a, 'b> Formatter<'a, 'b> {
         };
 
         match literal_expr {
-            Number(number, _suffix) => match number {
+            Number(number, _suffix) => match number.value {
                 I64(value) => value.fmt(self.f),
                 F32(value) => value.fmt(self.f),
             },

@@ -17,6 +17,10 @@ mollie-const = { workspace = true }
 mollie-typing = { workspace = true }
 indexmap = { workspace = true }
 itertools = "0.14.0"
+derive-where = "1.6.0"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+ariadne = "0.6.0"

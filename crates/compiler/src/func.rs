@@ -9,8 +9,8 @@ use cranelift::{
 };
 use indexmap::{IndexMap, map::Entry};
 use mollie_ir::MollieType;
-use mollie_typed_ast::{ExprRef, FuncRef, TypeChecker};
-use mollie_typing::{AdtVariantRef, TypeInfoRef, VFuncRef, VTableRef};
+use mollie_typed_ast::{ExprRef, TypedASTContext};
+use mollie_typing::{AdtVariantRef, FuncRef, Type, TypeRef, VFuncRef, VTableRef};
 
 use crate::{
     Compiler, FuncCompilerError, MolValue, Var,
@@ -37,12 +37,12 @@ pub(crate) enum FuncKey {
 #[derive(Debug, Clone, Copy)]
 pub struct Variable {
     pub value: Var,
-    pub ty: TypeInfoRef,
+    pub ty: TypeRef,
     pub captured: bool,
 }
 
 impl Variable {
-    pub const fn new(var: Var, ty: TypeInfoRef) -> Self {
+    pub const fn new(var: Var, ty: TypeRef) -> Self {
         Self {
             value: var,
             ty,
@@ -110,7 +110,7 @@ pub struct FunctionCompiler<'a, S, T: Module = JITModule> {
 
     pub(crate) compiler: &'a mut Compiler<T>,
     pub(crate) fn_builder: FunctionBuilder<'a>,
-    pub(crate) checker: &'a TypeChecker<S>,
+    pub(crate) type_context: &'a TypedASTContext<S>,
 
     pub(crate) context: FunctionContext,
 
@@ -127,7 +127,7 @@ impl<'a, S, M: Module> FunctionCompiler<'a, S, M> {
         name: T,
         signature: ir::Signature,
         compiler: &'a mut Compiler<M>,
-        checker: &'a TypeChecker<S>,
+        type_context: &'a TypedASTContext<S>,
         ctx: &'a mut Context,
         fn_builder_ctx: &'a mut FunctionBuilderContext,
     ) -> Result<Self, FuncCompilerError> {
@@ -177,7 +177,7 @@ impl<'a, S, M: Module> FunctionCompiler<'a, S, M> {
             entry_block,
             compiler,
             fn_builder,
-            checker,
+            type_context,
             context,
             this: None,
             assign_ref: None,
@@ -190,7 +190,7 @@ impl<'a, S, M: Module> FunctionCompiler<'a, S, M> {
     pub fn new_anonymous(
         signature: ir::Signature,
         compiler: &'a mut Compiler<M>,
-        checker: &'a TypeChecker<S>,
+        checker: &'a TypedASTContext<S>,
         ctx: &'a mut Context,
         fn_builder_ctx: &'a mut FunctionBuilderContext,
     ) -> Result<Self, FuncCompilerError> {
@@ -235,7 +235,7 @@ impl<'a, S, M: Module> FunctionCompiler<'a, S, M> {
             branches: None,
             compiler,
             fn_builder,
-            checker,
+            type_context: checker,
             context,
             this: None,
             assign_ref: None,
@@ -266,7 +266,7 @@ impl<'a, S, M: Module> FunctionCompiler<'a, S, M> {
 
     pub fn unmark_variables(&mut self) {
         for (_, &var) in self.frames.current() {
-            if self.checker.solver.get_info(var.ty).is_adt()
+            if matches!(self.type_context.type_context.types[var.ty], Type::Adt(..))
                 && let Var::Regular(ptr) = var.value
                 && !var.captured
             {
@@ -277,8 +277,8 @@ impl<'a, S, M: Module> FunctionCompiler<'a, S, M> {
         }
     }
 
-    pub fn hash_of(&self, ty: TypeInfoRef) -> u64 {
-        self.checker.solver.hash_of(ty)
+    pub fn hash_of(&self, ty: TypeRef) -> u64 {
+        self.type_context.type_context.types.hash_of(ty)
     }
 
     pub fn alloc(&mut self, type_layout: *const TypeLayout) -> ir::Value {
@@ -288,14 +288,14 @@ impl<'a, S, M: Module> FunctionCompiler<'a, S, M> {
         self.fn_builder.inst_results(alloc_call)[0]
     }
 
-    pub fn var<T: Into<String>>(&mut self, name: T, ty: ir::Type, type_info: TypeInfoRef, value: ir::Value) {
+    pub fn var<T: Into<String>>(&mut self, name: T, ty: ir::Type, type_info: TypeRef, value: ir::Value) {
         let var = self.fn_builder.declare_var(ty);
 
         self.current_frame_mut().insert(name.into(), Variable::new(Var::Regular(var), type_info));
         self.fn_builder.def_var(var, value);
     }
 
-    pub fn fat_var<T: Into<String>>(&mut self, name: T, ty: ir::Type, fat_ty: ir::Type, type_info: TypeInfoRef, value: ir::Value, metadata: ir::Value) {
+    pub fn fat_var<T: Into<String>>(&mut self, name: T, ty: ir::Type, fat_ty: ir::Type, type_info: TypeRef, value: ir::Value, metadata: ir::Value) {
         let var = self.fn_builder.declare_var(ty);
         let fat_var = self.fn_builder.declare_var(fat_ty);
 
@@ -325,7 +325,7 @@ impl<'a, S, M: Module> FunctionCompiler<'a, S, M> {
         }
     }
 
-    pub fn construct(&mut self, ty: TypeInfoRef, variant: AdtVariantRef, values: &[ir::Value]) -> CompileResult<ir::Value> {
+    pub fn construct(&mut self, ty: TypeRef, variant: AdtVariantRef, values: &[ir::Value]) -> CompileResult<ir::Value> {
         let mut values = values.iter().copied();
 
         let hash = self.hash_of(ty);

@@ -2,16 +2,16 @@ use cranelift::{codegen::ir, module::Module, prelude::InstBuilder};
 use itertools::Itertools;
 use mollie_ir::{Array, MollieType};
 use mollie_typed_ast::{ExprRef, TypedAST};
-use mollie_typing::{TypeInfo, TypeInfoRef};
+use mollie_typing::{PrimitiveType, Type, TypeRef};
 
 use crate::{AsIrType, CompileTypedAST, MolValue, allocator::TypeLayout, error::CompileResult, func::FunctionCompiler};
 
 impl<S, M: Module> FunctionCompiler<'_, S, M> {
-    pub fn type_layout_of(&self, ty: TypeInfoRef) -> &'static TypeLayout {
-        match self.checker.solver.get_info(ty) {
-            &TypeInfo::Primitive(primitive) => self.compiler.core_types.cast_primitive(primitive),
-            TypeInfo::Func(..) | TypeInfo::Adt(..) | TypeInfo::Array(..) => self.compiler.core_types.uint_size,
-            TypeInfo::Trait(..) => self.compiler.core_types.string,
+    pub fn type_layout_of(&self, ty: TypeRef) -> &'static TypeLayout {
+        match self.type_context.type_context.types[ty] {
+            Type::Primitive(primitive) => self.compiler.core_types.cast_primitive(primitive),
+            Type::Func(..) | Type::Adt(..) | Type::Array(..) => self.compiler.core_types.uint_size,
+            Type::Trait(..) => self.compiler.core_types.string,
             _ => self.compiler.core_types.void,
         }
     }
@@ -26,19 +26,19 @@ impl<S, M: Module> FunctionCompiler<'_, S, M> {
     ///
     /// [`CompileError`]: crate::error::CompileError
     pub fn compile_array_expr(&mut self, ast: &TypedAST, expr: ExprRef, elements: &[ExprRef]) -> CompileResult<MolValue> {
-        if let &TypeInfo::Array(element, _) = self.checker.solver.get_info(ast[expr].ty) {
+        if let Type::Array(element, _) = self.type_context.type_context.types[ast[expr].ty] {
             let mut values = Vec::with_capacity(elements.len());
 
             for expr_ref in elements {
                 if let MolValue::Value(value) = expr_ref.compile(ast, self)? {
-                    if self.checker.solver.get_info(element).is_any_component() {
-                        let hash = self.checker.solver.hash_of(ast[*expr_ref].ty);
+                    if matches!(self.type_context.type_context.types[element], Type::Primitive(PrimitiveType::Component)) {
+                        let hash = self.type_context.type_context.types.hash_of(ast[*expr_ref].ty);
                         let metadata = self.fn_builder.ins().iconst(self.compiler.ptr_type(), hash.cast_signed());
 
                         values.push(value);
                         values.push(metadata);
-                    } else if let &TypeInfo::Trait(t, _) = self.checker.solver.get_info(element) {
-                        let hash = self.checker.solver.hash_of(ast[*expr_ref].ty);
+                    } else if let Type::Trait(t, _) = self.type_context.type_context.types[element] {
+                        let hash = self.type_context.type_context.types.hash_of(ast[*expr_ref].ty);
                         let data_id = self
                             .compiler
                             .codegen
@@ -66,7 +66,7 @@ impl<S, M: Module> FunctionCompiler<'_, S, M> {
                 .ins()
                 .load(ptr_type, ir::MemFlags::trusted(), ptr, size_of::<usize>().cast_signed() as i32 * 2);
 
-            let ir_element = ast[expr].ty.as_ir_type(&self.checker.solver, self.compiler.isa());
+            let ir_element = ast[expr].ty.as_ir_type(&self.type_context.type_context.types, self.compiler.isa());
             let arr = Array { element: ir_element };
 
             match ir_element {

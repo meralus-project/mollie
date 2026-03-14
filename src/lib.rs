@@ -1,27 +1,26 @@
-use std::{fmt, ops::Deref};
+use std::{fmt, iter::empty, ops::Deref};
 
 pub use mollie_compiler as compiler;
-use mollie_compiler::{
-    CompiledAdt,
-    allocator::{alloc, unmark_root},
-};
 pub use mollie_const as constants;
 pub use mollie_index as index;
-use mollie_index::Idx;
 pub use mollie_ir as ir;
 pub use mollie_parser as parser;
 pub use mollie_shared as shared;
 pub use mollie_typed_ast as typed_ast;
-use mollie_typed_ast::{Trait, TraitFuncRef};
 pub use mollie_typing as typing;
-use mollie_typing::{AdtVariantRef, FieldRef, IntType, UIntType};
 
 use self::{
-    compiler::allocator::{GcValue, TypeLayout},
+    compiler::{
+        CompiledAdt,
+        allocator::{GcValue, TypeLayout, alloc, unmark_root},
+    },
     constants::ConstantValue,
-    index::{IndexBoxedSlice, IndexVec},
-    typed_ast::{TypeChecker, VTableFunc, VTableFuncKind, VTableGenerator},
-    typing::{Adt, AdtKind, AdtVariant, FieldType, FuncArg, PrimitiveType, TypeInfo, TypeInfoRef, VFuncRef, VTableRef},
+    index::{Idx, IndexBoxedSlice, IndexVec},
+    typed_ast::{FunctionBody, TypedASTContext},
+    typing::{
+        Adt, AdtKind, AdtRef, AdtVariant, AdtVariantField, AdtVariantRef, Arg, ArgType, FieldRef, IntType, ModuleId, PrimitiveType, Trait, TraitFunc,
+        TraitFuncRef, TraitRef, Type, TypeContext, TypeRef, UIntType, VFuncRef, VTableFunc, VTableGenerator, VTableRef,
+    },
 };
 
 #[repr(transparent)]
@@ -146,36 +145,54 @@ pub trait MollieTypeOf {
         None
     }
 
-    fn mollie_type_of() -> FieldType;
+    fn mollie_type_of(context: &mut TypeContext) -> TypeRef;
+}
+
+pub trait MollieMultipleTypeOf {
+    fn generic_index() -> Option<usize> {
+        None
+    }
+
+    fn mollie_type_of(context: &mut TypeContext) -> impl Iterator<Item = TypeRef>;
 }
 
 macro_rules! mollie_types {
     ($($typo:ty => $variant:expr),*) => {
         $(
             impl MollieTypeOf for $typo {
-                fn mollie_type_of() -> FieldType {
-                    $variant
+                fn mollie_type_of(context: &mut TypeContext) -> TypeRef {
+                    context.types.get_or_add($variant)
                 }
             }
         )*
     };
 }
 
+macro_rules! mollie_arg_types {
+    ($($name:ident),*) => {
+        impl<$($name: MollieTypeOf),*> MollieMultipleTypeOf for ($($name),*,) {
+            fn mollie_type_of(context: &mut TypeContext) ->impl Iterator<Item = TypeRef> {
+                [$($name::mollie_type_of(context)),*].into_iter()
+            }
+        }
+    };
+}
+
 mollie_types! {
-    i8     => FieldType::Primitive(PrimitiveType::Int (IntType ::   I8)),
-    u8     => FieldType::Primitive(PrimitiveType::UInt(UIntType::   U8)),
-    i16    => FieldType::Primitive(PrimitiveType::Int (IntType ::  I16)),
-    u16    => FieldType::Primitive(PrimitiveType::UInt(UIntType::  U16)),
-    i32    => FieldType::Primitive(PrimitiveType::Int (IntType ::  I32)),
-    u32    => FieldType::Primitive(PrimitiveType::UInt(UIntType::  U32)),
-    i64    => FieldType::Primitive(PrimitiveType::Int (IntType ::  I64)),
-    u64    => FieldType::Primitive(PrimitiveType::UInt(UIntType::  U64)),
-    isize  => FieldType::Primitive(PrimitiveType::Int (IntType ::ISize)),
-    usize  => FieldType::Primitive(PrimitiveType::UInt(UIntType::USize)),
-    f32    => FieldType::Primitive(PrimitiveType::Float                ),
-    bool   => FieldType::Primitive(PrimitiveType::Boolean              ),
-    &str   => FieldType::Primitive(PrimitiveType::String               ),
-    String => FieldType::Primitive(PrimitiveType::String               )
+    i8     => Type::Primitive(PrimitiveType::Int (IntType ::   I8)),
+    u8     => Type::Primitive(PrimitiveType::UInt(UIntType::   U8)),
+    i16    => Type::Primitive(PrimitiveType::Int (IntType ::  I16)),
+    u16    => Type::Primitive(PrimitiveType::UInt(UIntType::  U16)),
+    i32    => Type::Primitive(PrimitiveType::Int (IntType ::  I32)),
+    u32    => Type::Primitive(PrimitiveType::UInt(UIntType::  U32)),
+    i64    => Type::Primitive(PrimitiveType::Int (IntType ::  I64)),
+    u64    => Type::Primitive(PrimitiveType::UInt(UIntType::  U64)),
+    isize  => Type::Primitive(PrimitiveType::Int (IntType ::ISize)),
+    usize  => Type::Primitive(PrimitiveType::UInt(UIntType::USize)),
+    f32    => Type::Primitive(PrimitiveType::Float                ),
+    bool   => Type::Primitive(PrimitiveType::Boolean              ),
+    &str   => Type::Primitive(PrimitiveType::String               ),
+    String => Type::Primitive(PrimitiveType::String               )
 }
 
 pub struct Generic<const N: usize>;
@@ -185,15 +202,67 @@ impl<const N: usize> MollieTypeOf for Generic<N> {
         Some(N)
     }
 
-    fn mollie_type_of() -> FieldType {
-        FieldType::Generic(N, None)
+    fn mollie_type_of(context: &mut TypeContext) -> TypeRef {
+        context.types.get_or_add(Type::Generic(N))
     }
 }
 
-type AdtBuilderVariant = Vec<(String, FieldType, Option<ConstantValue>)>;
+type AdtBuilderVariant = Vec<(String, TypeRef, Option<ConstantValue>)>;
+
+pub struct AnyType;
+
+impl MollieTypeOf for () {
+    fn mollie_type_of(context: &mut TypeContext) -> TypeRef {
+        context.types.get_or_add(Type::Primitive(PrimitiveType::Void))
+    }
+}
+
+impl MollieTypeOf for AnyType {
+    fn mollie_type_of(context: &mut TypeContext) -> TypeRef {
+        context.types.get_or_add(Type::Primitive(PrimitiveType::Any))
+    }
+}
+
+impl MollieMultipleTypeOf for () {
+    fn mollie_type_of(_: &mut TypeContext) -> impl Iterator<Item = TypeRef> {
+        empty()
+    }
+}
+
+impl<T: MollieTypeOf> MollieTypeOf for &[T] {
+    fn mollie_type_of(context: &mut TypeContext) -> TypeRef {
+        let element = T::mollie_type_of(context);
+
+        context.types.get_or_add(Type::Array(element, None))
+    }
+}
+
+impl<T: MollieTypeOf, const U: usize> MollieTypeOf for [T; U] {
+    fn mollie_type_of(context: &mut TypeContext) -> TypeRef {
+        let element = T::mollie_type_of(context);
+
+        context.types.get_or_add(Type::Array(element, Some(U)))
+    }
+}
+
+mollie_arg_types![A];
+mollie_arg_types![A, B];
+mollie_arg_types![A, B, C];
+mollie_arg_types![A, B, C, D];
+mollie_arg_types![A, B, C, D, E];
+mollie_arg_types![A, B, C, D, E, F];
+mollie_arg_types![A, B, C, D, E, F, G];
+
+pub fn func<Args: MollieMultipleTypeOf, Returns: MollieTypeOf>(context: &mut TypeContext) -> TypeRef {
+    let args = Args::mollie_type_of(context).collect();
+    let returns = Returns::mollie_type_of(context);
+
+    context.types.get_or_add(Type::Func(args, returns))
+}
 
 #[derive(Debug)]
-pub struct AdtBuilder {
+pub struct AdtBuilder<'a> {
+    context: &'a mut TypeContext,
     name: Option<String>,
     collectable: bool,
     variants: Vec<(Option<String>, AdtBuilderVariant)>,
@@ -201,9 +270,10 @@ pub struct AdtBuilder {
     kind: AdtKind,
 }
 
-impl AdtBuilder {
-    pub fn new_struct<T: Into<String>>(name: T) -> Self {
+impl<'a> AdtBuilder<'a> {
+    pub fn new_struct<T: Into<String>>(context: &'a mut TypeContext, name: T) -> Self {
         Self {
+            context,
             name: Some(name.into()),
             collectable: true,
             variants: vec![(None, vec![])],
@@ -212,8 +282,9 @@ impl AdtBuilder {
         }
     }
 
-    pub fn new_enum<T: Into<String>>(name: T) -> Self {
+    pub fn new_enum<T: Into<String>>(context: &'a mut TypeContext, name: T) -> Self {
         Self {
+            context,
             name: Some(name.into()),
             collectable: true,
             variants: vec![],
@@ -231,7 +302,7 @@ impl AdtBuilder {
     pub fn variant<T: Into<String>>(mut self, name: T) -> Self {
         self.variants.push((Some(name.into()), vec![(
             String::from("<discriminant>"),
-            FieldType::Primitive(PrimitiveType::UInt(UIntType::USize)),
+            self.context.types.get_or_add(Type::Primitive(PrimitiveType::UInt(UIntType::USize))),
             None,
         )]));
 
@@ -250,7 +321,7 @@ impl AdtBuilder {
         }
 
         if let Some((_, variant)) = self.variants.last_mut() {
-            variant.push((name.into(), T::mollie_type_of(), Some(default.into())));
+            variant.push((name.into(), T::mollie_type_of(self.context), Some(default.into())));
         }
 
         self
@@ -262,13 +333,13 @@ impl AdtBuilder {
         }
 
         if let Some((_, variant)) = self.variants.last_mut() {
-            variant.push((name.into(), T::mollie_type_of(), None));
+            variant.push((name.into(), T::mollie_type_of(self.context), None));
         }
 
         self
     }
 
-    pub fn field_ty<T: Into<String>>(mut self, name: T, ty: FieldType) -> Self {
+    pub fn field_ty<T: Into<String>>(mut self, name: T, ty: TypeRef) -> Self {
         if let Some((_, variant)) = self.variants.last_mut() {
             variant.push((name.into(), ty, None));
         }
@@ -276,49 +347,81 @@ impl AdtBuilder {
         self
     }
 
-    pub fn finish(self) -> Adt {
-        Adt {
+    pub fn finish_in_module(self, module: ModuleId) -> AdtRef {
+        let adt = Adt {
             name: self.name,
             collectable: self.collectable,
             kind: self.kind,
             generics: self.generics,
-            variants: IndexBoxedSlice::from_iter(self.variants.into_iter().enumerate().map(|(discriminant, (name, fields))| AdtVariant {
-                name,
-                discriminant,
-                fields: fields.into(),
+            variants: IndexBoxedSlice::from_iter(self.variants.into_iter().enumerate().map(|(discriminant, (name, fields))| {
+                AdtVariant {
+                    name,
+                    discriminant,
+                    fields: fields
+                        .into_iter()
+                        .map(|(name, ty, default_value)| AdtVariantField { name, ty, default_value })
+                        .collect(),
+                }
             })),
-        }
+        };
+
+        self.context.register_adt_in_module(module, adt)
+    }
+
+    pub fn finish(self) -> AdtRef {
+        self.finish_in_module(ModuleId::ZERO)
     }
 }
 
 #[derive(Debug)]
-pub struct TraitBuilder {
+pub struct TraitBuilder<'a> {
+    context: &'a mut TypeContext,
     name: String,
     generics: usize,
-    functions: IndexVec<TraitFuncRef, (String, Vec<FuncArg<FieldType>>, FieldType)>,
+    functions: IndexVec<TraitFuncRef, (String, Vec<Arg<TypeRef>>, TypeRef)>,
 }
 
-impl TraitBuilder {
-    pub fn new<T: Into<String>>(name: T) -> Self {
+impl<'a> TraitBuilder<'a> {
+    pub fn new<T: Into<String>>(context: &'a mut TypeContext, name: T) -> Self {
         Self {
+            context,
             name: name.into(),
             functions: IndexVec::new(),
-            generics: 0,
+            generics: 1,
         }
     }
 
-    pub fn func<T: Into<String>, I: IntoIterator<Item = FieldType>>(mut self, name: T, params: I, returns: FieldType) -> Self {
-        let mut args = vec![FuncArg::This(FieldType::This)];
+    pub fn func<T: Into<String>, I: IntoIterator<Item = (T, TypeRef)>>(mut self, name: T, params: I, returns: TypeRef) -> Self {
+        let mut args = vec![Arg {
+            name: "self".into(),
+            kind: ArgType::This,
+            ty: self.context.types.get_or_add(Type::Generic(0)),
+        }];
 
-        args.extend(params.into_iter().map(FuncArg::Regular));
+        args.extend(params.into_iter().map(|(name, ty)| Arg {
+            name: name.into(),
+            kind: ArgType::Regular,
+            ty,
+        }));
 
         self.functions.push((name.into(), args, returns));
 
         self
     }
 
-    pub fn static_func<T: Into<String>, I: IntoIterator<Item = FieldType>>(mut self, name: T, params: I, returns: FieldType) -> Self {
-        self.functions.push((name.into(), params.into_iter().map(FuncArg::Regular).collect(), returns));
+    pub fn static_func<T: Into<String>, I: IntoIterator<Item = (T, TypeRef)>>(mut self, name: T, params: I, returns: TypeRef) -> Self {
+        self.functions.push((
+            name.into(),
+            params
+                .into_iter()
+                .map(|(name, ty)| Arg {
+                    name: name.into(),
+                    kind: ArgType::Regular,
+                    ty,
+                })
+                .collect(),
+            returns,
+        ));
 
         self
     }
@@ -329,27 +432,45 @@ impl TraitBuilder {
         self
     }
 
-    pub fn finish(self) -> Trait {
-        Trait {
+    pub fn finish_in_module(self, module: ModuleId) -> TraitRef {
+        let r#trait = Trait {
             name: self.name,
             generics: self.generics,
-            functions: self.functions,
-        }
+            functions: self
+                .functions
+                .into_iter()
+                .map(|(_, (name, args, returns))| TraitFunc {
+                    name,
+                    args: args.into_boxed_slice(),
+                    returns,
+                })
+                .collect(),
+        };
+
+        self.context.register_trait_in_module(module, r#trait)
+    }
+
+    pub fn finish(self) -> TraitRef {
+        self.finish_in_module(ModuleId::ZERO)
     }
 }
 
-pub struct VTableBuilder<S> {
-    this: FieldType,
+pub struct VTableBuilder<'a, E> {
+    context: &'a mut TypedASTContext<E>,
+    target: TypeRef,
     generics: usize,
-    functions: IndexVec<VFuncRef, VTableFunc<TypeInfo, S>>,
+    functions: IndexVec<VFuncRef, VTableFunc>,
+    external_functions: IndexVec<VFuncRef, FunctionBody<E>>,
 }
 
-impl<S> VTableBuilder<S> {
-    pub const fn new(this: FieldType) -> Self {
+impl<'a, E> VTableBuilder<'a, E> {
+    pub const fn new(context: &'a mut TypedASTContext<E>, target: TypeRef) -> Self {
         Self {
-            this,
+            context,
+            target,
             generics: 0,
             functions: IndexVec::new(),
+            external_functions: IndexVec::new(),
         }
     }
 
@@ -359,51 +480,29 @@ impl<S> VTableBuilder<S> {
         self
     }
 
-    pub fn func<T: Into<String>, I: IntoIterator<Item = TypeInfoRef>>(mut self, name: T, external_name: &'static str, args: I, returns: TypeInfoRef) -> Self {
+    pub fn func<T: Into<String>, I: IntoIterator<Item = TypeRef>>(mut self, name: T, external_name: &'static str, args: I, returns: TypeRef) -> Self {
+        let ty = self.context.type_context.types.get_or_add(Type::Func(args.into_iter().collect(), returns));
+
+        self.external_functions.push(FunctionBody::Import(external_name));
         self.functions.push(VTableFunc {
             trait_func: None,
             name: name.into(),
-            arg_names: vec![],
-            ty: TypeInfo::Func(args.into_iter().map(FuncArg::Regular).collect(), returns),
-            kind: VTableFuncKind::External(external_name),
+            arg_names: Vec::new(),
+            ty,
         });
 
         self
     }
 
-    pub fn finish(self, checker: &mut TypeChecker<S>) -> VTableRef {
-        let functions = self
-            .functions
-            .into_values()
-            .map(
-                |VTableFunc {
-                     trait_func,
-                     name,
-                     arg_names,
-                     ty,
-                     kind,
-                 }| VTableFunc {
-                    trait_func,
-                    name,
-                    arg_names,
-                    ty: checker.solver.add_info(ty),
-                    kind,
-                },
-            )
-            .collect();
-
-        let vtable = checker.vtables.insert(VTableGenerator {
+    pub fn finish(self) -> VTableRef {
+        self.context.vtables.insert(self.external_functions);
+        self.context.type_context.vtables.insert(VTableGenerator {
+            ty: self.target,
             origin_trait: None,
             generics: (0..self.generics)
-                .map(|generic| checker.solver.add_info(TypeInfo::Generic(generic, None)))
+                .map(|generic| self.context.type_context.types.get_or_add(Type::Generic(generic)))
                 .collect(),
-            applied_generics: Box::new([]),
-            used_items: Vec::new(),
-            functions,
-        });
-
-        checker.solver.vtables.insert(self.this, std::iter::once((None, vtable)).collect());
-
-        vtable
+            functions: self.functions,
+        })
     }
 }

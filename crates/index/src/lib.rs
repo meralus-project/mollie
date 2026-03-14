@@ -10,12 +10,13 @@ use serde::Serialize;
 #[macro_export]
 macro_rules! new_idx_type {
     ($name:ident) => {
-        #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+        #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
         #[cfg_attr(feature = "serde", derive(serde::Serialize))]
         #[repr(transparent)]
         pub struct $name(usize);
 
         impl $crate::Idx for $name {
+            const INVALID: Self = Self(usize::MAX);
             const ZERO: Self = Self(0);
 
             fn new(idx: usize) -> Self {
@@ -31,6 +32,7 @@ macro_rules! new_idx_type {
 
 pub trait Idx: fmt::Debug + Copy + PartialEq + Eq + Hash + 'static {
     const ZERO: Self;
+    const INVALID: Self;
 
     fn new(idx: usize) -> Self;
 
@@ -111,6 +113,12 @@ impl<I: Idx, T> Index<I> for IndexBoxedSlice<I, T> {
     }
 }
 
+impl<I: Idx, T> IndexMut<I> for IndexBoxedSlice<I, T> {
+    fn index_mut(&mut self, index: I) -> &mut Self::Output {
+        &mut self.raw[index.index()]
+    }
+}
+
 impl<I: Idx, T> From<Box<[T]>> for IndexBoxedSlice<I, T> {
     fn from(value: Box<[T]>) -> Self {
         Self {
@@ -165,8 +173,20 @@ impl<I: Idx, T> IndexVec<I, T> {
         self.raw.is_empty()
     }
 
+    pub fn pop(&mut self) {
+        self.raw.pop();
+    }
+
     pub fn push(&mut self, value: T) {
         self.raw.push(value);
+    }
+
+    pub fn last(&self) -> Option<&T> {
+        self.raw.last()
+    }
+
+    pub fn last_mut(&mut self) -> Option<&mut T> {
+        self.raw.last_mut()
     }
 
     pub fn next_index(&self) -> I {
@@ -181,28 +201,28 @@ impl<I: Idx, T> IndexVec<I, T> {
         index
     }
 
-    pub fn into_values(self) -> impl Iterator<Item = T> {
+    pub fn into_values(self) -> impl DoubleEndedIterator<Item = T> {
         self.raw.into_iter()
     }
 
-    pub fn values(&self) -> impl Iterator<Item = &T> {
+    pub fn values(&self) -> impl DoubleEndedIterator<Item = &T> {
         self.raw.iter()
     }
 
-    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut T> {
+    pub fn values_mut(&mut self) -> impl DoubleEndedIterator<Item = &mut T> {
         self.raw.iter_mut()
     }
 
     #[allow(clippy::should_implement_trait)]
-    pub fn into_iter(self) -> impl Iterator<Item = (I, T)> {
+    pub fn into_iter(self) -> impl DoubleEndedIterator<Item = (I, T)> {
         self.raw.into_iter().enumerate().map(|(i, value)| (I::new(i), value))
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (I, &T)> {
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = (I, &T)> {
         self.raw.iter().enumerate().map(|(i, value)| (I::new(i), value))
     }
 
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = (I, &mut T)> {
+    pub fn iter_mut(&mut self) -> impl DoubleEndedIterator<Item = (I, &mut T)> {
         self.raw.iter_mut().enumerate().map(|(i, value)| (I::new(i), value))
     }
 
@@ -298,9 +318,6 @@ impl<T: Idx, I: Iterator> Iterator for Enumerate<T, I> {
 
 impl<I: Iterator> IdxEnumerate for I {
     fn enumerate_idx<T: Idx>(self) -> Enumerate<T, Self> {
-        Enumerate {
-            iter: self,
-            counter: T::ZERO,
-        }
+        Enumerate { iter: self, counter: T::ZERO }
     }
 }
