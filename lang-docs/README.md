@@ -47,6 +47,7 @@ The core functionality of the language, allowing you to do everything you’re u
 #### Primitive Values
 
 As in most languages, it all starts with numbers. Well, or strings! Essentially, there’s nothing special here:
+
 - `1`: Integers are written as usual.
 - `1.0`: Floating-point numbers use a `.` to separate the integer and fractional parts.
 - `"Hello, World!"`: Strings are enclosed in double quotes.
@@ -63,9 +64,11 @@ They are combined into a single section because, essentially, both affect the "f
 If you’re mostly familiar with C-like languages such as JavaScript or C itself, you may have noticed that in Mollie, the if condition doesn’t need to be enclosed in parentheses. This is an intentional and final decision in the language’s design.
 
 What about loops? Here, you have several options.
-- The familiar while loop, which executes code as long as the condition is true.
+
+- The familiar `while` loop, which executes code as long as the condition is true.
 - `for in` for iterating over array elements (and more).
 - An infinite loop using `loop`.
+
 In each of these, you can use `break` to force the loop to terminate and `continue` to skip the next iteration and move on to the next one.
 
 Now, let’s look at some examples!
