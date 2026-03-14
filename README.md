@@ -25,4 +25,7 @@ Licensed under the [Apache License, Version 2.0](http://www.apache.org/licenses/
 ## Sponsors
 
 Although there was no way to support me directly, these people did it anyway:
-- [L420Y](https://github.com/yaroslav957)
+
+- [Y4r0sl4v](https://github.com/yaroslav957)
+- [Aern-d](https://github.com/Aern-do)
+- [Timofey Arkhipov](https://github.com/timar07)
