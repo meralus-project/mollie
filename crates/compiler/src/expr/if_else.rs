@@ -19,7 +19,7 @@ impl<S, M: Module> FunctionCompiler<'_, S, M> {
         self.branches.take();
 
         let returning_param = if let Some(final_stmt) = &ast[block].value.expr {
-            Some(match ast[*final_stmt].ty.as_ir_type(&self.checker.solver, self.compiler.isa()) {
+            Some(match ast[*final_stmt].ty.as_ir_type(&self.type_context.type_context.types, self.compiler.isa()) {
                 MollieType::Fat(ty, metadata_ty) => MolValue::FatPtr(
                     self.fn_builder.append_block_param(after_block, ty),
                     self.fn_builder.append_block_param(after_block, metadata_ty),

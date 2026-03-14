@@ -7,8 +7,8 @@ use cranelift::{
 };
 use mollie_index::Idx;
 use mollie_ir::{Field, MollieType};
-use mollie_typed_ast::{ExprRef, IsPattern, TypedAST};
-use mollie_typing::TypeInfoRef;
+use mollie_typed_ast::{ExprRef, IsPattern, SolvedPass, TypedAST};
+use mollie_typing::{PrimitiveType, Type, TypeRef};
 
 use crate::{
     CompileTypedAST, MolValue, Var,
@@ -17,40 +17,45 @@ use crate::{
 };
 
 impl<S, M: Module> FunctionCompiler<'_, S, M> {
-    pub fn compile_is_pattern_expr(&mut self, ast: &TypedAST, target: ExprRef, pattern: &IsPattern) -> CompileResult<MolValue> {
+    pub fn compile_is_pattern_expr(&mut self, ast: &TypedAST, target: ExprRef, pattern: &IsPattern<SolvedPass>) -> CompileResult<MolValue> {
         fn compile_pattern<S, M: Module>(
             target: &MolValue,
-            target_ty: TypeInfoRef,
-            pattern: &IsPattern,
+            target_ty: TypeRef,
+            pattern: &IsPattern<SolvedPass>,
             ast: &TypedAST,
             compiler: &mut FunctionCompiler<'_, S, M>,
         ) -> CompileResult<MolValue> {
             match pattern {
                 &IsPattern::Literal(expr_ref) => {
                     if let &MolValue::Value(target) = target {
-                        let target_ty = compiler.checker.solver.get_info(target_ty);
-                        let expr_ty = compiler.checker.solver.get_info(ast[expr_ref].ty);
+                        let target_ty = &compiler.type_context.type_context.types[target_ty];
+                        let expr_ty = &compiler.type_context.type_context.types[ast[expr_ref].ty];
                         let MolValue::Value(value) = expr_ref.compile(ast, compiler)? else {
                             unreachable!()
                         };
 
-                        Ok(MolValue::Value(if target_ty.is_float() && expr_ty.is_float() {
-                            compiler.fn_builder.ins().fcmp(FloatCC::Equal, target, value)
-                        } else {
-                            compiler.fn_builder.ins().icmp(IntCC::Equal, target, value)
-                        }))
+                        Ok(MolValue::Value(
+                            if matches!(
+                                (target_ty, expr_ty),
+                                (Type::Primitive(PrimitiveType::Float), Type::Primitive(PrimitiveType::Float))
+                            ) {
+                                compiler.fn_builder.ins().fcmp(FloatCC::Equal, target, value)
+                            } else {
+                                compiler.fn_builder.ins().icmp(IntCC::Equal, target, value)
+                            },
+                        ))
                     } else {
                         Ok(MolValue::Nothing)
                     }
                 }
                 IsPattern::EnumVariant {
-                    target: target_ty,
-                    target_args,
-                    variant,
+                    adt,
+                    adt_variant,
+                    adt_type_args,
                     values,
                 } => {
                     if let &MolValue::Value(target) = target {
-                        let expected = compiler.fn_builder.ins().iconst(compiler.compiler.ptr_type(), variant.index() as i64);
+                        let expected = compiler.fn_builder.ins().iconst(compiler.compiler.ptr_type(), adt_variant.index() as i64);
                         let metadata = compiler.fn_builder.ins().load(compiler.compiler.ptr_type(), ir::MemFlags::trusted(), target, 0);
                         let result = compiler.fn_builder.ins().icmp(IntCC::Equal, metadata, expected);
 
@@ -59,11 +64,10 @@ impl<S, M: Module> FunctionCompiler<'_, S, M> {
 
                             "adt".hash(&mut state);
 
-                            target_ty.hash(&mut state);
-                            compiler.checker.adt_types[*target_ty].kind.hash(&mut state);
+                            adt.index().hash(&mut state);
 
-                            for &arg in target_args {
-                                compiler.checker.solver.hash_into(&mut state, arg);
+                            for &arg in adt_type_args {
+                                compiler.type_context.type_context.types.hash_into(&mut state, arg);
                             }
 
                             state.finish()
@@ -79,7 +83,7 @@ impl<S, M: Module> FunctionCompiler<'_, S, M> {
                         compiler.fn_builder.seal_block(declaration_block);
 
                         for (field_ref, name, pattern) in values {
-                            let &(Field { ty, offset, .. }, field_ty) = &compiler.compiler.get_adt_variant(hash, *variant).fields[*field_ref];
+                            let &(Field { ty, offset, .. }, field_ty) = &compiler.compiler.get_adt_variant(hash, *adt_variant).fields[*field_ref];
 
                             match ty {
                                 MollieType::Regular(ty) => {
@@ -137,7 +141,7 @@ impl<S, M: Module> FunctionCompiler<'_, S, M> {
 
                         let value = compiler.fn_builder.ins().iconst(ptr_type, expected_hash.cast_signed());
 
-                        if compiler.checker.solver.get_info(target_ty).is_trait() {
+                        if matches!(compiler.type_context.type_context.types[target_ty], Type::Trait(..)) {
                             let metadata = compiler.fn_builder.ins().load(ptr_type, ir::MemFlags::trusted(), metadata, 0);
                             let result = compiler.fn_builder.ins().icmp(IntCC::Equal, metadata, value);
 

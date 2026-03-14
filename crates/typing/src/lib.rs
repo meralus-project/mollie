@@ -1,29 +1,58 @@
 mod adt;
-mod field_type;
+mod error;
 mod primitive_type;
 mod solver;
+mod ty;
+mod type_context;
 mod type_info;
 
 use mollie_index::new_idx_type;
 
 pub use self::{
-    adt::{Adt, AdtKind, AdtVariant},
-    field_type::FieldType,
+    adt::{Adt, AdtKind, AdtVariant, AdtVariantField},
+    error::{LookupType, SpecialAdtKind, TypeError, TypeErrorValue},
     primitive_type::{IntType, PrimitiveType, UIntType},
-    solver::{TypeSolver, TypeStorage, TypeUnificationError, Variable},
-    type_info::{FuncArg, TypeInfo},
+    solver::{TypeFrameRef, TypeSolver},
+    ty::{Type, TypeRef},
+    type_context::{
+        Func, IntrinsicKind, LangItemValue, Module, ModuleDisplay, ModuleItem, Trait, TraitFunc, TypeContext, TypeDisplay, TypeStorage, VTableFunc,
+        VTableGenerator,
+    },
+    type_info::{TypeInfo, TypeInfoRef},
 };
 
-new_idx_type!(TypeInfoRef);
 new_idx_type!(AdtRef);
 new_idx_type!(AdtVariantRef);
 new_idx_type!(FieldRef);
 new_idx_type!(TraitRef);
 new_idx_type!(VTableRef);
 new_idx_type!(VFuncRef);
+new_idx_type!(FuncRef);
+new_idx_type!(TraitFuncRef);
+new_idx_type!(ModuleId);
+new_idx_type!(TypeErrorRef);
+
+impl TraitFuncRef {
+    pub const fn as_vfunc(&self) -> VFuncRef {
+        VFuncRef(self.0)
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
-pub struct CoreTypes<T = TypeInfoRef> {
+pub enum ArgType {
+    This,
+    Regular,
+}
+
+#[derive(Debug, Clone)]
+pub struct Arg<T> {
+    pub name: String,
+    pub kind: ArgType,
+    pub ty: T,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CoreTypes<T> {
     pub void: T,
     pub any: T,
     pub boolean: T,

@@ -218,12 +218,12 @@ declare GridItem {
     row_span: uint_size = 1,
     column: uint_size = 0,
     column_span: uint_size = 1,
-    children: Drawable[]
+    children: Drawable
 }
 
 struct Cell {
-    size: Size,
     position: Point,
+    size: Size,
 
     row: uint_size,
     row_span: uint_size,
@@ -369,11 +369,11 @@ impl Grid {
         const columns = get_size(self.columns);
         const rows = get_size(self.rows);
 
-        for cell in self.children {
-            const column = cell.column.min(columns - 1);
-            const column_span = cell.column_span.min(columns - column);
-            const row = cell.row.min(rows - 1);
-            const row_span = cell.row_span.min(rows - row);
+        for c in self.children {
+            const column = c.column.min(columns - 1);
+            const column_span = c.column_span.min(columns - column);
+            const row = c.row.min(rows - 1);
+            const row_span = c.row_span.min(rows - row);
 
             const cell = Cell {
                 column,
@@ -511,9 +511,10 @@ impl Drawable for Grid {
         const current = 0;
 
         while current < children {
-            const value = self.children[current].children[0];
+            const value = self.children[current].children;
             const cell = self.cells[current];
-            const measured = value.measure(cell.size, ctx);
+            const size = cell.size;
+            const measured = value.measure(size, ctx);
 
             value.render(cell.position, measured, ctx);
 
@@ -521,8 +522,6 @@ impl Drawable for Grid {
         }
     }
 }
-
-Size { width: 120.0, height: 120.0 }.hell-hello;
 
 Grid {
     spacing: 12.0,

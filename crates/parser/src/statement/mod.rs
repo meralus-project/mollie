@@ -9,7 +9,7 @@ mod trait_decl;
 mod variable_decl;
 
 use mollie_lexer::Token;
-use mollie_shared::Positioned;
+use mollie_shared::{LangItem, Positioned};
 
 pub use self::{
     component_decl::{ComponentDecl, ComponentProperty},
@@ -24,17 +24,6 @@ pub use self::{
 };
 use super::{ParseResult, Parser};
 use crate::{Parse, ParseError};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum LangItem {
-    IntoIterator,
-    IntoIteratorIntoIter,
-    Iterator,
-    IteratorNext,
-    Option,
-    OptionSome,
-    OptionNone,
-}
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub enum AttributeValue {

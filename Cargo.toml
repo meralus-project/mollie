@@ -3,17 +3,9 @@ name = "mollie"
 version = "0.0.1"
 edition = "2024"
 
-[workspace]
-members = ["crates/*"]
-resolver = "2"
-
-[workspace.lints.clippy]
-all = "warn"
-nursery = "warn"
-pedantic = "warn"
-absolute_paths = { level = "warn", priority = 1 }
-must_use_candidate = { level = "allow", priority = 1 }
-too_many_lines = { level = "allow", priority = 1 }
+[features]
+default = ["ariadne"]
+ariadne = ["mollie-typing/ariadne"]
 
 [dependencies]
 mollie-shared = { workspace = true }
@@ -31,6 +23,18 @@ bitflags = "2.10.0"
 tiny-skia = "0.12.0"
 tracing.workspace = true
 tracing-subscriber = "0.3.22"
+
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.lints.clippy]
+all = "warn"
+nursery = "warn"
+pedantic = "warn"
+absolute_paths = { level = "warn", priority = 1 }
+must_use_candidate = { level = "allow", priority = 1 }
+too_many_lines = { level = "allow", priority = 1 }
 
 [workspace.dependencies]
 mollie-shared = { path = "./crates/shared" }

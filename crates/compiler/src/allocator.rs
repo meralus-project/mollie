@@ -102,8 +102,6 @@ impl GarbageCollector {
 
         for &(variant, offset, _, ty) in root.layout.fields {
             if variant == current_variant {
-                println!("Marking {variant:?}:{offset}:{ty:?} of {root:?}");
-
                 match ty {
                     TypeLayoutField::Regular => (),
                     TypeLayoutField::Collectable => {
@@ -173,8 +171,6 @@ impl GarbageCollector {
     /// All objects in [`GarbageCollector::roots`] should point to valid data.
     pub unsafe fn collect(&mut self) {
         for &root in &self.roots {
-            println!("Marking root");
-
             unsafe { Self::mark(root) };
         }
 

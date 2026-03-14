@@ -13,6 +13,17 @@ pub use self::{
     span::{Span, SpanRange},
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum LangItem {
+    IntoIterator,
+    IntoIteratorIntoIter,
+    Iterator,
+    IteratorNext,
+    Option,
+    OptionSome,
+    OptionNone,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Operator {
     Assign,      // =

@@ -1,0 +1,2562 @@
+[2m2026-03-13T08:36:36.535414Z[0m [32m INFO[0m [2mcranelift_jit::backend[0m[2m:[0m defining function funcid11: function u0:0() system_v {
+    sig0 = (i64) system_v
+    fn0 = u0:0 sig0
+
+block0:
+    v0 = get_frame_pointer.i64 
+    call fn0(v0)
+    return
+}
+
+[2m2026-03-13T08:36:36.537483Z[0m [32m INFO[0m [2mcranelift_jit::backend[0m[2m:[0m defining function funcid12: function u0:0(i64, i64) -> i64 system_v {
+block0(v0: i64, v1: i64):
+    v2 = load.i64 notrap aligned v1
+    return v2
+}
+
+[2m2026-03-13T08:36:36.539055Z[0m [32m INFO[0m [2mcranelift_jit::backend[0m[2m:[0m defining function funcid13: function u0:0(i64) -> i64 system_v {
+block0(v0: i64):
+    v1 = load.i64 notrap aligned v0
+    return v1
+}
+
+Function call! Input function: Func(FuncRef(8))
+Function call! Input function type: Func([TypeInfoRef(8)], TypeInfoRef(9))
+Function call! Returns: Primitive(UInt(USize))
+Function call! Output function type: Func([TypeInfoRef(11)], TypeInfoRef(9))
+>>> Primitive(UInt(USize)) == Primitive(UInt(USize))
+AdtIndex { target: ExprRef(0), field: "index" } == Call { func: ExprRef(2), args: [ExprRef(4)] }
+<<< usize == usize
+>>> Unknown(Some(TypeInfoRef(23))) = Unknown(Some(TypeInfoRef(23)))
+AdtIndex { target: ExprRef(13), field: "index" } = Binary { operator: Positioned { value: Add, span: Span { start: 765, end: 766, range: SpanRange { start_line: 35, start_column: 31, end_line: 35, end_column: 36 } } }, lhs: ExprRef(16), rhs: ExprRef(17) }
+>>> Primitive(UInt(USize)) + Primitive(UInt(USize))
+AdtIndex { target: ExprRef(15), field: "index" } + Lit(Int(1))
+<<< usize + usize
+<<< usize = usize
+calc.args[parent]: float
+>>> Primitive(Float) * Primitive(Float)
+Var("parent") * Var("value")
+<<< float * float
+px.args[value]: float
+wh.args[value]: float
+const CornerRadius: [(FieldRef(0), TypeRef(13), ExprRef(0)), (FieldRef(1), TypeRef(13), ExprRef(1)), (FieldRef(2), TypeRef(13), ExprRef(2)), (FieldRef(3), TypeRef(13), ExprRef(3))]
+new.args[red]: u8
+new.args[green]: u8
+new.args[blue]: u8
+measure.args[parent]: Size
+measure.args[ctx]: DrawContext
+Function call! Input function: AdtIndex { target: ExprRef(1), field: "calc" }
+Function call! Input function type: Unknown(None)
+Function call! Returns: Unknown(None)
+Function call! Output function type: Func([TypeInfoRef(8)], TypeInfoRef(7))
+Function call! Input function: AdtIndex { target: ExprRef(7), field: "calc" }
+Function call! Input function type: Unknown(None)
+Function call! Returns: Unknown(None)
+Function call! Output function type: Func([TypeInfoRef(13)], TypeInfoRef(12))
+render.args[origin]: Point
+render.args[parent]: Size
+render.args[ctx]: DrawContext
+Function call! Input function: AdtIndex { target: ExprRef(1), field: "calc" }
+Function call! Input function type: Unknown(None)
+Function call! Returns: Unknown(None)
+Function call! Output function type: Func([TypeInfoRef(9)], TypeInfoRef(8))
+Function call! Input function: AdtIndex { target: ExprRef(7), field: "calc" }
+Function call! Input function type: Unknown(None)
+Function call! Returns: Unknown(None)
+Function call! Output function type: Func([TypeInfoRef(14)], TypeInfoRef(13))
+Function call! Input function: AdtIndex { target: ExprRef(12), field: "draw_image" }
+Function call! Input function type: Unknown(None)
+Function call! Returns: Unknown(None)
+Function call! Output function type: Func([TypeInfoRef(18), TypeInfoRef(19), TypeInfoRef(8), TypeInfoRef(13), TypeInfoRef(20)], TypeInfoRef(17))
+measure.args[parent]: Size
+measure.args[ctx]: DrawContext
+Function call! Input function: Func(FuncRef(3))
+Function call! Input function type: Func([TypeInfoRef(5)], TypeInfoRef(6))
+Function call! Returns: Primitive(Void)
+Function call! Output function type: Func([TypeInfoRef(8)], TypeInfoRef(6))
+Function call! Input function: AdtIndex { target: ExprRef(4), field: "calc" }
+Function call! Input function type: Unknown(None)
+Function call! Returns: Unknown(None)
+Function call! Output function type: Func([TypeInfoRef(16)], TypeInfoRef(15))
+Function call! Input function: AdtIndex { target: ExprRef(10), field: "calc" }
+Function call! Input function type: Unknown(None)
+Function call! Returns: Unknown(None)
+Function call! Output function type: Func([TypeInfoRef(21)], TypeInfoRef(20))
+render.args[origin]: Point
+render.args[parent]: Size
+render.args[ctx]: DrawContext
+Function call! Input function: AdtIndex { target: ExprRef(1), field: "calc" }
+Function call! Input function type: Unknown(None)
+Function call! Returns: Unknown(None)
+Function call! Output function type: Func([TypeInfoRef(9)], TypeInfoRef(8))
+Function call! Input function: AdtIndex { target: ExprRef(7), field: "calc" }
+Function call! Input function type: Unknown(None)
+Function call! Returns: Unknown(None)
+Function call! Output function type: Func([TypeInfoRef(14)], TypeInfoRef(13))
+Function call! Input function: AdtIndex { target: ExprRef(12), field: "draw_rect" }
+Function call! Input function type: Unknown(None)
+Function call! Returns: Unknown(None)
+Function call! Output function type: Func([TypeInfoRef(18), TypeInfoRef(19), TypeInfoRef(8), TypeInfoRef(13), TypeInfoRef(20), TypeInfoRef(21)], TypeInfoRef(17))
+max.args[other]: float
+>>> Primitive(Float) > Primitive(Float)
+Var("self") > Var("other")
+<<< float > float
+measure.args[parent]: Size
+measure.args[ctx]: DrawContext
+>>> Primitive(Float) > Primitive(Float)
+Var("height") > Lit(Float(0.0))
+<<< float > float
+>>> Primitive(Float) = Primitive(Float)
+Var("height") = Binary { operator: Positioned { value: Sub, span: Span { start: 3675, end: 3676, range: SpanRange { start_line: 162, start_column: 22, end_line: 162, end_column: 28 } } }, lhs: ExprRef(8), rhs: ExprRef(10) }
+>>> Primitive(Float) - Primitive(Float)
+Var("height") - AdtIndex { target: ExprRef(9), field: "spacing" }
+<<< float - float
+<<< float = float
+render.args[point]: Point
+render.args[parent]: Size
+render.args[ctx]: DrawContext
+measure.args[parent]: Size
+measure.args[ctx]: DrawContext
+>>> Primitive(Float) > Primitive(Float)
+Var("width") > Lit(Float(0.0))
+<<< float > float
+>>> Primitive(Float) = Primitive(Float)
+Var("width") = Binary { operator: Positioned { value: Sub, span: Span { start: 4516, end: 4517, range: SpanRange { start_line: 193, start_column: 21, end_line: 193, end_column: 26 } } }, lhs: ExprRef(8), rhs: ExprRef(10) }
+>>> Primitive(Float) - Primitive(Float)
+Var("width") - AdtIndex { target: ExprRef(9), field: "spacing" }
+<<< float - float
+<<< float = float
+render.args[point]: Point
+render.args[parent]: Size
+render.args[ctx]: DrawContext
+path.args[value]: string
+const Option: []
+const Option: []
+const Option: []
+const Option: []
+>>> Unknown(Some(TypeInfoRef(3))) == Unknown(Some(TypeInfoRef(3)))
+Binary { operator: Positioned { value: BitAnd, span: Span { start: 5801, end: 5802, range: SpanRange { start_line: 253, start_column: 15, end_line: 253, end_column: 26 } } }, lhs: ExprRef(1), rhs: ExprRef(2) } == Lit(Int(4))
+>>> Unknown(Some(TypeInfoRef(3))) & Unknown(Some(TypeInfoRef(3)))
+AdtIndex { target: ExprRef(0), field: "size_type_u" } & Lit(Int(4))
+<<< u8 & u8
+<<< u8 == u8
+>>> Unknown(Some(TypeInfoRef(3))) == Unknown(Some(TypeInfoRef(3)))
+Binary { operator: Positioned { value: BitAnd, span: Span { start: 5880, end: 5881, range: SpanRange { start_line: 257, start_column: 15, end_line: 257, end_column: 26 } } }, lhs: ExprRef(1), rhs: ExprRef(2) } == Lit(Int(4))
+>>> Unknown(Some(TypeInfoRef(3))) & Unknown(Some(TypeInfoRef(3)))
+AdtIndex { target: ExprRef(0), field: "size_type_v" } & Lit(Int(4))
+<<< u8 & u8
+<<< u8 == u8
+new.args[length]: Unit
+const CellGroups: [(FieldRef(0), TypeRef(68), ExprRef(18446744073709551615)), (FieldRef(1), TypeRef(68), ExprRef(18446744073709551615)), (FieldRef(2), TypeRef(68), ExprRef(18446744073709551615)), (FieldRef(3), TypeRef(68), ExprRef(18446744073709551615))]
+length_type_for_range.args[definitions]: Definition[]
+length_type_for_range.args[start]: usize
+length_type_for_range.args[length]: usize
+Function call! Input function: AdtIndex { target: ExprRef(25), field: "kind" }
+Function call! Input function type: Unknown(None)
+Function call! Returns: Unknown(None)
+Function call! Output function type: Func([], TypeInfoRef(26))
+Function call! Input function: AdtIndex { target: ExprRef(44), field: "kind" }
+Function call! Input function type: Unknown(None)
+Function call! Returns: Unknown(None)
+Function call! Output function type: Func([], TypeInfoRef(42))
+>>> Primitive(UInt(USize)) - Primitive(UInt(USize))
+Binary { operator: Positioned { value: Add, span: Span { start: 7020, end: 7021, range: SpanRange { start_line: 315, start_column: 37, end_line: 315, end_column: 42 } } }, lhs: ExprRef(1), rhs: ExprRef(2) } - Lit(Int(1))
+>>> Primitive(UInt(USize)) + Primitive(UInt(USize))
+Var("start") + Var("length")
+<<< usize + usize
+<<< usize - usize
+>>> Primitive(Boolean) && Primitive(Boolean)
+IsPattern { target: ExprRef(7), pattern: EnumVariant { adt: AdtRef(7), adt_variant: AdtVariantRef(0), adt_type_args: [TypeInfoRef(12)], values: [(FieldRef(1), "value", None)] } } && Binary { operator: Positioned { value: Or, span: Span { start: 7093, end: 7095, range: SpanRange { start_line: 317, start_column: 52, end_line: 317, end_column: 57 } } }, lhs: ExprRef(11), rhs: ExprRef(14) }
+>>> Primitive(Boolean) || Primitive(Boolean)
+Binary { operator: Positioned { value: GreaterThan, span: Span { start: 7085, end: 7086, range: SpanRange { start_line: 317, start_column: 43, end_line: 317, end_column: 48 } } }, lhs: ExprRef(9), rhs: ExprRef(10) } || Binary { operator: Positioned { value: Equal, span: Span { start: 7102, end: 7104, range: SpanRange { start_line: 317, start_column: 61, end_line: 317, end_column: 66 } } }, lhs: ExprRef(12), rhs: ExprRef(13) }
+>>> Primitive(UInt(USize)) > Primitive(UInt(USize))
+Var("value") > Var("start")
+<<< usize > usize
+>>> Primitive(UInt(USize)) == Primitive(UInt(USize))
+Var("value") == Var("start")
+<<< usize == usize
+<<< boolean || boolean
+<<< boolean && boolean
+>>> Primitive(UInt(USize)) > Primitive(UInt(USize))
+Var("value") > Lit(Int(0))
+<<< usize > usize
+>>> Primitive(UInt(U8)) = Primitive(UInt(U8))
+Var("length_type") = Binary { operator: Positioned { value: BitOr, span: Span { start: 7176, end: 7177, range: SpanRange { start_line: 319, start_column: 28, end_line: 319, end_column: 39 } } }, lhs: ExprRef(21), rhs: ExprRef(27) }
+>>> Primitive(UInt(U8)) | Primitive(UInt(U8))
+Var("length_type") | Call { func: ExprRef(26), args: [] }
+<<< u8 | u8
+<<< u8 = u8
+>>> Adt(AdtRef(7), [TypeInfoRef(7)]) = Adt(AdtRef(7), [TypeInfoRef(28)])
+Var("i") = Construct { adt: AdtRef(7), variant: AdtVariantRef(0), fields: [(FieldRef(0), TypeInfoRef(29), ExprRef(18446744073709551615)), (FieldRef(1), TypeInfoRef(28), ExprRef(33))] }
+>>> Primitive(UInt(USize)) - Primitive(UInt(USize))
+Var("value") - Lit(Int(1))
+<<< usize - usize
+<<< Option<usize> = Option<usize>
+>>> Adt(AdtRef(7), [TypeInfoRef(7)]) = Adt(AdtRef(7), [TypeInfoRef(34)])
+Var("i") = Construct { adt: AdtRef(7), variant: AdtVariantRef(1), fields: [] }
+<<< Option<usize> = Option<usize>
+>>> Primitive(UInt(U8)) = Primitive(UInt(U8))
+Var("length_type") = Binary { operator: Positioned { value: BitOr, span: Span { start: 7352, end: 7353, range: SpanRange { start_line: 325, start_column: 28, end_line: 325, end_column: 39 } } }, lhs: ExprRef(40), rhs: ExprRef(46) }
+>>> Primitive(UInt(U8)) | Primitive(UInt(U8))
+Var("length_type") | Call { func: ExprRef(45), args: [] }
+<<< u8 | u8
+<<< u8 = u8
+resolve_stars.args[definitions]: Definition[]
+resolve_stars.args[available_size]: float
+>>> Primitive(Float) = Primitive(Float)
+Var("taken_size") = Binary { operator: Positioned { value: Add, span: Span { start: 7662, end: 7663, range: SpanRange { start_line: 338, start_column: 26, end_line: 338, end_column: 36 } } }, lhs: ExprRef(13), rhs: ExprRef(14) }
+>>> Primitive(Float) + Primitive(Float)
+Var("taken_size") + Var("value")
+<<< float + float
+<<< float = float
+>>> Primitive(Float) = Primitive(Float)
+Var("all_weights") = Binary { operator: Positioned { value: Add, span: Span { start: 7772, end: 7773, range: SpanRange { start_line: 340, start_column: 27, end_line: 340, end_column: 38 } } }, lhs: ExprRef(21), rhs: ExprRef(22) }
+>>> Primitive(Float) + Primitive(Float)
+Var("all_weights") + Var("value")
+<<< float + float
+<<< float = float
+>>> Primitive(Float) / Primitive(Float)
+Binary { operator: Positioned { value: Sub, span: Span { start: 7836, end: 7837, range: SpanRange { start_line: 344, start_column: 24, end_line: 344, end_column: 38 } } }, lhs: ExprRef(29), rhs: ExprRef(30) } / Var("all_weights")
+>>> Primitive(Float) - Primitive(Float)
+Var("available_size") - Var("taken_size")
+<<< float - float
+<<< float / float
+>>> Primitive(Float) = Primitive(Float)
+AdtIndex { target: ExprRef(44), field: "size" } = Binary { operator: Positioned { value: Mul, span: Span { start: 7984, end: 7985, range: SpanRange { start_line: 348, start_column: 24, end_line: 348, end_column: 33 } } }, lhs: ExprRef(46), rhs: ExprRef(47) }
+>>> Primitive(Float) * Primitive(Float)
+Var("size_part") * Var("value")
+<<< float * float
+<<< float = float
+min.args[other]: usize
+>>> Primitive(UInt(USize)) > Primitive(UInt(USize))
+Var("self") > Var("other")
+<<< usize > usize
+Function call! Input function: Func(FuncRef(8))
+Function call! Input function type: Func([TypeInfoRef(17)], TypeInfoRef(18))
+Function call! Returns: Primitive(UInt(USize))
+Function call! Output function type: Func([TypeInfoRef(20)], TypeInfoRef(18))
+Function call! Input function: Func(FuncRef(8))
+Function call! Input function type: Func([TypeInfoRef(23)], TypeInfoRef(24))
+Function call! Returns: Primitive(UInt(USize))
+Function call! Output function type: Func([TypeInfoRef(26)], TypeInfoRef(24))
+>>> Adt(AdtRef(16), []) = Adt(AdtRef(16), [])
+AdtIndex { target: ExprRef(15), field: "cell_groups" } = Var("cell_groups")
+<<< CellGroups = CellGroups
+>>> Primitive(Boolean) = Primitive(Boolean)
+AdtIndex { target: ExprRef(19), field: "has_star_cells_u" } = Var("has_star_cells_u")
+<<< boolean = boolean
+>>> Primitive(Boolean) = Primitive(Boolean)
+AdtIndex { target: ExprRef(23), field: "has_star_cells_v" } = Var("has_star_cells_v")
+<<< boolean = boolean
+>>> Primitive(Boolean) = Primitive(Boolean)
+AdtIndex { target: ExprRef(27), field: "has_group3_cells_in_auto_rows" } = Var("has_group3_cells_in_auto_rows")
+<<< boolean = boolean
+measure_cells_group.args[cells_head]: Option<usize>
+>>> Primitive(UInt(USize)) < Primitive(UInt(USize))
+Var("current_row") < Binary { operator: Positioned { value: Add, span: Span { start: 10868, end: 10869, range: SpanRange { start_line: 432, start_column: 39, end_line: 432, end_column: 42 } } }, lhs: ExprRef(15), rhs: ExprRef(17) }
+>>> Primitive(UInt(USize)) + Primitive(UInt(USize))
+AdtIndex { target: ExprRef(14), field: "row" } + AdtIndex { target: ExprRef(16), field: "row_span" }
+<<< usize + usize
+<<< usize < usize
+>>> Primitive(Float) = Primitive(Float)
+Var("height") = Binary { operator: Positioned { value: Add, span: Span { start: 10919, end: 10920, range: SpanRange { start_line: 433, start_column: 26, end_line: 433, end_column: 32 } } }, lhs: ExprRef(21), rhs: ExprRef(26) }
+>>> Primitive(Float) + Primitive(Float)
+Var("height") + AdtIndex { target: ExprRef(25), field: "size" }
+<<< float + float
+<<< float = float
+>>> Primitive(UInt(USize)) = Primitive(UInt(USize))
+Var("current_row") = Binary { operator: Positioned { value: Add, span: Span { start: 10993, end: 10994, range: SpanRange { start_line: 435, start_column: 31, end_line: 435, end_column: 42 } } }, lhs: ExprRef(30), rhs: ExprRef(31) }
+>>> Primitive(UInt(USize)) + Primitive(UInt(USize))
+Var("current_row") + Lit(Int(1))
+<<< usize + usize
+<<< usize = usize
+>>> Primitive(UInt(USize)) < Primitive(UInt(USize))
+Var("current_column") < Binary { operator: Positioned { value: Add, span: Span { start: 11061, end: 11062, range: SpanRange { start_line: 438, start_column: 42, end_line: 438, end_column: 48 } } }, lhs: ExprRef(37), rhs: ExprRef(39) }
+>>> Primitive(UInt(USize)) + Primitive(UInt(USize))
+AdtIndex { target: ExprRef(36), field: "column" } + AdtIndex { target: ExprRef(38), field: "column_span" }
+<<< usize + usize
+<<< usize < usize
+>>> Primitive(Float) = Primitive(Float)
+Var("width") = Binary { operator: Positioned { value: Add, span: Span { start: 11113, end: 11114, range: SpanRange { start_line: 439, start_column: 25, end_line: 439, end_column: 30 } } }, lhs: ExprRef(43), rhs: ExprRef(48) }
+>>> Primitive(Float) + Primitive(Float)
+Var("width") + AdtIndex { target: ExprRef(47), field: "size" }
+<<< float + float
+<<< float = float
+>>> Primitive(UInt(USize)) = Primitive(UInt(USize))
+Var("current_column") = Binary { operator: Positioned { value: Add, span: Span { start: 11199, end: 11200, range: SpanRange { start_line: 441, start_column: 34, end_line: 441, end_column: 48 } } }, lhs: ExprRef(52), rhs: ExprRef(53) }
+>>> Primitive(UInt(USize)) + Primitive(UInt(USize))
+Var("current_column") + Lit(Int(1))
+<<< usize + usize
+<<< usize = usize
+>>> Primitive(Float) = Primitive(Float)
+AdtIndex { target: ExprRef(58), field: "height" } = Binary { operator: Positioned { value: Add, span: Span { start: 11257, end: 11258, range: SpanRange { start_line: 444, start_column: 32, end_line: 444, end_column: 38 } } }, lhs: ExprRef(60), rhs: ExprRef(68) }
+>>> Primitive(Float) + Primitive(Float)
+Var("height") + Binary { operator: Positioned { value: Mul, span: Span { start: 11291, end: 11292, range: SpanRange { start_line: 444, start_column: 67, end_line: 444, end_column: 72 } } }, lhs: ExprRef(65), rhs: ExprRef(67) }
+>>> Primitive(Float) * Primitive(Float)
+TypeCast(ExprRef(64), Float) * AdtIndex { target: ExprRef(66), field: "spacing" }
+Binary { operator: Positioned { value: Sub, span: Span { start: 11276, end: 11277, range: SpanRange { start_line: 444, start_column: 49, end_line: 444, end_column: 57 } } }, lhs: ExprRef(62), rhs: ExprRef(63) } (Unknown(Some(TypeInfoRef(42)))) as float
+>>> Unknown(Some(TypeInfoRef(42))) - Unknown(Some(TypeInfoRef(42)))
+AdtIndex { target: ExprRef(61), field: "row_span" } - Lit(Int(1))
+<<< usize - usize
+Binary { operator: Positioned { value: Sub, span: Span { start: 11276, end: 11277, range: SpanRange { start_line: 444, start_column: 49, end_line: 444, end_column: 57 } } }, lhs: ExprRef(62), rhs: ExprRef(63) } (usize) as float
+<<< float * float
+<<< float + float
+<<< float = float
+>>> Primitive(Float) = Primitive(Float)
+AdtIndex { target: ExprRef(72), field: "width" } = Binary { operator: Positioned { value: Add, span: Span { start: 11344, end: 11345, range: SpanRange { start_line: 445, start_column: 31, end_line: 445, end_column: 36 } } }, lhs: ExprRef(74), rhs: ExprRef(82) }
+>>> Primitive(Float) + Primitive(Float)
+Var("width") + Binary { operator: Positioned { value: Mul, span: Span { start: 11381, end: 11382, range: SpanRange { start_line: 445, start_column: 68, end_line: 445, end_column: 73 } } }, lhs: ExprRef(79), rhs: ExprRef(81) }
+>>> Primitive(Float) * Primitive(Float)
+TypeCast(ExprRef(78), Float) * AdtIndex { target: ExprRef(80), field: "spacing" }
+Binary { operator: Positioned { value: Sub, span: Span { start: 11366, end: 11367, range: SpanRange { start_line: 445, start_column: 47, end_line: 445, end_column: 58 } } }, lhs: ExprRef(76), rhs: ExprRef(77) } (Unknown(Some(TypeInfoRef(49)))) as float
+>>> Unknown(Some(TypeInfoRef(49))) - Unknown(Some(TypeInfoRef(49)))
+AdtIndex { target: ExprRef(75), field: "column_span" } - Lit(Int(1))
+<<< usize - usize
+Binary { operator: Positioned { value: Sub, span: Span { start: 11366, end: 11367, range: SpanRange { start_line: 445, start_column: 47, end_line: 445, end_column: 58 } } }, lhs: ExprRef(76), rhs: ExprRef(77) } (usize) as float
+<<< float * float
+<<< float + float
+<<< float = float
+>>> Adt(AdtRef(7), [TypeInfoRef(1)]) = Adt(AdtRef(7), [TypeInfoRef(1)])
+Var("i") = AdtIndex { target: ExprRef(86), field: "next" }
+<<< Option<usize> = Option<usize>
+arrange.args[offset]: Point
+Function call! Input function: Func(FuncRef(3))
+Function call! Input function type: Func([TypeInfoRef(3)], TypeInfoRef(4))
+Function call! Returns: Primitive(Void)
+Function call! Output function type: Func([TypeInfoRef(6)], TypeInfoRef(4))
+Function call! Input function: Func(FuncRef(8))
+Function call! Input function type: Func([TypeInfoRef(9)], TypeInfoRef(10))
+Function call! Returns: Primitive(UInt(USize))
+Function call! Output function type: Func([TypeInfoRef(12)], TypeInfoRef(10))
+Function call! Input function: Func(FuncRef(8))
+Function call! Input function type: Func([TypeInfoRef(15)], TypeInfoRef(16))
+Function call! Returns: Primitive(UInt(USize))
+Function call! Output function type: Func([TypeInfoRef(18)], TypeInfoRef(16))
+Function call! Input function: Func(FuncRef(3))
+Function call! Input function type: Func([TypeInfoRef(67)], TypeInfoRef(68))
+Function call! Returns: Primitive(Void)
+Function call! Output function type: Func([TypeInfoRef(70)], TypeInfoRef(68))
+>>> Primitive(UInt(USize)) < Primitive(UInt(USize))
+Var("column") < Var("columns")
+<<< usize < usize
+>>> Primitive(UInt(USize)) - Primitive(UInt(USize))
+Var("column") - Lit(Int(1))
+<<< usize - usize
+>>> Unknown(None) = Unknown(None)
+AdtIndex { target: ExprRef(22), field: "offset" } = Binary { operator: Positioned { value: Add, span: Span { start: 11823, end: 11824, range: SpanRange { start_line: 462, start_column: 90, end_line: 462, end_column: 94 } } }, lhs: ExprRef(34), rhs: ExprRef(36) }
+>>> Primitive(Float) + Primitive(Float)
+Binary { operator: Positioned { value: Add, span: Span { start: 11797, end: 11798, range: SpanRange { start_line: 462, start_column: 62, end_line: 462, end_column: 68 } } }, lhs: ExprRef(28), rhs: ExprRef(33) } + AdtIndex { target: ExprRef(35), field: "spacing" }
+>>> Primitive(Float) + Primitive(Float)
+AdtIndex { target: ExprRef(27), field: "offset" } + AdtIndex { target: ExprRef(32), field: "size" }
+<<< float + float
+<<< float + float
+<<< float = float
+>>> Primitive(UInt(USize)) = Primitive(UInt(USize))
+Var("column") = Binary { operator: Positioned { value: Add, span: Span { start: 11868, end: 11869, range: SpanRange { start_line: 464, start_column: 22, end_line: 464, end_column: 28 } } }, lhs: ExprRef(40), rhs: ExprRef(41) }
+>>> Primitive(UInt(USize)) + Primitive(UInt(USize))
+Var("column") + Lit(Int(1))
+<<< usize + usize
+<<< usize = usize
+>>> Primitive(UInt(USize)) < Primitive(UInt(USize))
+Var("row") < Var("rows")
+<<< usize < usize
+>>> Primitive(UInt(USize)) - Primitive(UInt(USize))
+Var("row") - Lit(Int(1))
+<<< usize - usize
+>>> Unknown(None) = Unknown(None)
+AdtIndex { target: ExprRef(54), field: "offset" } = Binary { operator: Positioned { value: Add, span: Span { start: 12028, end: 12029, range: SpanRange { start_line: 470, start_column: 78, end_line: 470, end_column: 82 } } }, lhs: ExprRef(66), rhs: ExprRef(68) }
+>>> Primitive(Float) + Primitive(Float)
+Binary { operator: Positioned { value: Add, span: Span { start: 12005, end: 12006, range: SpanRange { start_line: 470, start_column: 53, end_line: 470, end_column: 59 } } }, lhs: ExprRef(60), rhs: ExprRef(65) } + AdtIndex { target: ExprRef(67), field: "spacing" }
+>>> Primitive(Float) + Primitive(Float)
+AdtIndex { target: ExprRef(59), field: "offset" } + AdtIndex { target: ExprRef(64), field: "size" }
+<<< float + float
+<<< float + float
+<<< float = float
+>>> Primitive(UInt(USize)) = Primitive(UInt(USize))
+Var("row") = Binary { operator: Positioned { value: Add, span: Span { start: 12079, end: 12080, range: SpanRange { start_line: 472, start_column: 19, end_line: 472, end_column: 22 } } }, lhs: ExprRef(72), rhs: ExprRef(73) }
+>>> Primitive(UInt(USize)) + Primitive(UInt(USize))
+Var("row") + Lit(Int(1))
+<<< usize + usize
+<<< usize = usize
+measure.args[parent]: Size
+measure.args[ctx]: DrawContext
+Function call! Input function: Func(FuncRef(3))
+Function call! Input function type: Func([TypeInfoRef(5)], TypeInfoRef(6))
+Function call! Returns: Primitive(Void)
+Function call! Output function type: Func([TypeInfoRef(8)], TypeInfoRef(6))
+Function call! Input function: AdtIndex { target: ExprRef(5), field: "validate_cells" }
+Function call! Input function type: Unknown(None)
+Function call! Returns: Unknown(None)
+Function call! Output function type: Func([], TypeInfoRef(13))
+Function call! Input function: AdtIndex { target: ExprRef(8), field: "measure_cells_group" }
+Function call! Input function type: Unknown(None)
+Function call! Returns: Unknown(None)
+Function call! Output function type: Func([TypeInfoRef(18)], TypeInfoRef(16))
+Function call! Input function: Func(FuncRef(13))
+Function call! Input function type: Func([TypeInfoRef(27), TypeInfoRef(28)], TypeInfoRef(29))
+Function call! Returns: Primitive(Void)
+Function call! Input function: Func(FuncRef(8))
+Function call! Input function type: Func([TypeInfoRef(34)], TypeInfoRef(35))
+Function call! Returns: Primitive(UInt(USize))
+Function call! Output function type: Func([TypeInfoRef(37)], TypeInfoRef(35))
+Function call! Output function type: Func([TypeInfoRef(31), TypeInfoRef(32)], TypeInfoRef(29))
+Function call! Input function: AdtIndex { target: ExprRef(38), field: "measure_cells_group" }
+Function call! Input function type: Unknown(None)
+Function call! Returns: Unknown(None)
+Function call! Output function type: Func([TypeInfoRef(49)], TypeInfoRef(47))
+Function call! Input function: Func(FuncRef(13))
+Function call! Input function type: Func([TypeInfoRef(54), TypeInfoRef(55)], TypeInfoRef(56))
+Function call! Returns: Primitive(Void)
+Function call! Input function: Func(FuncRef(8))
+Function call! Input function type: Func([TypeInfoRef(61)], TypeInfoRef(62))
+Function call! Returns: Primitive(UInt(USize))
+Function call! Output function type: Func([TypeInfoRef(64)], TypeInfoRef(62))
+Function call! Output function type: Func([TypeInfoRef(58), TypeInfoRef(59)], TypeInfoRef(56))
+Function call! Input function: AdtIndex { target: ExprRef(64), field: "measure_cells_group" }
+Function call! Input function type: Unknown(None)
+Function call! Returns: Unknown(None)
+Function call! Output function type: Func([TypeInfoRef(76)], TypeInfoRef(74))
+Function call! Input function: AdtIndex { target: ExprRef(71), field: "measure_cells_group" }
+Function call! Input function type: Unknown(None)
+Function call! Returns: Unknown(None)
+Function call! Output function type: Func([TypeInfoRef(83)], TypeInfoRef(81))
+Function call! Input function: Func(FuncRef(3))
+Function call! Input function type: Func([TypeInfoRef(85)], TypeInfoRef(86))
+Function call! Returns: Primitive(Void)
+Function call! Output function type: Func([TypeInfoRef(88)], TypeInfoRef(86))
+>>> Primitive(Boolean) == Primitive(Boolean)
+AdtIndex { target: ExprRef(14), field: "has_group3_cells_in_auto_rows" } == Lit(Boolean(false))
+<<< boolean == boolean
+>>> Primitive(Float) - Primitive(Float)
+AdtIndex { target: ExprRef(23), field: "height" } - Binary { operator: Positioned { value: Mul, span: Span { start: 12792, end: 12793, range: SpanRange { start_line: 496, start_column: 90, end_line: 496, end_column: 95 } } }, lhs: ExprRef(31), rhs: ExprRef(33) }
+>>> Primitive(Float) * Primitive(Float)
+TypeCast(ExprRef(30), Float) * AdtIndex { target: ExprRef(32), field: "spacing" }
+Binary { operator: Positioned { value: Sub, span: Span { start: 12777, end: 12778, range: SpanRange { start_line: 496, start_column: 76, end_line: 496, end_column: 80 } } }, lhs: ExprRef(28), rhs: ExprRef(29) } (Primitive(UInt(USize))) as float
+>>> Primitive(UInt(USize)) - Primitive(UInt(USize))
+Call { func: ExprRef(25), args: [ExprRef(27)] } - Lit(Int(1))
+<<< usize - usize
+Binary { operator: Positioned { value: Sub, span: Span { start: 12777, end: 12778, range: SpanRange { start_line: 496, start_column: 76, end_line: 496, end_column: 80 } } }, lhs: ExprRef(28), rhs: ExprRef(29) } (usize) as float
+<<< float * float
+<<< float - float
+>>> Primitive(Float) - Primitive(Float)
+AdtIndex { target: ExprRef(49), field: "width" } - Binary { operator: Positioned { value: Mul, span: Span { start: 13029, end: 13030, range: SpanRange { start_line: 502, start_column: 95, end_line: 502, end_column: 100 } } }, lhs: ExprRef(57), rhs: ExprRef(59) }
+>>> Primitive(Float) * Primitive(Float)
+TypeCast(ExprRef(56), Float) * AdtIndex { target: ExprRef(58), field: "spacing" }
+Binary { operator: Positioned { value: Sub, span: Span { start: 13014, end: 13015, range: SpanRange { start_line: 502, start_column: 78, end_line: 502, end_column: 85 } } }, lhs: ExprRef(54), rhs: ExprRef(55) } (Primitive(UInt(USize))) as float
+>>> Primitive(UInt(USize)) - Primitive(UInt(USize))
+Call { func: ExprRef(51), args: [ExprRef(53)] } - Lit(Int(1))
+<<< usize - usize
+Binary { operator: Positioned { value: Sub, span: Span { start: 13014, end: 13015, range: SpanRange { start_line: 502, start_column: 78, end_line: 502, end_column: 85 } } }, lhs: ExprRef(54), rhs: ExprRef(55) } (usize) as float
+<<< float * float
+<<< float - float
+render.args[offset]: Point
+render.args[parent]: Size
+render.args[ctx]: DrawContext
+Function call! Input function: Func(FuncRef(3))
+Function call! Input function type: Func([TypeInfoRef(6)], TypeInfoRef(7))
+Function call! Returns: Primitive(Void)
+Function call! Output function type: Func([TypeInfoRef(9)], TypeInfoRef(7))
+Function call! Input function: AdtIndex { target: ExprRef(3), field: "measure" }
+Function call! Input function type: Unknown(None)
+Function call! Returns: Unknown(None)
+Function call! Output function type: Func([TypeInfoRef(3), TypeInfoRef(4)], TypeInfoRef(12))
+Function call! Input function: AdtIndex { target: ExprRef(8), field: "arrange" }
+Function call! Input function type: Unknown(None)
+Function call! Returns: Unknown(None)
+Function call! Output function type: Func([TypeInfoRef(2)], TypeInfoRef(15))
+Function call! Input function: Func(FuncRef(8))
+Function call! Input function type: Func([TypeInfoRef(18)], TypeInfoRef(19))
+Function call! Returns: Primitive(UInt(USize))
+Function call! Output function type: Func([TypeInfoRef(21)], TypeInfoRef(19))
+Function call! Input function: Func(FuncRef(3))
+Function call! Input function type: Func([TypeInfoRef(27)], TypeInfoRef(28))
+Function call! Returns: Primitive(Void)
+Function call! Output function type: Func([TypeInfoRef(30)], TypeInfoRef(28))
+Function call! Input function: Func(FuncRef(3))
+Function call! Input function type: Func([TypeInfoRef(36)], TypeInfoRef(37))
+Function call! Returns: Primitive(Void)
+Function call! Output function type: Func([TypeInfoRef(39)], TypeInfoRef(37))
+Function call! Input function: Func(FuncRef(3))
+Function call! Input function type: Func([TypeInfoRef(44)], TypeInfoRef(45))
+Function call! Returns: Primitive(Void)
+Function call! Output function type: Func([TypeInfoRef(47)], TypeInfoRef(45))
+Function call! Input function: Func(FuncRef(3))
+Function call! Input function type: Func([TypeInfoRef(50)], TypeInfoRef(51))
+Function call! Returns: Primitive(Void)
+Function call! Output function type: Func([TypeInfoRef(53)], TypeInfoRef(51))
+Function call! Input function: Func(FuncRef(5))
+Function call! Input function type: Func([TypeInfoRef(55)], TypeInfoRef(56))
+Function call! Returns: Primitive(Void)
+Function call! Output function type: Func([TypeInfoRef(59)], TypeInfoRef(56))
+Function call! Input function: Func(FuncRef(5))
+Function call! Input function type: Func([TypeInfoRef(61)], TypeInfoRef(62))
+Function call! Returns: Primitive(Void)
+Function call! Output function type: Func([TypeInfoRef(65)], TypeInfoRef(62))
+Function call! Input function: AdtIndex { target: ExprRef(53), field: "measure" }
+Function call! Input function type: Unknown(None)
+Function call! Returns: Unknown(None)
+Function call! Output function type: Func([TypeInfoRef(49), TypeInfoRef(4)], TypeInfoRef(68))
+Function call! Input function: Func(FuncRef(3))
+Function call! Input function type: Func([TypeInfoRef(70)], TypeInfoRef(71))
+Function call! Returns: Primitive(Void)
+Function call! Output function type: Func([TypeInfoRef(73)], TypeInfoRef(71))
+Function call! Input function: Func(FuncRef(3))
+Function call! Input function type: Func([TypeInfoRef(75)], TypeInfoRef(76))
+Function call! Returns: Primitive(Void)
+Function call! Output function type: Func([TypeInfoRef(78)], TypeInfoRef(76))
+Function call! Input function: AdtIndex { target: ExprRef(64), field: "render" }
+Function call! Input function type: Unknown(None)
+Function call! Returns: Unknown(None)
+Function call! Output function type: Func([TypeInfoRef(82), TypeInfoRef(68), TypeInfoRef(4)], TypeInfoRef(81))
+Function call! Input function: Func(FuncRef(3))
+Function call! Input function type: Func([TypeInfoRef(84)], TypeInfoRef(85))
+Function call! Returns: Primitive(Void)
+Function call! Output function type: Func([TypeInfoRef(87)], TypeInfoRef(85))
+Function call! Input function: Func(FuncRef(3))
+Function call! Input function type: Func([TypeInfoRef(91)], TypeInfoRef(92))
+Function call! Returns: Primitive(Void)
+Function call! Output function type: Func([TypeInfoRef(94)], TypeInfoRef(92))
+Function call! Input function: Func(FuncRef(3))
+Function call! Input function type: Func([TypeInfoRef(98)], TypeInfoRef(99))
+Function call! Returns: Primitive(Void)
+Function call! Output function type: Func([TypeInfoRef(101)], TypeInfoRef(99))
+>>> Primitive(UInt(USize)) < Primitive(UInt(USize))
+Var("current") < Var("children")
+<<< usize < usize
+>>> Primitive(UInt(USize)) = Primitive(UInt(USize))
+Var("current") = Binary { operator: Positioned { value: Add, span: Span { start: 14249, end: 14250, range: SpanRange { start_line: 549, start_column: 23, end_line: 549, end_column: 30 } } }, lhs: ExprRef(75), rhs: ExprRef(76) }
+>>> Primitive(UInt(USize)) + Primitive(UInt(USize))
+Var("current") + Lit(Int(1))
+<<< usize + usize
+<<< usize = usize
+Function call! Input function: Func(FuncRef(3))
+Function call! Input function type: Func([TypeInfoRef(21)], TypeInfoRef(22))
+Function call! Returns: Primitive(Void)
+Function call! Output function type: Func([TypeInfoRef(24)], TypeInfoRef(22))
+Function call! Input function: VTableIndex { target: None, target_ty: TypeInfoRef(42), vtable: VTableRef(13), func: VFuncRef(0) }
+Function call! Input function type: Func([TypeInfoRef(43)], TypeInfoRef(44))
+Function call! Returns: Adt(AdtRef(17), [])
+Function call! Output function type: Func([TypeInfoRef(50)], TypeInfoRef(44))
+Function call! Input function: VTableIndex { target: None, target_ty: TypeInfoRef(52), vtable: VTableRef(13), func: VFuncRef(0) }
+Function call! Input function type: Func([TypeInfoRef(53)], TypeInfoRef(54))
+Function call! Returns: Adt(AdtRef(17), [])
+Function call! Output function type: Func([TypeInfoRef(60)], TypeInfoRef(54))
+Function call! Input function: VTableIndex { target: None, target_ty: TypeInfoRef(62), vtable: VTableRef(13), func: VFuncRef(0) }
+Function call! Input function type: Func([TypeInfoRef(63)], TypeInfoRef(64))
+Function call! Returns: Adt(AdtRef(17), [])
+Function call! Output function type: Func([TypeInfoRef(70)], TypeInfoRef(64))
+Function call! Input function: VTableIndex { target: None, target_ty: TypeInfoRef(74), vtable: VTableRef(13), func: VFuncRef(0) }
+Function call! Input function type: Func([TypeInfoRef(75)], TypeInfoRef(76))
+Function call! Returns: Adt(AdtRef(17), [])
+Function call! Output function type: Func([TypeInfoRef(82)], TypeInfoRef(76))
+Function call! Input function: VTableIndex { target: None, target_ty: TypeInfoRef(84), vtable: VTableRef(13), func: VFuncRef(0) }
+Function call! Input function type: Func([TypeInfoRef(85)], TypeInfoRef(86))
+Function call! Returns: Adt(AdtRef(17), [])
+Function call! Output function type: Func([TypeInfoRef(92)], TypeInfoRef(86))
+Function call! Input function: VTableIndex { target: None, target_ty: TypeInfoRef(94), vtable: VTableRef(13), func: VFuncRef(0) }
+Function call! Input function type: Func([TypeInfoRef(95)], TypeInfoRef(96))
+Function call! Returns: Adt(AdtRef(17), [])
+Function call! Output function type: Func([TypeInfoRef(102)], TypeInfoRef(96))
+Function call! Input function: VTableIndex { target: None, target_ty: TypeInfoRef(136), vtable: VTableRef(5), func: VFuncRef(0) }
+Function call! Input function type: Func([TypeInfoRef(137), TypeInfoRef(138), TypeInfoRef(139)], TypeInfoRef(140))
+Function call! Returns: Adt(AdtRef(2), [])
+Function call! Output function type: Func([TypeInfoRef(143), TypeInfoRef(145), TypeInfoRef(147)], TypeInfoRef(140))
+Function call! Input function: VTableIndex { target: None, target_ty: TypeInfoRef(183), vtable: VTableRef(5), func: VFuncRef(0) }
+Function call! Input function type: Func([TypeInfoRef(184), TypeInfoRef(185), TypeInfoRef(186)], TypeInfoRef(187))
+Function call! Returns: Adt(AdtRef(2), [])
+Function call! Output function type: Func([TypeInfoRef(190), TypeInfoRef(192), TypeInfoRef(194)], TypeInfoRef(187))
+Function call! Input function: VTableIndex { target: None, target_ty: TypeInfoRef(230), vtable: VTableRef(5), func: VFuncRef(0) }
+Function call! Input function type: Func([TypeInfoRef(231), TypeInfoRef(232), TypeInfoRef(233)], TypeInfoRef(234))
+Function call! Returns: Adt(AdtRef(2), [])
+Function call! Output function type: Func([TypeInfoRef(237), TypeInfoRef(239), TypeInfoRef(241)], TypeInfoRef(234))
+Function call! Input function: VTableIndex { target: None, target_ty: TypeInfoRef(277), vtable: VTableRef(5), func: VFuncRef(0) }
+Function call! Input function type: Func([TypeInfoRef(278), TypeInfoRef(279), TypeInfoRef(280)], TypeInfoRef(281))
+Function call! Returns: Adt(AdtRef(2), [])
+Function call! Output function type: Func([TypeInfoRef(284), TypeInfoRef(286), TypeInfoRef(288)], TypeInfoRef(281))
+Function call! Input function: VTableIndex { target: None, target_ty: TypeInfoRef(326), vtable: VTableRef(5), func: VFuncRef(0) }
+Function call! Input function type: Func([TypeInfoRef(327), TypeInfoRef(328), TypeInfoRef(329)], TypeInfoRef(330))
+Function call! Returns: Adt(AdtRef(2), [])
+Function call! Output function type: Func([TypeInfoRef(333), TypeInfoRef(335), TypeInfoRef(337)], TypeInfoRef(330))
+Function call! Input function: VTableIndex { target: None, target_ty: TypeInfoRef(377), vtable: VTableRef(5), func: VFuncRef(0) }
+Function call! Input function type: Func([TypeInfoRef(378), TypeInfoRef(379), TypeInfoRef(380)], TypeInfoRef(381))
+Function call! Returns: Adt(AdtRef(2), [])
+Function call! Output function type: Func([TypeInfoRef(384), TypeInfoRef(386), TypeInfoRef(388)], TypeInfoRef(381))
+Function call! Input function: VTableIndex { target: None, target_ty: TypeInfoRef(424), vtable: VTableRef(5), func: VFuncRef(0) }
+Function call! Input function type: Func([TypeInfoRef(425), TypeInfoRef(426), TypeInfoRef(427)], TypeInfoRef(428))
+Function call! Returns: Adt(AdtRef(2), [])
+Function call! Output function type: Func([TypeInfoRef(431), TypeInfoRef(433), TypeInfoRef(435)], TypeInfoRef(428))
+Function call! Input function: VTableIndex { target: None, target_ty: TypeInfoRef(473), vtable: VTableRef(5), func: VFuncRef(0) }
+Function call! Input function type: Func([TypeInfoRef(474), TypeInfoRef(475), TypeInfoRef(476)], TypeInfoRef(477))
+Function call! Returns: Adt(AdtRef(2), [])
+Function call! Output function type: Func([TypeInfoRef(480), TypeInfoRef(482), TypeInfoRef(484)], TypeInfoRef(477))
+[2m2026-03-13T08:36:36.565964Z[0m [32m INFO[0m [2mmollie-compiler/adt_types[0m[2m:[0m Compiled `Unit` [3msize[0m[2m=[0m16 [3malign[0m[2m=[0m8
+px
+normal construct: Unit => [(FieldRef(0), TypeRef(12), ExprRef(18446744073709551615)), (FieldRef(1), TypeRef(13), ExprRef(0))]
+[v1, v0]
+construct: Unit => [v1, v0]
+[2m2026-03-13T08:36:36.566451Z[0m [32m INFO[0m [2mcranelift_jit::backend[0m[2m:[0m defining function funcid14: function %px_float(f32) -> i64 system_v {
+    sig0 = (i64) -> i64 system_v
+    sig1 = (i64, i64) -> i64 system_v
+    sig2 = (i64, i64) -> i64 system_v
+    sig3 = (i64) system_v
+    sig4 = (i64) system_v
+    fn0 = u0:1 sig0
+    fn1 = u0:2 sig1
+    fn2 = u0:3 sig2
+    fn3 = u0:4 sig3
+    fn4 = u0:5 sig4
+
+block0(v0: f32):
+    v1 = iconst.i64 1
+    v2 = iconst.i64 0x55b1_6db2_9f20
+    v3 = call fn0(v2)  ; v2 = 0x55b1_6db2_9f20
+    store notrap aligned v1, v3  ; v1 = 1
+    store notrap aligned v0, v3+8
+    return v3
+}
+
+[2m2026-03-13T08:36:36.568756Z[0m [32m INFO[0m [2mmollie-compiler/functions[0m[2m:[0m Compiled px(float) -> Unit [3mis_postfix[0m[2m=[0mtrue
+wh
+normal construct: Unit => [(FieldRef(0), TypeRef(12), ExprRef(18446744073709551615)), (FieldRef(1), TypeRef(13), ExprRef(0))]
+[v1, v0]
+construct: Unit => [v1, v0]
+[2m2026-03-13T08:36:36.569296Z[0m [32m INFO[0m [2mcranelift_jit::backend[0m[2m:[0m defining function funcid15: function %wh_float(f32) -> i64 system_v {
+    sig0 = (i64) -> i64 system_v
+    sig1 = (i64, i64) -> i64 system_v
+    sig2 = (i64, i64) -> i64 system_v
+    sig3 = (i64) system_v
+    sig4 = (i64) system_v
+    fn0 = u0:1 sig0
+    fn1 = u0:2 sig1
+    fn2 = u0:3 sig2
+    fn3 = u0:4 sig3
+    fn4 = u0:5 sig4
+
+block0(v0: f32):
+    v1 = iconst.i64 0
+    v2 = iconst.i64 0x55b1_6db2_9f20
+    v3 = call fn0(v2)  ; v2 = 0x55b1_6db2_9f20
+    store notrap aligned v1, v3  ; v1 = 0
+    store notrap aligned v0, v3+8
+    return v3
+}
+
+[2m2026-03-13T08:36:36.571361Z[0m [32m INFO[0m [2mmollie-compiler/functions[0m[2m:[0m Compiled wh(float) -> Unit [3mis_postfix[0m[2m=[0mtrue
+println_str
+[2m2026-03-13T08:36:36.571435Z[0m [32m INFO[0m [2mmollie-compiler/functions[0m[2m:[0m Compiled println_str(string) -> void [3mis_postfix[0m[2m=[0mfalse
+[2m2026-03-13T08:36:36.571514Z[0m [32m INFO[0m [2mmollie-compiler/adt_types[0m[2m:[0m Compiled `Definition` [3msize[0m[2m=[0m16 [3malign[0m[2m=[0m8
+[2m2026-03-13T08:36:36.571556Z[0m [32m INFO[0m [2mmollie-compiler/virtual_tables[0m[2m:[0m Compiling `<impl>` () for `Definition` ()
+normal construct: Definition => [(FieldRef(0), TypeRef(45), ExprRef(6)), (FieldRef(1), TypeRef(13), ExprRef(7)), (FieldRef(2), TypeRef(13), ExprRef(8))]
+[v0, v5, v12]
+construct: Definition => [v0, v5, v12]
+[2m2026-03-13T08:36:36.572193Z[0m [32m INFO[0m [2mcranelift_jit::backend[0m[2m:[0m defining function funcid16: function %VTableRef(13)__new(i64) -> i64 system_v {
+    sig0 = (i64) -> i64 system_v
+    sig1 = (i64, i64) -> i64 system_v
+    sig2 = (i64, i64) -> i64 system_v
+    sig3 = (i64) system_v
+    sig4 = (i64) system_v
+    fn0 = u0:1 sig0
+    fn1 = u0:2 sig1
+    fn2 = u0:3 sig2
+    fn3 = u0:4 sig3
+    fn4 = u0:5 sig4
+
+block0(v0: i64):
+    v10 -> v0
+    v11 -> v0
+    v8 = f32const 0.0
+    v7 -> v8
+    call fn3(v0)
+    v1 = iconst.i64 1
+    v2 = load.i64 notrap aligned v0
+    v3 = icmp eq v2, v1  ; v1 = 1
+    brif v3, block4, block5
+
+block4:
+    v4 = load.f32 notrap aligned v0+8
+    jump block6(v4)
+
+block5:
+    jump block6(v8)  ; v8 = 0.0
+
+block6(v6: f32):
+    brif.i8 v3, block1, block3
+
+block1:
+    jump block2(v6)
+
+block3:
+    v9 = f32const 0.0
+    jump block2(v9)  ; v9 = 0.0
+
+block2(v5: f32):
+    v12 = f32const 0.0
+    v13 = iconst.i64 0x55b1_6db3_2720
+    v14 = call fn0(v13)  ; v13 = 0x55b1_6db3_2720
+    store.i64 notrap aligned v0, v14
+    store notrap aligned v5, v14+8
+    store notrap aligned v12, v14+12  ; v12 = 0.0
+    call fn4(v10)
+    return v14
+}
+
+[2m2026-03-13T08:36:36.576585Z[0m [32m INFO[0m [2mmollie-compiler/adt_types[0m[2m:[0m Compiled `CornerRadius` [3msize[0m[2m=[0m16 [3malign[0m[2m=[0m4
+[2m2026-03-13T08:36:36.576660Z[0m [32m INFO[0m [2mmollie-compiler/adt_types[0m[2m:[0m Compiled `Color` [3msize[0m[2m=[0m3 [3malign[0m[2m=[0m1
+[2m2026-03-13T08:36:36.576696Z[0m [32m INFO[0m [2mmollie-compiler/virtual_tables[0m[2m:[0m Compiling `<impl>` () for `Color` ()
+normal construct: Color => [(FieldRef(0), TypeRef(8), ExprRef(0)), (FieldRef(1), TypeRef(8), ExprRef(1)), (FieldRef(2), TypeRef(8), ExprRef(2))]
+[v0, v1, v2]
+construct: Color => [v0, v1, v2]
+[2m2026-03-13T08:36:36.577069Z[0m [32m INFO[0m [2mcranelift_jit::backend[0m[2m:[0m defining function funcid17: function %VTableRef(5)__new(i8, i8, i8) -> i64 system_v {
+    sig0 = (i64) -> i64 system_v
+    sig1 = (i64, i64) -> i64 system_v
+    sig2 = (i64, i64) -> i64 system_v
+    sig3 = (i64) system_v
+    sig4 = (i64) system_v
+    fn0 = u0:1 sig0
+    fn1 = u0:2 sig1
+    fn2 = u0:3 sig2
+    fn3 = u0:4 sig3
+    fn4 = u0:5 sig4
+
+block0(v0: i8, v1: i8, v2: i8):
+    v3 = iconst.i64 0x55b1_6db8_f060
+    v4 = call fn0(v3)  ; v3 = 0x55b1_6db8_f060
+    store notrap aligned v0, v4
+    store notrap aligned v1, v4+1
+    store notrap aligned v2, v4+2
+    return v4
+}
+
+[2m2026-03-13T08:36:36.579243Z[0m [32m INFO[0m [2mmollie-compiler/adt_types[0m[2m:[0m Compiled `Rectangle` [3msize[0m[2m=[0m32 [3malign[0m[2m=[0m8
+[2m2026-03-13T08:36:36.579297Z[0m [32m INFO[0m [2mmollie-compiler/adt_types[0m[2m:[0m Compiled `Size` [3msize[0m[2m=[0m8 [3malign[0m[2m=[0m4
+[2m2026-03-13T08:36:36.579323Z[0m [32m INFO[0m [2mmollie-compiler/adt_types[0m[2m:[0m Compiled `DrawContext` [3msize[0m[2m=[0m0 [3malign[0m[2m=[0m0
+[2m2026-03-13T08:36:36.579347Z[0m [32m INFO[0m [2mmollie-compiler/virtual_tables[0m[2m:[0m Compiling `<impl>` () for `Unit` ()
+[2m2026-03-13T08:36:36.580048Z[0m [32m INFO[0m [2mcranelift_jit::backend[0m[2m:[0m defining function funcid18: function %VTableRef(4)__calc(i64, f32) -> f32 system_v {
+    sig0 = (i64) -> i64 system_v
+    sig1 = (i64, i64) -> i64 system_v
+    sig2 = (i64, i64) -> i64 system_v
+    sig3 = (i64) system_v
+    sig4 = (i64) system_v
+    fn0 = u0:1 sig0
+    fn1 = u0:2 sig1
+    fn2 = u0:3 sig2
+    fn3 = u0:4 sig3
+    fn4 = u0:5 sig4
+
+block0(v0: i64, v1: f32):
+    v12 -> v0
+    v23 -> v0
+    v24 -> v0
+    v25 -> v0
+    v7 -> v1
+    v21 = f32const 0.0
+    v19 -> v21
+    v20 -> v21
+    v10 = f32const 0.0
+    v9 -> v10
+    call fn3(v0)
+    v2 = iconst.i64 0
+    v3 = load.i64 notrap aligned v0
+    v4 = icmp eq v3, v2  ; v2 = 0
+    brif v4, block4, block5
+
+block4:
+    v5 = load.f32 notrap aligned v0+8
+    jump block6(v5)
+
+block5:
+    jump block6(v10)  ; v10 = 0.0
+
+block6(v8: f32):
+    brif.i8 v4, block1, block3
+
+block1:
+    v11 = fmul.f32 v1, v8
+    jump block2(v11)
+
+block3:
+    v13 = iconst.i64 1
+    v14 = load.i64 notrap aligned v0
+    v15 = icmp eq v14, v13  ; v13 = 1
+    brif v15, block10, block11
+
+block10:
+    v16 = load.f32 notrap aligned v0+8
+    jump block12(v16)
+
+block11:
+    jump block12(v21)  ; v21 = 0.0
+
+block12(v18: f32):
+    brif.i8 v15, block7, block9
+
+block7:
+    jump block8(v18)
+
+block9:
+    v22 = f32const 0.0
+    jump block8(v22)  ; v22 = 0.0
+
+block8(v17: f32):
+    jump block2(v17)
+
+block2(v6: f32):
+    call fn4(v0)
+    return v6
+}
+
+[2m2026-03-13T08:36:36.585544Z[0m [32m INFO[0m [2mcranelift_jit::backend[0m[2m:[0m defining function funcid19: function %VTableRef(4)__kind(i64) -> i8 system_v {
+    sig0 = (i64) -> i64 system_v
+    sig1 = (i64, i64) -> i64 system_v
+    sig2 = (i64, i64) -> i64 system_v
+    sig3 = (i64) system_v
+    sig4 = (i64) system_v
+    fn0 = u0:1 sig0
+    fn1 = u0:2 sig1
+    fn2 = u0:3 sig2
+    fn3 = u0:4 sig3
+    fn4 = u0:5 sig4
+
+block0(v0: i64):
+    v8 -> v0
+    v9 -> v0
+    call fn3(v0)
+    v1 = iconst.i64 1
+    v2 = load.i64 notrap aligned v0
+    v3 = icmp eq v2, v1  ; v1 = 1
+    brif v3, block4, block5
+
+block4:
+    v4 = load.f32 notrap aligned v0+8
+    jump block6
+
+block5:
+    jump block6
+
+block6:
+    brif.i8 v3, block1, block3
+
+block1:
+    v6 = iconst.i8 1
+    jump block2(v6)  ; v6 = 1
+
+block3:
+    v7 = iconst.i8 4
+    jump block2(v7)  ; v7 = 4
+
+block2(v5: i8):
+    call fn4(v0)
+    return v5
+}
+
+[2m2026-03-13T08:36:36.588871Z[0m [32m INFO[0m [2mmollie-compiler/adt_types[0m[2m:[0m Compiled `Point` [3msize[0m[2m=[0m8 [3malign[0m[2m=[0m4
+[2m2026-03-13T08:36:36.588918Z[0m [32m INFO[0m [2mmollie-compiler/virtual_tables[0m[2m:[0m Compiling `<impl>` () for `DrawContext` ()
+[2m2026-03-13T08:36:36.588979Z[0m [32m INFO[0m [2mmollie-compiler/virtual_tables[0m[2m:[0m Compiling `Drawable` (<generic(0)>) for `Rectangle` (Rectangle)
+normal construct: Size => [(FieldRef(0), TypeRef(13), ExprRef(8)), (FieldRef(1), TypeRef(13), ExprRef(14))]
+(Rectangle -> 111732664642523676).width
+vfunc for Unit
+(Size -> 5998588947030012346).width
+(Rectangle -> 111732664642523676).height
+vfunc for Unit
+(Size -> 5998588947030012346).height
+[v7, v10]
+construct: Size => [v7, v10]
+[2m2026-03-13T08:36:36.589421Z[0m [32m INFO[0m [2mcranelift_jit::backend[0m[2m:[0m defining function funcid23: function %VTableRef(7)_Rectangle_measure(i64, i64, i64) -> i64 system_v {
+    gv0 = symbol colocated userextname6
+    sig0 = (i64) -> i64 system_v
+    sig1 = (i64, i64) -> i64 system_v
+    sig2 = (i64, i64) -> i64 system_v
+    sig3 = (i64) system_v
+    sig4 = (i64) system_v
+    sig5 = (i64, i64) system_v
+    sig6 = (i64, f32) -> f32 system_v
+    fn0 = u0:1 sig0
+    fn1 = u0:2 sig1
+    fn2 = u0:3 sig2
+    fn3 = u0:4 sig3
+    fn4 = u0:5 sig4
+    fn5 = u0:7 sig5
+    fn6 = colocated u0:18 sig6
+
+block0(v0: i64, v1: i64, v2: i64):
+    call fn3(v0)
+    call fn3(v1)
+    v3 = global_value.i64 gv0
+    v4 = iconst.i64 21
+    call fn5(v3, v4)  ; v4 = 21
+    v5 = load.i64 notrap aligned v0
+    v6 = load.f32 notrap aligned v1
+    v7 = call fn6(v5, v6)
+    v8 = load.i64 notrap aligned v0+8
+    v9 = load.f32 notrap aligned v1+4
+    v10 = call fn6(v8, v9)
+    v11 = iconst.i64 0x55b1_6db5_a960
+    v12 = call fn0(v11)  ; v11 = 0x55b1_6db5_a960
+    store notrap aligned v7, v12
+    store notrap aligned v10, v12+4
+    call fn4(v0)
+    call fn4(v1)
+    call fn4(v2)
+    return v12
+}
+
+(Rectangle -> 111732664642523676).width
+vfunc for Unit
+(Size -> 5998588947030012346).width
+(Rectangle -> 111732664642523676).height
+vfunc for Unit
+(Size -> 5998588947030012346).height
+vfunc for DrawContext
+(Point -> 15487593011072871963).x
+(Point -> 15487593011072871963).y
+(Rectangle -> 111732664642523676).corner_radius
+(Rectangle -> 111732664642523676).background
+[2m2026-03-13T08:36:36.594191Z[0m [32m INFO[0m [2mcranelift_jit::backend[0m[2m:[0m defining function funcid24: function %VTableRef(7)_Rectangle_render(i64, i64, i64, i64) system_v {
+    sig0 = (i64) -> i64 system_v
+    sig1 = (i64, i64) -> i64 system_v
+    sig2 = (i64, i64) -> i64 system_v
+    sig3 = (i64) system_v
+    sig4 = (i64) system_v
+    sig5 = (i64, f32) -> f32 system_v
+    sig6 = (i64, f32, f32, f32, f32, i64, i64) system_v
+    fn0 = u0:1 sig0
+    fn1 = u0:2 sig1
+    fn2 = u0:3 sig2
+    fn3 = u0:4 sig3
+    fn4 = u0:5 sig4
+    fn5 = colocated u0:18 sig5
+    fn6 = u0:20 sig6
+
+block0(v0: i64, v1: i64, v2: i64, v3: i64):
+    call fn3(v0)
+    call fn3(v1)
+    call fn3(v2)
+    v4 = load.i64 notrap aligned v0
+    v5 = load.f32 notrap aligned v2
+    v6 = call fn5(v4, v5)
+    v7 = load.i64 notrap aligned v0+8
+    v8 = load.f32 notrap aligned v2+4
+    v9 = call fn5(v7, v8)
+    v10 = load.f32 notrap aligned v1
+    v11 = load.f32 notrap aligned v1+4
+    v12 = load.i64 notrap aligned v0+16
+    v13 = load.i64 notrap aligned v0+24
+    call fn6(v3, v10, v11, v6, v9, v12, v13)
+    call fn4(v0)
+    call fn4(v1)
+    call fn4(v2)
+    call fn4(v3)
+    return
+}
+
+[2m2026-03-13T08:36:36.598155Z[0m [32m INFO[0m [2mmollie-compiler/adt_types[0m[2m:[0m Compiled `GridItem` [3msize[0m[2m=[0m48 [3malign[0m[2m=[0m16
+[2m2026-03-13T08:36:36.598216Z[0m [32m INFO[0m [2mmollie-compiler/adt_types[0m[2m:[0m Compiled `Option<usize>` [3msize[0m[2m=[0m16 [3malign[0m[2m=[0m8
+[2m2026-03-13T08:36:36.598257Z[0m [32m INFO[0m [2mmollie-compiler/adt_types[0m[2m:[0m Compiled `Cell` [3msize[0m[2m=[0m64 [3malign[0m[2m=[0m8
+[2m2026-03-13T08:36:36.598301Z[0m [32m INFO[0m [2mmollie-compiler/adt_types[0m[2m:[0m Compiled `CellGroups` [3msize[0m[2m=[0m32 [3malign[0m[2m=[0m8
+[2m2026-03-13T08:36:36.598363Z[0m [32m INFO[0m [2mmollie-compiler/adt_types[0m[2m:[0m Compiled `Grid` [3msize[0m[2m=[0m48 [3malign[0m[2m=[0m8
+get_size
+[2m2026-03-13T08:36:36.598413Z[0m [32m INFO[0m [2mmollie-compiler/functions[0m[2m:[0m Compiled get_size(<any>[]) -> usize [3mis_postfix[0m[2m=[0mfalse
+[2m2026-03-13T08:36:36.598443Z[0m [32m INFO[0m [2mmollie-compiler/virtual_tables[0m[2m:[0m Compiling `<impl>` () for `Grid` ()
+normal construct: CellGroups => [(FieldRef(0), TypeRef(68), ExprRef(18446744073709551615)), (FieldRef(1), TypeRef(68), ExprRef(18446744073709551615)), (FieldRef(2), TypeRef(68), ExprRef(18446744073709551615)), (FieldRef(3), TypeRef(68), ExprRef(18446744073709551615))]
+const construct: Option<usize> => []
+construct: Option<usize> => [v4]
+const construct: Option<usize> => []
+construct: Option<usize> => [v7]
+const construct: Option<usize> => []
+construct: Option<usize> => [v10]
+const construct: Option<usize> => []
+construct: Option<usize> => [v13]
+[v6, v9, v12, v15]
+construct: CellGroups => [v6, v9, v12, v15]
+(Grid -> 7517597234686296875).columns
+(Grid -> 7517597234686296875).rows
+(Grid -> 7517597234686296875).children
+(Grid -> 7517597234686296875).cell_groups
+(Grid -> 7517597234686296875).has_star_cells_u
+(Grid -> 7517597234686296875).has_star_cells_v
+(Grid -> 7517597234686296875).has_group3_cells_in_auto_rows
+[2m2026-03-13T08:36:36.599092Z[0m [32m INFO[0m [2mcranelift_jit::backend[0m[2m:[0m defining function funcid25: function %VTableRef(15)__validate_cells(i64) system_v {
+    sig0 = (i64) -> i64 system_v
+    sig1 = (i64, i64) -> i64 system_v
+    sig2 = (i64, i64) -> i64 system_v
+    sig3 = (i64) system_v
+    sig4 = (i64) system_v
+    sig5 = (i64) -> i64 system_v
+    fn0 = u0:1 sig0
+    fn1 = u0:2 sig1
+    fn2 = u0:3 sig2
+    fn3 = u0:4 sig3
+    fn4 = u0:5 sig4
+    fn5 = colocated u0:13 sig5
+
+block0(v0: i64):
+    call fn3(v0)
+    v1 = iconst.i8 0
+    v2 = iconst.i8 0
+    v3 = iconst.i8 0
+    v4 = iconst.i64 1
+    v5 = iconst.i64 0x55b1_6db9_44f0
+    v6 = call fn0(v5)  ; v5 = 0x55b1_6db9_44f0
+    store notrap aligned v4, v6  ; v4 = 1
+    v7 = iconst.i64 1
+    v8 = iconst.i64 0x55b1_6db9_44f0
+    v9 = call fn0(v8)  ; v8 = 0x55b1_6db9_44f0
+    store notrap aligned v7, v9  ; v7 = 1
+    v10 = iconst.i64 1
+    v11 = iconst.i64 0x55b1_6db9_44f0
+    v12 = call fn0(v11)  ; v11 = 0x55b1_6db9_44f0
+    store notrap aligned v10, v12  ; v10 = 1
+    v13 = iconst.i64 1
+    v14 = iconst.i64 0x55b1_6db9_44f0
+    v15 = call fn0(v14)  ; v14 = 0x55b1_6db9_44f0
+    store notrap aligned v13, v15  ; v13 = 1
+    v16 = iconst.i64 0x55b1_6db4_9520
+    v17 = call fn0(v16)  ; v16 = 0x55b1_6db4_9520
+    store notrap aligned v6, v17
+    store notrap aligned v9, v17+8
+    store notrap aligned v12, v17+16
+    store notrap aligned v15, v17+24
+    call fn3(v17)
+    v18 = iconst.i32 0
+    v19 = load.i64 notrap aligned v0
+    v20 = call fn5(v19)
+    v21 = load.i64 notrap aligned v0+8
+    v22 = call fn5(v21)
+    v23 = load.i64 notrap aligned v0+24
+    store notrap aligned v17, v0+32
+    store notrap aligned v1, v0+44  ; v1 = 0
+    store notrap aligned v2, v0+45  ; v2 = 0
+    store notrap aligned v3, v0+46  ; v3 = 0
+    call fn4(v17)
+    call fn4(v0)
+    return
+}
+
+(Grid -> 7517597234686296875).cells
+(Cell -> 1107557832007750400).row
+(Cell -> 1107557832007750400).column
+(Cell -> 1107557832007750400).row
+(Cell -> 1107557832007750400).row_span
+(Grid -> 7517597234686296875).rows
+(Definition -> 2020590049744279163).size
+(Cell -> 1107557832007750400).column
+(Cell -> 1107557832007750400).column_span
+(Grid -> 7517597234686296875).columns
+(Definition -> 2020590049744279163).size
+(Cell -> 1107557832007750400).size
+(Cell -> 1107557832007750400).row_span
+(Grid -> 7517597234686296875).spacing
+(Size -> 5998588947030012346).height
+(Cell -> 1107557832007750400).size
+(Cell -> 1107557832007750400).column_span
+(Grid -> 7517597234686296875).spacing
+(Size -> 5998588947030012346).width
+(Cell -> 1107557832007750400).next
+[2m2026-03-13T08:36:36.605739Z[0m [32m INFO[0m [2mcranelift_jit::backend[0m[2m:[0m defining function funcid26: function %VTableRef(15)__measure_cells_group(i64, i64) system_v {
+    sig0 = (i64) -> i64 system_v
+    sig1 = (i64, i64) -> i64 system_v
+    sig2 = (i64, i64) -> i64 system_v
+    sig3 = (i64) system_v
+    sig4 = (i64) system_v
+    fn0 = u0:1 sig0
+    fn1 = u0:2 sig1
+    fn2 = u0:3 sig2
+    fn3 = u0:4 sig3
+    fn4 = u0:5 sig4
+
+block0(v0: i64, v1: i64):
+    v8 -> v0
+    v7 -> v8
+    v28 -> v8
+    v47 -> v8
+    v83 = iconst.i64 0
+    v82 -> v83
+    call fn3(v0)
+    call fn3(v1)
+    call fn3(v1)
+    jump block1(v1, v83, v1)  ; v83 = 0
+
+block1(v2: i64, v11: i64, v88: i64):
+    v86 -> v2
+    v87 -> v88
+    v89 -> v87
+    v90 -> v87
+    v3 = iconst.i64 0
+    v4 = load.i64 notrap aligned v2
+    v5 = icmp eq v4, v3  ; v3 = 0
+    brif v5, block4, block5
+
+block4:
+    v6 = load.i64 notrap aligned v2+8
+    jump block6(v6)
+
+block5:
+    jump block6(v11)
+
+block6(v10: i64):
+    v84 -> v10
+    v85 -> v10
+    brif.i8 v5, block2, block3
+
+block2:
+    v9 = load.i64 notrap aligned v8+16
+    v12 = load.i64 notrap aligned v9+16
+    v13 = imul_imm.i64 v10, 8
+    v14 = iadd v12, v13
+    v15 = load.i64 notrap aligned v14
+    v21 -> v15
+    v40 -> v15
+    call fn3(v15)
+    v16 = f32const 0.0
+    v17 = f32const 0.0
+    v59 -> v17
+    v18 = load.i64 notrap aligned v15+16
+    v19 = load.i64 notrap aligned v15+32
+    v58 -> v19
+    jump block7(v18, v16)  ; v16 = 0.0
+
+block7(v20: i64, v27: f32):
+    v61 -> v27
+    v22 = load.i64 notrap aligned v21+16
+    v23 = load.i64 notrap aligned v21+24
+    v24, v25 = uadd_overflow v22, v23
+    v26 = icmp ult v20, v24
+    brif v26, block8, block9
+
+block8:
+    v29 = load.i64 notrap aligned v28+8
+    v30 = load.i64 notrap aligned v29+16
+    v31 = imul_imm.i64 v20, 8
+    v32 = iadd v30, v31
+    v33 = load.i64 notrap aligned v32
+    v34 = load.f32 notrap aligned v33+8
+    v35 = fadd.f32 v27, v34
+    v36 = iconst.i64 1
+    v37, v38 = uadd_overflow.i64 v20, v36  ; v36 = 1
+    jump block7(v37, v35)
+
+block9:
+    jump block10(v19, v17)  ; v17 = 0.0
+
+block10(v39: i64, v46: f32):
+    v41 = load.i64 notrap aligned v40+32
+    v42 = load.i64 notrap aligned v40+40
+    v43, v44 = uadd_overflow v41, v42
+    v45 = icmp ult v39, v43
+    brif v45, block11, block12
+
+block11:
+    v48 = load.i64 notrap aligned v47
+    v49 = load.i64 notrap aligned v48+16
+    v50 = imul_imm.i64 v39, 8
+    v51 = iadd v49, v50
+    v52 = load.i64 notrap aligned v51
+    v53 = load.f32 notrap aligned v52+8
+    v54 = fadd.f32 v46, v53
+    v55 = iconst.i64 1
+    v56, v57 = uadd_overflow.i64 v39, v55  ; v55 = 1
+    jump block10(v56, v54)
+
+block12:
+    v60 = load.i64 notrap aligned v40+8
+    v62 = load.i64 notrap aligned v40+24
+    v63 = iconst.i64 1
+    v64, v65 = usub_overflow v62, v63  ; v63 = 1
+    v66 = ireduce.i32 v64
+    v67 = fcvt_from_uint.f32 v66
+    v68 = load.f32 notrap aligned v47+40
+    v69 = fmul v67, v68
+    v70 = fadd.f32 v27, v69
+    store notrap aligned v70, v60+4
+    v71 = load.i64 notrap aligned v40+8
+    v72 = load.i64 notrap aligned v40+40
+    v73 = iconst.i64 1
+    v74, v75 = usub_overflow v72, v73  ; v73 = 1
+    v76 = ireduce.i32 v74
+    v77 = fcvt_from_uint.f32 v76
+    v78 = load.f32 notrap aligned v47+40
+    v79 = fmul v77, v78
+    v80 = fadd.f32 v46, v79
+    store notrap aligned v80, v71
+    v81 = load.i64 notrap aligned v40+50
+    call fn4(v40)
+    jump block1(v81, v10, v87)
+
+block3:
+    call fn4(v2)
+    call fn4(v7)
+    call fn4(v88)
+    return
+}
+
+(Grid -> 7517597234686296875).columns
+(Grid -> 7517597234686296875).rows
+(Grid -> 7517597234686296875).columns
+(Grid -> 7517597234686296875).columns
+(Definition -> 2020590049744279163).offset
+(Grid -> 7517597234686296875).columns
+(Definition -> 2020590049744279163).size
+(Grid -> 7517597234686296875).spacing
+(Definition -> 2020590049744279163).offset
+(Grid -> 7517597234686296875).rows
+(Grid -> 7517597234686296875).rows
+(Definition -> 2020590049744279163).offset
+(Grid -> 7517597234686296875).rows
+(Definition -> 2020590049744279163).size
+(Grid -> 7517597234686296875).spacing
+(Definition -> 2020590049744279163).offset
+(Grid -> 7517597234686296875).cells
+[2m2026-03-13T08:36:36.619224Z[0m [32m INFO[0m [2mcranelift_jit::backend[0m[2m:[0m defining function funcid27: function %VTableRef(15)__arrange(i64, i64) system_v {
+    gv0 = symbol colocated userextname6
+    gv1 = symbol colocated userextname8
+    sig0 = (i64) -> i64 system_v
+    sig1 = (i64, i64) -> i64 system_v
+    sig2 = (i64, i64) -> i64 system_v
+    sig3 = (i64) system_v
+    sig4 = (i64) system_v
+    sig5 = (i64, i64) system_v
+    sig6 = (i64) -> i64 system_v
+    fn0 = u0:1 sig0
+    fn1 = u0:2 sig1
+    fn2 = u0:3 sig2
+    fn3 = u0:4 sig3
+    fn4 = u0:5 sig4
+    fn5 = u0:7 sig5
+    fn6 = colocated u0:13 sig6
+
+block0(v0: i64, v1: i64):
+    v16 -> v0
+    v46 -> v0
+    v75 -> v1
+    v76 -> v1
+    call fn3(v0)
+    call fn3(v1)
+    v2 = global_value.i64 gv0
+    v3 = iconst.i64 11
+    call fn5(v2, v3)  ; v3 = 11
+    v4 = load.i64 notrap aligned v0
+    v5 = call fn6(v4)
+    v11 -> v5
+    v6 = load.i64 notrap aligned v0+8
+    v7 = call fn6(v6)
+    v41 -> v7
+    v71 -> v7
+    v8 = iconst.i64 1
+    v9 = iconst.i64 1
+    v70 -> v9
+    jump block1(v8)  ; v8 = 1
+
+block1(v10: i64):
+    v12 = icmp ult v10, v11
+    brif v12, block2, block3
+
+block2:
+    v13 = iconst.i64 1
+    v14, v15 = usub_overflow.i64 v10, v13  ; v13 = 1
+    v17 = load.i64 notrap aligned v16
+    v18 = load.i64 notrap aligned v17+16
+    v19 = imul_imm.i64 v10, 8
+    v20 = iadd v18, v19
+    v21 = load.i64 notrap aligned v20
+    v22 = load.i64 notrap aligned v16
+    v23 = load.i64 notrap aligned v22+16
+    v24 = imul_imm v14, 8
+    v25 = iadd v23, v24
+    v26 = load.i64 notrap aligned v25
+    v27 = load.f32 notrap aligned v26+12
+    v28 = load.i64 notrap aligned v16
+    v29 = load.i64 notrap aligned v28+16
+    v30 = imul_imm v14, 8
+    v31 = iadd v29, v30
+    v32 = load.i64 notrap aligned v31
+    v33 = load.f32 notrap aligned v32+8
+    v34 = fadd v27, v33
+    v35 = load.f32 notrap aligned v16+40
+    v36 = fadd v34, v35
+    store notrap aligned v36, v21+12
+    v37 = iconst.i64 1
+    v38, v39 = uadd_overflow.i64 v10, v37  ; v37 = 1
+    jump block1(v38)
+
+block3:
+    jump block4(v9)  ; v9 = 1
+
+block4(v40: i64):
+    v42 = icmp ult v40, v41
+    brif v42, block5, block6
+
+block5:
+    v43 = iconst.i64 1
+    v44, v45 = usub_overflow.i64 v40, v43  ; v43 = 1
+    v47 = load.i64 notrap aligned v46+8
+    v48 = load.i64 notrap aligned v47+16
+    v49 = imul_imm.i64 v40, 8
+    v50 = iadd v48, v49
+    v51 = load.i64 notrap aligned v50
+    v52 = load.i64 notrap aligned v46+8
+    v53 = load.i64 notrap aligned v52+16
+    v54 = imul_imm v44, 8
+    v55 = iadd v53, v54
+    v56 = load.i64 notrap aligned v55
+    v57 = load.f32 notrap aligned v56+12
+    v58 = load.i64 notrap aligned v46+8
+    v59 = load.i64 notrap aligned v58+16
+    v60 = imul_imm v44, 8
+    v61 = iadd v59, v60
+    v62 = load.i64 notrap aligned v61
+    v63 = load.f32 notrap aligned v62+8
+    v64 = fadd v57, v63
+    v65 = load.f32 notrap aligned v46+40
+    v66 = fadd v64, v65
+    store notrap aligned v66, v51+12
+    v67 = iconst.i64 1
+    v68, v69 = uadd_overflow.i64 v40, v67  ; v67 = 1
+    jump block4(v68)
+
+block6:
+    v72 = load.i64 notrap aligned v46+16
+    v73 = global_value.i64 gv1
+    v74 = iconst.i64 11
+    call fn5(v73, v74)  ; v74 = 11
+    call fn4(v46)
+    call fn4(v1)
+    return
+}
+
+[2m2026-03-13T08:36:36.628685Z[0m [32m INFO[0m [2mmollie-compiler/adt_types[0m[2m:[0m Compiled `ArrayIter<Definition>` [3msize[0m[2m=[0m16 [3malign[0m[2m=[0m8
+[2m2026-03-13T08:36:36.628755Z[0m [32m INFO[0m [2mmollie-compiler/virtual_tables[0m[2m:[0m Compiling `Iterable` (<generic(0)>, <generic(1)>) for `Definition[]` (Definition[], Definition)
+normal construct: ArrayIter<<generic(1)>> => [(FieldRef(0), TypeRef(12), ExprRef(0)), (FieldRef(1), TypeRef(43), ExprRef(1))]
+[v1, v0]
+construct: ArrayIter<<generic(1)>> => [v1, v0]
+[2m2026-03-13T08:36:36.629209Z[0m [32m INFO[0m [2mcranelift_jit::backend[0m[2m:[0m defining function funcid28: function %VTableRef(3)_Definition[]Definition_iter(i64) -> i64 system_v {
+    sig0 = (i64) -> i64 system_v
+    sig1 = (i64, i64) -> i64 system_v
+    sig2 = (i64, i64) -> i64 system_v
+    sig3 = (i64) system_v
+    sig4 = (i64) system_v
+    fn0 = u0:1 sig0
+    fn1 = u0:2 sig1
+    fn2 = u0:3 sig2
+    fn3 = u0:4 sig3
+    fn4 = u0:5 sig4
+
+block0(v0: i64):
+    v1 = iconst.i64 0
+    v2 = iconst.i64 0x55b1_6db9_3260
+    v3 = call fn0(v2)  ; v2 = 0x55b1_6db9_3260
+    store notrap aligned v1, v3  ; v1 = 0
+    store notrap aligned v0, v3+8
+    return v3
+}
+
+[2m2026-03-13T08:36:36.631288Z[0m [32m INFO[0m [2mmollie-compiler/adt_types[0m[2m:[0m Compiled `Option<Definition>` [3msize[0m[2m=[0m16 [3malign[0m[2m=[0m8
+[2m2026-03-13T08:36:36.631354Z[0m [32m INFO[0m [2mmollie-compiler/virtual_tables[0m[2m:[0m Compiling `Iterator` (<generic(0)>, <generic(1)>) for `ArrayIter<Definition>` (ArrayIter<Definition>, Definition)
+(ArrayIter<<generic(1)>> -> 17008736845719861246).index
+(ArrayIter<<generic(1)>> -> 17008736845719861246).value
+normal construct: Option<<generic(1)>> => []
+[v6]
+construct: Option<<generic(1)>> => [v6]
+(ArrayIter<<generic(1)>> -> 17008736845719861246).value
+(ArrayIter<<generic(1)>> -> 17008736845719861246).index
+(ArrayIter<<generic(1)>> -> 17008736845719861246).index
+(ArrayIter<<generic(1)>> -> 17008736845719861246).index
+normal construct: Option<<generic(1)>> => [(FieldRef(0), TypeRef(12), ExprRef(18446744073709551615)), (FieldRef(1), TypeRef(39), ExprRef(20))]
+[v19, v14]
+construct: Option<<generic(1)>> => [v19, v14]
+[2m2026-03-13T08:36:36.632038Z[0m [32m INFO[0m [2mcranelift_jit::backend[0m[2m:[0m defining function funcid29: function %VTableRef(2)_ArrayIter<Definition>Definition_next(i64) -> i64 system_v {
+    sig0 = (i64) -> i64 system_v
+    sig1 = (i64, i64) -> i64 system_v
+    sig2 = (i64, i64) -> i64 system_v
+    sig3 = (i64) system_v
+    sig4 = (i64) system_v
+    sig5 = (i64) -> i64 system_v
+    fn0 = u0:1 sig0
+    fn1 = u0:2 sig1
+    fn2 = u0:3 sig2
+    fn3 = u0:4 sig3
+    fn4 = u0:5 sig4
+    fn5 = colocated u0:13 sig5
+
+block0(v0: i64):
+    v22 -> v0
+    call fn3(v0)
+    v1 = load.i64 notrap aligned v0
+    v2 = load.i64 notrap aligned v0+8
+    v3 = call fn5(v2)
+    v4 = icmp eq v1, v3
+    brif v4, block1, block3
+
+block1:
+    v6 = iconst.i64 1
+    v7 = iconst.i64 0x55b1_6db4_d0b0
+    v8 = call fn0(v7)  ; v7 = 0x55b1_6db4_d0b0
+    store notrap aligned v6, v8  ; v6 = 1
+    jump block2(v8)
+
+block3:
+    v9 = load.i64 notrap aligned v0+8
+    v10 = load.i64 notrap aligned v0
+    v11 = load.i64 notrap aligned v9+16
+    v12 = imul_imm v10, 8
+    v13 = iadd v11, v12
+    v14 = load.i64 notrap aligned v13
+    v15 = load.i64 notrap aligned v0
+    v16 = iconst.i64 1
+    v17, v18 = uadd_overflow v15, v16  ; v16 = 1
+    store notrap aligned v17, v0
+    v19 = iconst.i64 0
+    v20 = iconst.i64 0x55b1_6db4_d0b0
+    v21 = call fn0(v20)  ; v20 = 0x55b1_6db4_d0b0
+    store notrap aligned v19, v21  ; v19 = 0
+    store notrap aligned v14, v21+8
+    jump block2(v21)
+
+block2(v5: i64):
+    call fn4(v0)
+    return v5
+}
+
+resolve_stars
+vfunc for Definition[]
+vfunc for ArrayIter<Definition>
+(Definition -> 2020590049744279163).length
+(Definition -> 2020590049744279163).length
+vfunc for Definition[]
+vfunc for ArrayIter<Definition>
+(Definition -> 2020590049744279163).length
+(Definition -> 2020590049744279163).size
+[2m2026-03-13T08:36:36.639418Z[0m [32m INFO[0m [2mcranelift_jit::backend[0m[2m:[0m defining function funcid30: function %resolve_stars_Definition[]float(i64, f32) system_v {
+    sig0 = (i64) -> i64 system_v
+    sig1 = (i64, i64) -> i64 system_v
+    sig2 = (i64, i64) -> i64 system_v
+    sig3 = (i64) system_v
+    sig4 = (i64) system_v
+    sig5 = (i64) -> i64 system_v
+    sig6 = (i64) -> i64 system_v
+    fn0 = u0:1 sig0
+    fn1 = u0:2 sig1
+    fn2 = u0:3 sig2
+    fn3 = u0:4 sig3
+    fn4 = u0:5 sig4
+    fn5 = colocated u0:28 sig5
+    fn6 = colocated u0:29 sig6
+
+block0(v0: i64, v1: f32):
+    v116 = f32const 0.0
+    v115 -> v116
+    v107 = iconst.i64 0
+    v106 -> v107
+    v61 = f32const 0.0
+    v60 -> v61
+    v54 = f32const 0.0
+    v53 -> v54
+    v49 = iconst.i64 0
+    v48 -> v49
+    v2 = f32const 0.0
+    v3 = f32const 0.0
+    v4 = call fn5(v0)
+    v5 -> v4
+    v43 -> v5
+    v44 -> v5
+    v45 -> v5
+    v46 -> v5
+    v47 -> v5
+    call fn3(v4)
+    jump block1(v49, v3, v54, v2, v61, v1, v0, v107, v116)  ; v49 = 0, v3 = 0.0, v54 = 0.0, v2 = 0.0, v61 = 0.0, v107 = 0, v116 = 0.0
+
+block1(v12: i64, v20: f32, v23: f32, v34: f32, v38: f32, v65: f32, v73: i64, v105: i64, v114: f32):
+    v18 -> v20
+    v19 -> v20
+    v51 -> v20
+    v52 -> v20
+    v22 -> v23
+    v31 -> v34
+    v32 -> v34
+    v33 -> v34
+    v36 -> v38
+    v37 -> v38
+    v64 -> v65
+    v66 -> v64
+    v67 -> v64
+    v68 -> v64
+    v69 -> v64
+    v72 -> v73
+    v74 -> v72
+    v75 -> v72
+    v76 -> v72
+    v77 -> v72
+    v104 -> v105
+    v108 -> v104
+    v109 -> v104
+    v110 -> v104
+    v111 -> v104
+    v113 -> v114
+    v117 -> v113
+    v118 -> v113
+    v119 -> v113
+    v120 -> v113
+    v6 = call fn6(v5)
+    v7 = iconst.i64 0
+    v8 = load.i64 notrap aligned v6
+    v9 = icmp eq v8, v7  ; v7 = 0
+    brif v9, block4, block5
+
+block4:
+    v10 = load.i64 notrap aligned v6+8
+    jump block6(v10)
+
+block5:
+    jump block6(v12)
+
+block6(v11: i64):
+    v25 -> v11
+    v40 -> v11
+    v41 -> v11
+    v42 -> v11
+    brif.i8 v9, block2, block3
+
+block2:
+    v13 = load.i64 notrap aligned v11
+    v14 = iconst.i64 1
+    v15 = load.i64 notrap aligned v13
+    v16 = icmp eq v15, v14  ; v14 = 1
+    brif v16, block10, block11
+
+block10:
+    v17 = load.f32 notrap aligned v13+8
+    jump block12(v17)
+
+block11:
+    jump block12(v23)
+
+block12(v21: f32):
+    v55 -> v21
+    v56 -> v21
+    v57 -> v21
+    brif.i8 v16, block7, block9
+
+block7:
+    v24 = fadd.f32 v20, v21
+    jump block8(v24, v32, v36)
+
+block9:
+    v26 = load.i64 notrap aligned v11
+    v27 = iconst.i64 0
+    v28 = load.i64 notrap aligned v26
+    v29 = icmp eq v28, v27  ; v27 = 0
+    brif v29, block15, block16
+
+block15:
+    v30 = load.f32 notrap aligned v26+8
+    jump block17(v30)
+
+block16:
+    jump block17(v38)
+
+block17(v35: f32):
+    v63 -> v35
+    brif.i8 v29, block13, block14(v31)
+
+block13:
+    v39 = fadd.f32 v34, v35
+    jump block14(v39)
+
+block14(v59: f32):
+    jump block8(v20, v59, v35)
+
+block8(v50: f32, v58: f32, v62: f32):
+    call fn4(v11)
+    jump block1(v40, v50, v21, v58, v62, v64, v72, v104, v113)
+
+block3:
+    call fn4(v45)
+    v70 = fsub.f32 v65, v19
+    v71 = fdiv v70, v33
+    v95 -> v71
+    v93 -> v95
+    v94 -> v95
+    v112 -> v95
+    v78 = call fn5(v73)
+    v79 -> v78
+    v101 -> v79
+    v102 -> v79
+    v103 -> v79
+    call fn3(v78)
+    jump block18(v105, v114)
+
+block18(v86: i64, v98: f32):
+    v97 -> v98
+    v80 = call fn6(v79)
+    v81 = iconst.i64 0
+    v82 = load.i64 notrap aligned v80
+    v83 = icmp eq v82, v81  ; v81 = 0
+    brif v83, block21, block22
+
+block21:
+    v84 = load.i64 notrap aligned v80+8
+    jump block23(v84)
+
+block22:
+    jump block23(v86)
+
+block23(v85: i64):
+    v92 -> v85
+    v100 -> v85
+    brif.i8 v83, block19, block20
+
+block19:
+    v87 = load.i64 notrap aligned v85
+    v88 = iconst.i64 0
+    v89 = load.i64 notrap aligned v87
+    v90 = icmp eq v89, v88  ; v88 = 0
+    brif v90, block26, block27
+
+block26:
+    v91 = load.f32 notrap aligned v87+8
+    jump block28(v91)
+
+block27:
+    jump block28(v98)
+
+block28(v96: f32):
+    v121 -> v96
+    brif.i8 v90, block24, block25
+
+block24:
+    v99 = fmul.f32 v95, v96
+    store notrap aligned v99, v85+8
+    jump block25
+
+block25:
+    call fn4(v85)
+    jump block18(v100, v96)
+
+block20:
+    call fn4(v103)
+    return
+}
+
+[2m2026-03-13T08:36:36.652475Z[0m [32m INFO[0m [2mmollie-compiler/functions[0m[2m:[0m Compiled resolve_stars(Definition[], float) -> void [3mis_postfix[0m[2m=[0mfalse
+println_float
+[2m2026-03-13T08:36:36.652549Z[0m [32m INFO[0m [2mmollie-compiler/functions[0m[2m:[0m Compiled println_float(float) -> void [3mis_postfix[0m[2m=[0mfalse
+[2m2026-03-13T08:36:36.652595Z[0m [32m INFO[0m [2mmollie-compiler/virtual_tables[0m[2m:[0m Compiling `Drawable` (<generic(0)>) for `Grid` (Grid)
+vfunc for Grid
+vfunc for Grid
+(Grid -> 7517597234686296875).cell_groups
+(CellGroups -> 7429404473589006414).group_1
+(Grid -> 7517597234686296875).has_group3_cells_in_auto_rows
+[2m2026-03-13T08:36:36.653164Z[0m [33m WARN[0m [2mmollie_compiler::expr::binary[0m[2m:[0m unknown binary operation, falling back to integer operation [3mlhs[0m[2m=[0mboolean [3moperator[0m[2m=[0mEqual [3mrhs[0m[2m=[0mboolean
+(Grid -> 7517597234686296875).has_star_cells_v
+(Grid -> 7517597234686296875).rows
+(Size -> 5998588947030012346).height
+(Grid -> 7517597234686296875).rows
+(Grid -> 7517597234686296875).spacing
+vfunc for Grid
+(Grid -> 7517597234686296875).cell_groups
+(CellGroups -> 7429404473589006414).group_2
+(Grid -> 7517597234686296875).has_star_cells_u
+(Grid -> 7517597234686296875).columns
+(Size -> 5998588947030012346).width
+(Grid -> 7517597234686296875).columns
+(Grid -> 7517597234686296875).spacing
+vfunc for Grid
+(Grid -> 7517597234686296875).cell_groups
+(CellGroups -> 7429404473589006414).group_3
+vfunc for Grid
+(Grid -> 7517597234686296875).cell_groups
+(CellGroups -> 7429404473589006414).group_4
+normal construct: Size => [(FieldRef(0), TypeRef(13), ExprRef(80)), (FieldRef(1), TypeRef(13), ExprRef(81))]
+[v5, v6]
+construct: Size => [v5, v6]
+[2m2026-03-13T08:36:36.654822Z[0m [32m INFO[0m [2mcranelift_jit::backend[0m[2m:[0m defining function funcid31: function %VTableRef(16)_Grid_measure(i64, i64, i64) -> i64 system_v {
+    gv0 = symbol colocated userextname6
+    gv1 = symbol colocated userextname11
+    sig0 = (i64) -> i64 system_v
+    sig1 = (i64, i64) -> i64 system_v
+    sig2 = (i64, i64) -> i64 system_v
+    sig3 = (i64) system_v
+    sig4 = (i64) system_v
+    sig5 = (i64, i64) system_v
+    sig6 = (i64) system_v
+    sig7 = (i64, i64) system_v
+    sig8 = (i64, f32) system_v
+    sig9 = (i64) -> i64 system_v
+    fn0 = u0:1 sig0
+    fn1 = u0:2 sig1
+    fn2 = u0:3 sig2
+    fn3 = u0:4 sig3
+    fn4 = u0:5 sig4
+    fn5 = u0:7 sig5
+    fn6 = colocated u0:25 sig6
+    fn7 = colocated u0:26 sig7
+    fn8 = colocated u0:30 sig8
+    fn9 = colocated u0:13 sig9
+
+block0(v0: i64, v1: i64, v2: i64):
+    v25 -> v0
+    v42 -> v0
+    v45 -> v0
+    v30 -> v1
+    v58 -> v1
+    v59 -> v1
+    v60 -> v2
+    v61 -> v2
+    v62 -> v2
+    call fn3(v0)
+    call fn3(v1)
+    v3 = global_value.i64 gv0
+    v4 = iconst.i64 11
+    call fn5(v3, v4)  ; v4 = 11
+    v5 = f32const 0.0
+    v50 -> v5
+    v51 -> v5
+    v52 -> v5
+    v6 = f32const 0.0
+    v53 -> v6
+    v54 -> v6
+    v55 -> v6
+    call fn6(v0)
+    v7 = load.i64 notrap aligned v0+32
+    v8 = load.i64 notrap aligned v7
+    call fn7(v0, v8)
+    v9 = load.i8 notrap aligned v0+46
+    v10 = iconst.i8 0
+    v11 = icmp eq v9, v10  ; v10 = 0
+    brif v11, block1, block2
+
+block1:
+    v12 = load.i8 notrap aligned v0+45
+    brif v12, block3, block4
+
+block3:
+    v13 = load.i64 notrap aligned v0+8
+    v14 = load.f32 notrap aligned v1+4
+    v15 = load.i64 notrap aligned v0+8
+    v16 = call fn9(v15)
+    v17 = iconst.i64 1
+    v18, v19 = usub_overflow v16, v17  ; v17 = 1
+    v20 = ireduce.i32 v18
+    v21 = fcvt_from_uint.f32 v20
+    v22 = load.f32 notrap aligned v0+40
+    v23 = fmul v21, v22
+    v24 = fsub v14, v23
+    call fn8(v13, v24)
+    jump block4
+
+block4:
+    v26 = load.i64 notrap aligned v25+32
+    v27 = load.i64 notrap aligned v26+8
+    call fn7(v0, v27)
+    v28 = load.i8 notrap aligned v25+44
+    brif v28, block5, block6
+
+block5:
+    v29 = load.i64 notrap aligned v25
+    v31 = load.f32 notrap aligned v1
+    v32 = load.i64 notrap aligned v25
+    v33 = call fn9(v32)
+    v34 = iconst.i64 1
+    v35, v36 = usub_overflow v33, v34  ; v34 = 1
+    v37 = ireduce.i32 v35
+    v38 = fcvt_from_uint.f32 v37
+    v39 = load.f32 notrap aligned v25+40
+    v40 = fmul v38, v39
+    v41 = fsub v31, v40
+    call fn8(v29, v41)
+    jump block6
+
+block6:
+    v43 = load.i64 notrap aligned v42+32
+    v44 = load.i64 notrap aligned v43+16
+    call fn7(v0, v44)
+    jump block2
+
+block2:
+    v46 = load.i64 notrap aligned v45+32
+    v47 = load.i64 notrap aligned v46+24
+    call fn7(v0, v47)
+    v48 = global_value.i64 gv1
+    v49 = iconst.i64 11
+    call fn5(v48, v49)  ; v49 = 11
+    v56 = iconst.i64 0x55b1_6db5_a960
+    v57 = call fn0(v56)  ; v56 = 0x55b1_6db5_a960
+    store.f32 notrap aligned v5, v57  ; v5 = 0.0
+    store.f32 notrap aligned v6, v57+4  ; v6 = 0.0
+    call fn4(v45)
+    call fn4(v1)
+    call fn4(v2)
+    return v57
+}
+
+vfunc for Grid
+vfunc for Grid
+(Grid -> 7517597234686296875).children
+(Grid -> 7517597234686296875).children
+(GridItem -> 17948363097819896340).children
+(Grid -> 7517597234686296875).cells
+(Cell -> 1107557832007750400).size
+(Cell -> 1107557832007750400).size
+(Size -> 5998588947030012346).width
+(Cell -> 1107557832007750400).size
+(Size -> 5998588947030012346).height
+(Cell -> 1107557832007750400).position
+[2m2026-03-13T08:36:36.666356Z[0m [32m INFO[0m [2mcranelift_jit::backend[0m[2m:[0m defining function funcid32: function %VTableRef(16)_Grid_render(i64, i64, i64, i64) system_v {
+    gv0 = symbol colocated userextname6
+    gv1 = symbol colocated userextname10
+    gv2 = symbol colocated userextname11
+    gv3 = symbol colocated userextname12
+    gv4 = symbol colocated userextname13
+    gv5 = symbol colocated userextname15
+    gv6 = symbol colocated userextname16
+    gv7 = symbol colocated userextname17
+    gv8 = symbol colocated userextname18
+    gv9 = symbol colocated userextname19
+    sig0 = (i64) -> i64 system_v
+    sig1 = (i64, i64) -> i64 system_v
+    sig2 = (i64, i64) -> i64 system_v
+    sig3 = (i64) system_v
+    sig4 = (i64) system_v
+    sig5 = (i64, i64) system_v
+    sig6 = (i64, i64, i64) -> i64 system_v
+    sig7 = (i64, i64) system_v
+    sig8 = (i64) -> i64 system_v
+    sig9 = (f32) system_v
+    sig10 = (i64, i64, i64) -> i64 system_v
+    sig11 = (i64, i64, i64, i64) system_v
+    fn0 = u0:1 sig0
+    fn1 = u0:2 sig1
+    fn2 = u0:3 sig2
+    fn3 = u0:4 sig3
+    fn4 = u0:5 sig4
+    fn5 = u0:7 sig5
+    fn6 = colocated u0:31 sig6
+    fn7 = colocated u0:27 sig7
+    fn8 = colocated u0:13 sig8
+    fn9 = u0:10 sig9
+
+block0(v0: i64, v1: i64, v2: i64, v3: i64):
+    v15 -> v0
+    v57 -> v1
+    v58 -> v2
+    v40 -> v3
+    call fn3(v0)
+    call fn3(v1)
+    call fn3(v2)
+    v4 = global_value.i64 gv0
+    v5 = iconst.i64 10
+    call fn5(v4, v5)  ; v5 = 10
+    v6 = call fn6(v0, v2, v3)
+    call fn7(v0, v1)
+    v7 = load.i64 notrap aligned v0+24
+    v8 = call fn8(v7)
+    v11 -> v8
+    v9 = iconst.i64 0
+    jump block1(v9)  ; v9 = 0
+
+block1(v10: i64):
+    v12 = icmp ult v10, v11
+    brif v12, block2, block3
+
+block2:
+    v13 = global_value.i64 gv1
+    v14 = iconst.i64 12
+    call fn5(v13, v14)  ; v14 = 12
+    v16 = load.i64 notrap aligned v15+24
+    v17 = load.i64 notrap aligned v16+16
+    v18 = imul_imm.i64 v10, 8
+    v19 = iadd v17, v18
+    v20 = load.i64 notrap aligned v19
+    v21 = load.i64 notrap aligned v20+32
+    v22 = load.i64 notrap aligned v20+40
+    v23 = global_value.i64 gv2
+    v24 = iconst.i64 16
+    call fn5(v23, v24)  ; v24 = 16
+    v25 = load.i64 notrap aligned v15+16
+    v26 = load.i64 notrap aligned v25+16
+    v27 = imul_imm.i64 v10, 8
+    v28 = iadd v26, v27
+    v29 = load.i64 notrap aligned v28
+    call fn3(v29)
+    v30 = global_value.i64 gv3
+    v31 = iconst.i64 15
+    call fn5(v30, v31)  ; v31 = 15
+    v32 = load.i64 notrap aligned v29+8
+    call fn3(v32)
+    v33 = global_value.i64 gv4
+    v34 = iconst.i64 15
+    call fn5(v33, v34)  ; v34 = 15
+    v35 = load.i64 notrap aligned v29+8
+    v36 = load.f32 notrap aligned v35
+    call fn9(v36)
+    v37 = load.i64 notrap aligned v29+8
+    v38 = load.f32 notrap aligned v37+4
+    call fn9(v38)
+    v39 = load.i64 notrap aligned v22+8
+    v41 = call_indirect sig10, v39(v21, v32, v40)
+    call fn3(v41)
+    v42 = global_value.i64 gv5
+    v43 = iconst.i64 18
+    call fn5(v42, v43)  ; v43 = 18
+    v44 = global_value.i64 gv6
+    v45 = iconst.i64 16
+    call fn5(v44, v45)  ; v45 = 16
+    v46 = load.i64 notrap aligned v22+16
+    v47 = load.i64 notrap aligned v29
+    call_indirect sig11, v46(v21, v47, v41, v40)
+    v48 = global_value.i64 gv7
+    v49 = iconst.i64 16
+    call fn5(v48, v49)  ; v49 = 16
+    v50 = iconst.i64 1
+    v51, v52 = uadd_overflow.i64 v10, v50  ; v50 = 1
+    v53 = global_value.i64 gv8
+    v54 = iconst.i64 12
+    call fn5(v53, v54)  ; v54 = 12
+    call fn4(v29)
+    call fn4(v32)
+    call fn4(v41)
+    jump block1(v51)
+
+block3:
+    v55 = global_value.i64 gv9
+    v56 = iconst.i64 10
+    call fn5(v55, v56)  ; v56 = 10
+    call fn4(v15)
+    call fn4(v1)
+    call fn4(v2)
+    call fn4(v40)
+    return
+}
+
+normal construct: Grid => [(FieldRef(0), TypeRef(74), ExprRef(21)), (FieldRef(1), TypeRef(74), ExprRef(37)), (FieldRef(2), TypeRef(75), ExprRef(18446744073709551615)), (FieldRef(3), TypeRef(77), ExprRef(193)), (FieldRef(4), TypeRef(78), ExprRef(18446744073709551615)), (FieldRef(5), TypeRef(13), ExprRef(194)), (FieldRef(6), TypeRef(2), ExprRef(18446744073709551615)), (FieldRef(7), TypeRef(2), ExprRef(18446744073709551615)), (FieldRef(8), TypeRef(2), ExprRef(18446744073709551615))]
+Compiling array of Definition
+vfunc for Definition
+vfunc for Definition
+vfunc for Definition
+Compiling array of Definition
+vfunc for Definition
+vfunc for Definition
+vfunc for Definition
+Compiling array of GridItem
+normal construct: GridItem => [(FieldRef(0), TypeRef(12), ExprRef(18446744073709551615)), (FieldRef(1), TypeRef(12), ExprRef(18446744073709551615)), (FieldRef(2), TypeRef(12), ExprRef(18446744073709551615)), (FieldRef(3), TypeRef(12), ExprRef(18446744073709551615)), (FieldRef(4), TypeRef(49), ExprRef(54))]
+normal construct: Rectangle => [(FieldRef(0), TypeRef(45), ExprRef(40)), (FieldRef(1), TypeRef(45), ExprRef(43)), (FieldRef(2), TypeRef(33), ExprRef(48)), (FieldRef(3), TypeRef(34), ExprRef(53))]
+normal construct: CornerRadius => [(FieldRef(0), TypeRef(13), ExprRef(44)), (FieldRef(1), TypeRef(13), ExprRef(45)), (FieldRef(2), TypeRef(13), ExprRef(46)), (FieldRef(3), TypeRef(13), ExprRef(47))]
+[v78, v79, v80, v81]
+construct: CornerRadius => [v78, v79, v80, v81]
+vfunc for Color
+[v75, v77, v83, v87]
+construct: Rectangle => [v75, v77, v83, v87]
+[v70, v71, v72, v73, v89, v90]
+construct: GridItem => [v70, v71, v72, v73, v89, v90]
+normal construct: GridItem => [(FieldRef(0), TypeRef(12), ExprRef(18446744073709551615)), (FieldRef(1), TypeRef(12), ExprRef(18446744073709551615)), (FieldRef(2), TypeRef(12), ExprRef(56)), (FieldRef(3), TypeRef(12), ExprRef(18446744073709551615)), (FieldRef(4), TypeRef(49), ExprRef(73))]
+normal construct: Rectangle => [(FieldRef(0), TypeRef(45), ExprRef(59)), (FieldRef(1), TypeRef(45), ExprRef(62)), (FieldRef(2), TypeRef(33), ExprRef(67)), (FieldRef(3), TypeRef(34), ExprRef(72))]
+normal construct: CornerRadius => [(FieldRef(0), TypeRef(13), ExprRef(63)), (FieldRef(1), TypeRef(13), ExprRef(64)), (FieldRef(2), TypeRef(13), ExprRef(65)), (FieldRef(3), TypeRef(13), ExprRef(66))]
+[v101, v102, v103, v104]
+construct: CornerRadius => [v101, v102, v103, v104]
+vfunc for Color
+[v98, v100, v106, v110]
+construct: Rectangle => [v98, v100, v106, v110]
+[v93, v94, v95, v96, v112, v113]
+construct: GridItem => [v93, v94, v95, v96, v112, v113]
+normal construct: GridItem => [(FieldRef(0), TypeRef(12), ExprRef(18446744073709551615)), (FieldRef(1), TypeRef(12), ExprRef(18446744073709551615)), (FieldRef(2), TypeRef(12), ExprRef(75)), (FieldRef(3), TypeRef(12), ExprRef(18446744073709551615)), (FieldRef(4), TypeRef(49), ExprRef(92))]
+normal construct: Rectangle => [(FieldRef(0), TypeRef(45), ExprRef(78)), (FieldRef(1), TypeRef(45), ExprRef(81)), (FieldRef(2), TypeRef(33), ExprRef(86)), (FieldRef(3), TypeRef(34), ExprRef(91))]
+normal construct: CornerRadius => [(FieldRef(0), TypeRef(13), ExprRef(82)), (FieldRef(1), TypeRef(13), ExprRef(83)), (FieldRef(2), TypeRef(13), ExprRef(84)), (FieldRef(3), TypeRef(13), ExprRef(85))]
+[v124, v125, v126, v127]
+construct: CornerRadius => [v124, v125, v126, v127]
+vfunc for Color
+[v121, v123, v129, v133]
+construct: Rectangle => [v121, v123, v129, v133]
+[v116, v117, v118, v119, v135, v136]
+construct: GridItem => [v116, v117, v118, v119, v135, v136]
+normal construct: GridItem => [(FieldRef(0), TypeRef(12), ExprRef(94)), (FieldRef(1), TypeRef(12), ExprRef(18446744073709551615)), (FieldRef(2), TypeRef(12), ExprRef(18446744073709551615)), (FieldRef(3), TypeRef(12), ExprRef(18446744073709551615)), (FieldRef(4), TypeRef(49), ExprRef(111))]
+normal construct: Rectangle => [(FieldRef(0), TypeRef(45), ExprRef(97)), (FieldRef(1), TypeRef(45), ExprRef(100)), (FieldRef(2), TypeRef(33), ExprRef(105)), (FieldRef(3), TypeRef(34), ExprRef(110))]
+normal construct: CornerRadius => [(FieldRef(0), TypeRef(13), ExprRef(101)), (FieldRef(1), TypeRef(13), ExprRef(102)), (FieldRef(2), TypeRef(13), ExprRef(103)), (FieldRef(3), TypeRef(13), ExprRef(104))]
+[v147, v148, v149, v150]
+construct: CornerRadius => [v147, v148, v149, v150]
+vfunc for Color
+[v144, v146, v152, v156]
+construct: Rectangle => [v144, v146, v152, v156]
+[v139, v140, v141, v142, v158, v159]
+construct: GridItem => [v139, v140, v141, v142, v158, v159]
+normal construct: GridItem => [(FieldRef(0), TypeRef(12), ExprRef(113)), (FieldRef(1), TypeRef(12), ExprRef(18446744073709551615)), (FieldRef(2), TypeRef(12), ExprRef(114)), (FieldRef(3), TypeRef(12), ExprRef(18446744073709551615)), (FieldRef(4), TypeRef(49), ExprRef(131))]
+normal construct: Rectangle => [(FieldRef(0), TypeRef(45), ExprRef(117)), (FieldRef(1), TypeRef(45), ExprRef(120)), (FieldRef(2), TypeRef(33), ExprRef(125)), (FieldRef(3), TypeRef(34), ExprRef(130))]
+normal construct: CornerRadius => [(FieldRef(0), TypeRef(13), ExprRef(121)), (FieldRef(1), TypeRef(13), ExprRef(122)), (FieldRef(2), TypeRef(13), ExprRef(123)), (FieldRef(3), TypeRef(13), ExprRef(124))]
+[v170, v171, v172, v173]
+construct: CornerRadius => [v170, v171, v172, v173]
+vfunc for Color
+[v167, v169, v175, v179]
+construct: Rectangle => [v167, v169, v175, v179]
+[v162, v163, v164, v165, v181, v182]
+construct: GridItem => [v162, v163, v164, v165, v181, v182]
+normal construct: GridItem => [(FieldRef(0), TypeRef(12), ExprRef(133)), (FieldRef(1), TypeRef(12), ExprRef(134)), (FieldRef(2), TypeRef(12), ExprRef(135)), (FieldRef(3), TypeRef(12), ExprRef(18446744073709551615)), (FieldRef(4), TypeRef(49), ExprRef(152))]
+normal construct: Rectangle => [(FieldRef(0), TypeRef(45), ExprRef(138)), (FieldRef(1), TypeRef(45), ExprRef(141)), (FieldRef(2), TypeRef(33), ExprRef(146)), (FieldRef(3), TypeRef(34), ExprRef(151))]
+normal construct: CornerRadius => [(FieldRef(0), TypeRef(13), ExprRef(142)), (FieldRef(1), TypeRef(13), ExprRef(143)), (FieldRef(2), TypeRef(13), ExprRef(144)), (FieldRef(3), TypeRef(13), ExprRef(145))]
+[v193, v194, v195, v196]
+construct: CornerRadius => [v193, v194, v195, v196]
+vfunc for Color
+[v190, v192, v198, v202]
+construct: Rectangle => [v190, v192, v198, v202]
+[v185, v186, v187, v188, v204, v205]
+construct: GridItem => [v185, v186, v187, v188, v204, v205]
+normal construct: GridItem => [(FieldRef(0), TypeRef(12), ExprRef(154)), (FieldRef(1), TypeRef(12), ExprRef(18446744073709551615)), (FieldRef(2), TypeRef(12), ExprRef(18446744073709551615)), (FieldRef(3), TypeRef(12), ExprRef(18446744073709551615)), (FieldRef(4), TypeRef(49), ExprRef(171))]
+normal construct: Rectangle => [(FieldRef(0), TypeRef(45), ExprRef(157)), (FieldRef(1), TypeRef(45), ExprRef(160)), (FieldRef(2), TypeRef(33), ExprRef(165)), (FieldRef(3), TypeRef(34), ExprRef(170))]
+normal construct: CornerRadius => [(FieldRef(0), TypeRef(13), ExprRef(161)), (FieldRef(1), TypeRef(13), ExprRef(162)), (FieldRef(2), TypeRef(13), ExprRef(163)), (FieldRef(3), TypeRef(13), ExprRef(164))]
+[v216, v217, v218, v219]
+construct: CornerRadius => [v216, v217, v218, v219]
+vfunc for Color
+[v213, v215, v221, v225]
+construct: Rectangle => [v213, v215, v221, v225]
+[v208, v209, v210, v211, v227, v228]
+construct: GridItem => [v208, v209, v210, v211, v227, v228]
+normal construct: GridItem => [(FieldRef(0), TypeRef(12), ExprRef(173)), (FieldRef(1), TypeRef(12), ExprRef(18446744073709551615)), (FieldRef(2), TypeRef(12), ExprRef(174)), (FieldRef(3), TypeRef(12), ExprRef(18446744073709551615)), (FieldRef(4), TypeRef(49), ExprRef(191))]
+normal construct: Rectangle => [(FieldRef(0), TypeRef(45), ExprRef(177)), (FieldRef(1), TypeRef(45), ExprRef(180)), (FieldRef(2), TypeRef(33), ExprRef(185)), (FieldRef(3), TypeRef(34), ExprRef(190))]
+normal construct: CornerRadius => [(FieldRef(0), TypeRef(13), ExprRef(181)), (FieldRef(1), TypeRef(13), ExprRef(182)), (FieldRef(2), TypeRef(13), ExprRef(183)), (FieldRef(3), TypeRef(13), ExprRef(184))]
+[v239, v240, v241, v242]
+construct: CornerRadius => [v239, v240, v241, v242]
+vfunc for Color
+[v236, v238, v244, v248]
+construct: Rectangle => [v236, v238, v244, v248]
+[v231, v232, v233, v234, v250, v251]
+construct: GridItem => [v231, v232, v233, v234, v250, v251]
+const construct: CellGroups => [None, None, None, None]
+const construct: Option<usize> => []
+construct: Option<usize> => [v258]
+const construct: Option<usize> => []
+construct: Option<usize> => [v261]
+const construct: Option<usize> => []
+construct: Option<usize> => [v264]
+const construct: Option<usize> => []
+construct: Option<usize> => [v267]
+construct: CellGroups => [v260, v263, v266, v269]
+[v51, v64, v68, v256, v271, v272, v273, v274, v275]
+construct: Grid => [v51, v64, v68, v256, v271, v272, v273, v274, v275]
+[2m2026-03-13T08:36:36.705964Z[0m [32m INFO[0m [2mcranelift_jit::backend[0m[2m:[0m defining function funcid33: function %<main>(i64) -> i64 system_v {
+    gv0 = symbol colocated userextname5
+    gv1 = symbol colocated userextname7
+    gv2 = symbol colocated userextname9
+    gv3 = symbol colocated userextname12
+    gv4 = symbol colocated userextname16
+    gv5 = symbol colocated userextname19
+    gv6 = symbol colocated userextname23
+    gv7 = symbol colocated userextname25
+    gv8 = symbol colocated userextname27
+    gv9 = symbol colocated userextname31
+    gv10 = symbol colocated userextname16
+    gv11 = symbol colocated userextname16
+    gv12 = symbol colocated userextname16
+    gv13 = symbol colocated userextname16
+    gv14 = symbol colocated userextname16
+    gv15 = symbol colocated userextname16
+    gv16 = symbol colocated userextname16
+    gv17 = symbol colocated userextname16
+    sig0 = (i64) -> i64 system_v
+    sig1 = (i64, i64) -> i64 system_v
+    sig2 = (i64, i64) -> i64 system_v
+    sig3 = (i64) system_v
+    sig4 = (i64) system_v
+    sig5 = (i64) -> i64 system_v
+    sig6 = (i8, i8, i8) -> i64 system_v
+    sig7 = (i64, f32) -> f32 system_v
+    sig8 = (i64) -> i8 system_v
+    sig9 = (i64, f32, f32, f32, f32, i64, i64) system_v
+    sig10 = (i64, f32, f32, f32, f32, i64) system_v
+    sig11 = (i64, i64) -> i64 system_v
+    sig12 = (i64, i64, i64) -> i64 system_v
+    sig13 = (i64, i64, i64, i64) system_v
+    sig14 = (i64) system_v
+    sig15 = (i64, i64) system_v
+    sig16 = (i64, i64) system_v
+    sig17 = (i64) -> i64 system_v
+    sig18 = (i64) -> i64 system_v
+    sig19 = (i64, i64, i64) -> i64 system_v
+    sig20 = (i64, i64, i64, i64) system_v
+    sig21 = (i64, i64) system_v
+    sig22 = (i64) -> i64 system_v
+    sig23 = (f32) -> i64 system_v
+    sig24 = (f32) -> i64 system_v
+    sig25 = (i8, i8, i8) -> i64 system_v
+    fn0 = u0:1 sig0
+    fn1 = u0:2 sig1
+    fn2 = u0:3 sig2
+    fn3 = u0:4 sig3
+    fn4 = u0:5 sig4
+    fn5 = colocated u0:16 sig5
+    fn6 = colocated u0:17 sig6
+    fn7 = colocated u0:18 sig7
+    fn8 = colocated u0:19 sig8
+    fn9 = u0:20 sig9
+    fn10 = u0:21 sig10
+    fn11 = u0:22 sig11
+    fn12 = colocated u0:23 sig12
+    fn13 = colocated u0:24 sig13
+    fn14 = colocated u0:25 sig14
+    fn15 = colocated u0:26 sig15
+    fn16 = colocated u0:27 sig16
+    fn17 = colocated u0:28 sig17
+    fn18 = colocated u0:29 sig18
+    fn19 = colocated u0:31 sig19
+    fn20 = colocated u0:32 sig20
+    fn21 = u0:7 sig21
+    fn22 = colocated u0:16 sig22
+    fn23 = colocated u0:14 sig23
+    fn24 = colocated u0:15 sig24
+    fn25 = colocated u0:17 sig25
+
+block0(v0: i64):
+    v1 = global_value.i64 gv0
+    v2 = iconst.i64 0x1c0a_93f1_d7b2_567b
+    store notrap aligned v2, v1  ; v2 = 0x1c0a_93f1_d7b2_567b
+    v3 = func_addr.i64 fn5
+    store notrap aligned v3, v1+8
+    v4 = global_value.i64 gv1
+    v5 = iconst.i64 0x69da_cadd_9dfc_ca64
+    store notrap aligned v5, v4  ; v5 = 0x69da_cadd_9dfc_ca64
+    v6 = func_addr.i64 fn6
+    store notrap aligned v6, v4+8
+    v7 = global_value.i64 gv2
+    v8 = iconst.i64 -9067692640311865959
+    store notrap aligned v8, v7  ; v8 = -9067692640311865959
+    v9 = func_addr.i64 fn7
+    store notrap aligned v9, v7+8
+    v10 = func_addr.i64 fn8
+    store notrap aligned v10, v7+16
+    v11 = global_value.i64 gv3
+    v12 = iconst.i64 -1212921125130183429
+    store notrap aligned v12, v11  ; v12 = -1212921125130183429
+    v13 = func_addr.i64 fn9
+    store notrap aligned v13, v11+8
+    v14 = func_addr.i64 fn10
+    store notrap aligned v14, v11+16
+    v15 = func_addr.i64 fn11
+    store notrap aligned v15, v11+24
+    v16 = global_value.i64 gv4
+    v17 = iconst.i64 0x018c_f444_39d3_521c
+    store notrap aligned v17, v16  ; v17 = 0x018c_f444_39d3_521c
+    v18 = func_addr.i64 fn12
+    store notrap aligned v18, v16+8
+    v19 = func_addr.i64 fn13
+    store notrap aligned v19, v16+16
+    v20 = global_value.i64 gv5
+    v21 = iconst.i64 0x6853_deda_e1ef_832b
+    store notrap aligned v21, v20  ; v21 = 0x6853_deda_e1ef_832b
+    v22 = func_addr.i64 fn14
+    store notrap aligned v22, v20+8
+    v23 = func_addr.i64 fn15
+    store notrap aligned v23, v20+16
+    v24 = func_addr.i64 fn16
+    store notrap aligned v24, v20+24
+    v25 = global_value.i64 gv6
+    v26 = iconst.i64 -8832549794986779818
+    store notrap aligned v26, v25  ; v26 = -8832549794986779818
+    v27 = func_addr.i64 fn17
+    store notrap aligned v27, v25+8
+    v28 = global_value.i64 gv7
+    v29 = iconst.i64 -1438007227989690370
+    store notrap aligned v29, v28  ; v29 = -1438007227989690370
+    v30 = func_addr.i64 fn18
+    store notrap aligned v30, v28+8
+    v31 = global_value.i64 gv8
+    v32 = iconst.i64 0x6853_deda_e1ef_832b
+    store notrap aligned v32, v31  ; v32 = 0x6853_deda_e1ef_832b
+    v33 = func_addr.i64 fn19
+    store notrap aligned v33, v31+8
+    v34 = func_addr.i64 fn20
+    store notrap aligned v34, v31+16
+    v35 = iconst.i32 0
+    v36 = iconst.i32 1
+    v37 = iconst.i32 4
+    v38 = global_value.i64 gv9
+    v39 = iconst.i64 17
+    call fn21(v38, v39)  ; v39 = 17
+    v40 = f32const 0x1.000000p8
+    v41 = call fn23(v40)  ; v40 = 0x1.000000p8
+    v42 = call fn22(v41)
+    v43 = f32const 0x1.000000p0
+    v44 = call fn24(v43)  ; v43 = 0x1.000000p0
+    v45 = call fn22(v44)
+    v46 = f32const 0x1.900000p6
+    v47 = call fn23(v46)  ; v46 = 0x1.900000p6
+    v48 = call fn22(v47)
+    v49 = iconst.i64 0x55b1_6db2_7410
+    v50 = iconst.i64 3
+    v51 = call fn1(v49, v50)  ; v49 = 0x55b1_6db2_7410, v50 = 3
+    v52 = load.i64 notrap aligned v51+16
+    store notrap aligned v42, v52
+    store notrap aligned v45, v52+8
+    store notrap aligned v48, v52+16
+    v53 = f32const 0x1.000000p6
+    v54 = call fn23(v53)  ; v53 = 0x1.000000p6
+    v55 = call fn22(v54)
+    v56 = f32const 0x1.000000p0
+    v57 = call fn24(v56)  ; v56 = 0x1.000000p0
+    v58 = call fn22(v57)
+    v59 = f32const 0x1.800000p5
+    v60 = call fn23(v59)  ; v59 = 0x1.800000p5
+    v61 = call fn22(v60)
+    v62 = iconst.i64 0x55b1_6db2_7410
+    v63 = iconst.i64 3
+    v64 = call fn1(v62, v63)  ; v62 = 0x55b1_6db2_7410, v63 = 3
+    v65 = load.i64 notrap aligned v64+16
+    store notrap aligned v55, v65
+    store notrap aligned v58, v65+8
+    store notrap aligned v61, v65+16
+    v66 = iconst.i64 0
+    v67 = iconst.i64 0x55b1_6db2_7410
+    v68 = call fn1(v67, v66)  ; v67 = 0x55b1_6db2_7410, v66 = 0
+    v69 = load.i64 notrap aligned v68+16
+    v70 = iconst.i64 0
+    v71 = iconst.i64 1
+    v72 = iconst.i64 0
+    v73 = iconst.i64 1
+    v74 = f32const 0x1.000000p0
+    v75 = call fn24(v74)  ; v74 = 0x1.000000p0
+    v76 = f32const 0x1.000000p0
+    v77 = call fn24(v76)  ; v76 = 0x1.000000p0
+    v78 = f32const 0x1.800000p4
+    v79 = f32const 0x1.800000p3
+    v80 = f32const 0x1.800000p3
+    v81 = f32const 0x1.800000p3
+    v82 = iconst.i64 0x55b1_6db3_c570
+    v83 = call fn0(v82)  ; v82 = 0x55b1_6db3_c570
+    store notrap aligned v78, v83  ; v78 = 0x1.800000p4
+    store notrap aligned v79, v83+4  ; v79 = 0x1.800000p3
+    store notrap aligned v80, v83+8  ; v80 = 0x1.800000p3
+    store notrap aligned v81, v83+12  ; v81 = 0x1.800000p3
+    v84 = iconst.i8 0
+    v85 = iconst.i8 -1
+    v86 = iconst.i8 0
+    v87 = call fn25(v84, v85, v86)  ; v84 = 0, v85 = -1, v86 = 0
+    v88 = iconst.i64 0x55b1_6db3_8c30
+    v89 = call fn0(v88)  ; v88 = 0x55b1_6db3_8c30
+    store notrap aligned v75, v89
+    store notrap aligned v77, v89+8
+    store notrap aligned v83, v89+16
+    store notrap aligned v87, v89+24
+    v90 = global_value.i64 gv10
+    v91 = iconst.i64 0x55b1_6db3_33b0
+    v92 = call fn0(v91)  ; v91 = 0x55b1_6db3_33b0
+    store notrap aligned v70, v92  ; v70 = 0
+    store notrap aligned v71, v92+8  ; v71 = 1
+    store notrap aligned v72, v92+16  ; v72 = 0
+    store notrap aligned v73, v92+24  ; v73 = 1
+    store notrap aligned v89, v92+32
+    store notrap aligned v90, v92+40
+    v93 = iconst.i64 0
+    v94 = iconst.i64 1
+    v95 = iconst.i64 1
+    v96 = iconst.i64 1
+    v97 = f32const 0x1.000000p0
+    v98 = call fn24(v97)  ; v97 = 0x1.000000p0
+    v99 = f32const 0x1.000000p0
+    v100 = call fn24(v99)  ; v99 = 0x1.000000p0
+    v101 = f32const 0x1.800000p3
+    v102 = f32const 0x1.800000p3
+    v103 = f32const 0x1.800000p3
+    v104 = f32const 0x1.800000p3
+    v105 = iconst.i64 0x55b1_6db3_c570
+    v106 = call fn0(v105)  ; v105 = 0x55b1_6db3_c570
+    store notrap aligned v101, v106  ; v101 = 0x1.800000p3
+    store notrap aligned v102, v106+4  ; v102 = 0x1.800000p3
+    store notrap aligned v103, v106+8  ; v103 = 0x1.800000p3
+    store notrap aligned v104, v106+12  ; v104 = 0x1.800000p3
+    v107 = iconst.i8 0
+    v108 = iconst.i8 -1
+    v109 = iconst.i8 0
+    v110 = call fn25(v107, v108, v109)  ; v107 = 0, v108 = -1, v109 = 0
+    v111 = iconst.i64 0x55b1_6db3_8c30
+    v112 = call fn0(v111)  ; v111 = 0x55b1_6db3_8c30
+    store notrap aligned v98, v112
+    store notrap aligned v100, v112+8
+    store notrap aligned v106, v112+16
+    store notrap aligned v110, v112+24
+    v113 = global_value.i64 gv11
+    v114 = iconst.i64 0x55b1_6db3_33b0
+    v115 = call fn0(v114)  ; v114 = 0x55b1_6db3_33b0
+    store notrap aligned v93, v115  ; v93 = 0
+    store notrap aligned v94, v115+8  ; v94 = 1
+    store notrap aligned v95, v115+16  ; v95 = 1
+    store notrap aligned v96, v115+24  ; v96 = 1
+    store notrap aligned v112, v115+32
+    store notrap aligned v113, v115+40
+    v116 = iconst.i64 0
+    v117 = iconst.i64 1
+    v118 = iconst.i64 2
+    v119 = iconst.i64 1
+    v120 = f32const 0x1.000000p0
+    v121 = call fn24(v120)  ; v120 = 0x1.000000p0
+    v122 = f32const 0x1.000000p0
+    v123 = call fn24(v122)  ; v122 = 0x1.000000p0
+    v124 = f32const 0x1.800000p3
+    v125 = f32const 0x1.800000p4
+    v126 = f32const 0x1.800000p3
+    v127 = f32const 0x1.800000p3
+    v128 = iconst.i64 0x55b1_6db3_c570
+    v129 = call fn0(v128)  ; v128 = 0x55b1_6db3_c570
+    store notrap aligned v124, v129  ; v124 = 0x1.800000p3
+    store notrap aligned v125, v129+4  ; v125 = 0x1.800000p4
+    store notrap aligned v126, v129+8  ; v126 = 0x1.800000p3
+    store notrap aligned v127, v129+12  ; v127 = 0x1.800000p3
+    v130 = iconst.i8 0
+    v131 = iconst.i8 -1
+    v132 = iconst.i8 0
+    v133 = call fn25(v130, v131, v132)  ; v130 = 0, v131 = -1, v132 = 0
+    v134 = iconst.i64 0x55b1_6db3_8c30
+    v135 = call fn0(v134)  ; v134 = 0x55b1_6db3_8c30
+    store notrap aligned v121, v135
+    store notrap aligned v123, v135+8
+    store notrap aligned v129, v135+16
+    store notrap aligned v133, v135+24
+    v136 = global_value.i64 gv12
+    v137 = iconst.i64 0x55b1_6db3_33b0
+    v138 = call fn0(v137)  ; v137 = 0x55b1_6db3_33b0
+    store notrap aligned v116, v138  ; v116 = 0
+    store notrap aligned v117, v138+8  ; v117 = 1
+    store notrap aligned v118, v138+16  ; v118 = 2
+    store notrap aligned v119, v138+24  ; v119 = 1
+    store notrap aligned v135, v138+32
+    store notrap aligned v136, v138+40
+    v139 = iconst.i64 1
+    v140 = iconst.i64 1
+    v141 = iconst.i64 0
+    v142 = iconst.i64 1
+    v143 = f32const 0x1.000000p0
+    v144 = call fn24(v143)  ; v143 = 0x1.000000p0
+    v145 = f32const 0x1.000000p0
+    v146 = call fn24(v145)  ; v145 = 0x1.000000p0
+    v147 = f32const 0x1.800000p3
+    v148 = f32const 0x1.800000p3
+    v149 = f32const 0x1.800000p3
+    v150 = f32const 0x1.800000p4
+    v151 = iconst.i64 0x55b1_6db3_c570
+    v152 = call fn0(v151)  ; v151 = 0x55b1_6db3_c570
+    store notrap aligned v147, v152  ; v147 = 0x1.800000p3
+    store notrap aligned v148, v152+4  ; v148 = 0x1.800000p3
+    store notrap aligned v149, v152+8  ; v149 = 0x1.800000p3
+    store notrap aligned v150, v152+12  ; v150 = 0x1.800000p4
+    v153 = iconst.i8 0
+    v154 = iconst.i8 -1
+    v155 = iconst.i8 0
+    v156 = call fn25(v153, v154, v155)  ; v153 = 0, v154 = -1, v155 = 0
+    v157 = iconst.i64 0x55b1_6db3_8c30
+    v158 = call fn0(v157)  ; v157 = 0x55b1_6db3_8c30
+    store notrap aligned v144, v158
+    store notrap aligned v146, v158+8
+    store notrap aligned v152, v158+16
+    store notrap aligned v156, v158+24
+    v159 = global_value.i64 gv13
+    v160 = iconst.i64 0x55b1_6db3_33b0
+    v161 = call fn0(v160)  ; v160 = 0x55b1_6db3_33b0
+    store notrap aligned v139, v161  ; v139 = 1
+    store notrap aligned v140, v161+8  ; v140 = 1
+    store notrap aligned v141, v161+16  ; v141 = 0
+    store notrap aligned v142, v161+24  ; v142 = 1
+    store notrap aligned v158, v161+32
+    store notrap aligned v159, v161+40
+    v162 = iconst.i64 1
+    v163 = iconst.i64 1
+    v164 = iconst.i64 1
+    v165 = iconst.i64 1
+    v166 = f32const 0x1.000000p0
+    v167 = call fn24(v166)  ; v166 = 0x1.000000p0
+    v168 = f32const 0x1.000000p0
+    v169 = call fn24(v168)  ; v168 = 0x1.000000p0
+    v170 = f32const 0x1.800000p3
+    v171 = f32const 0x1.800000p3
+    v172 = f32const 0x1.800000p3
+    v173 = f32const 0x1.800000p3
+    v174 = iconst.i64 0x55b1_6db3_c570
+    v175 = call fn0(v174)  ; v174 = 0x55b1_6db3_c570
+    store notrap aligned v170, v175  ; v170 = 0x1.800000p3
+    store notrap aligned v171, v175+4  ; v171 = 0x1.800000p3
+    store notrap aligned v172, v175+8  ; v172 = 0x1.800000p3
+    store notrap aligned v173, v175+12  ; v173 = 0x1.800000p3
+    v176 = iconst.i8 0
+    v177 = iconst.i8 -1
+    v178 = iconst.i8 0
+    v179 = call fn25(v176, v177, v178)  ; v176 = 0, v177 = -1, v178 = 0
+    v180 = iconst.i64 0x55b1_6db3_8c30
+    v181 = call fn0(v180)  ; v180 = 0x55b1_6db3_8c30
+    store notrap aligned v167, v181
+    store notrap aligned v169, v181+8
+    store notrap aligned v175, v181+16
+    store notrap aligned v179, v181+24
+    v182 = global_value.i64 gv14
+    v183 = iconst.i64 0x55b1_6db3_33b0
+    v184 = call fn0(v183)  ; v183 = 0x55b1_6db3_33b0
+    store notrap aligned v162, v184  ; v162 = 1
+    store notrap aligned v163, v184+8  ; v163 = 1
+    store notrap aligned v164, v184+16  ; v164 = 1
+    store notrap aligned v165, v184+24  ; v165 = 1
+    store notrap aligned v181, v184+32
+    store notrap aligned v182, v184+40
+    v185 = iconst.i64 1
+    v186 = iconst.i64 2
+    v187 = iconst.i64 2
+    v188 = iconst.i64 1
+    v189 = f32const 0x1.000000p0
+    v190 = call fn24(v189)  ; v189 = 0x1.000000p0
+    v191 = f32const 0x1.000000p0
+    v192 = call fn24(v191)  ; v191 = 0x1.000000p0
+    v193 = f32const 0x1.800000p3
+    v194 = f32const 0x1.800000p3
+    v195 = f32const 0x1.800000p3
+    v196 = f32const 0x1.800000p4
+    v197 = iconst.i64 0x55b1_6db3_c570
+    v198 = call fn0(v197)  ; v197 = 0x55b1_6db3_c570
+    store notrap aligned v193, v198  ; v193 = 0x1.800000p3
+    store notrap aligned v194, v198+4  ; v194 = 0x1.800000p3
+    store notrap aligned v195, v198+8  ; v195 = 0x1.800000p3
+    store notrap aligned v196, v198+12  ; v196 = 0x1.800000p4
+    v199 = iconst.i8 0
+    v200 = iconst.i8 -1
+    v201 = iconst.i8 0
+    v202 = call fn25(v199, v200, v201)  ; v199 = 0, v200 = -1, v201 = 0
+    v203 = iconst.i64 0x55b1_6db3_8c30
+    v204 = call fn0(v203)  ; v203 = 0x55b1_6db3_8c30
+    store notrap aligned v190, v204
+    store notrap aligned v192, v204+8
+    store notrap aligned v198, v204+16
+    store notrap aligned v202, v204+24
+    v205 = global_value.i64 gv15
+    v206 = iconst.i64 0x55b1_6db3_33b0
+    v207 = call fn0(v206)  ; v206 = 0x55b1_6db3_33b0
+    store notrap aligned v185, v207  ; v185 = 1
+    store notrap aligned v186, v207+8  ; v186 = 2
+    store notrap aligned v187, v207+16  ; v187 = 2
+    store notrap aligned v188, v207+24  ; v188 = 1
+    store notrap aligned v204, v207+32
+    store notrap aligned v205, v207+40
+    v208 = iconst.i64 2
+    v209 = iconst.i64 1
+    v210 = iconst.i64 0
+    v211 = iconst.i64 1
+    v212 = f32const 0x1.000000p0
+    v213 = call fn24(v212)  ; v212 = 0x1.000000p0
+    v214 = f32const 0x1.000000p0
+    v215 = call fn24(v214)  ; v214 = 0x1.000000p0
+    v216 = f32const 0x1.800000p3
+    v217 = f32const 0x1.800000p3
+    v218 = f32const 0x1.800000p4
+    v219 = f32const 0x1.800000p3
+    v220 = iconst.i64 0x55b1_6db3_c570
+    v221 = call fn0(v220)  ; v220 = 0x55b1_6db3_c570
+    store notrap aligned v216, v221  ; v216 = 0x1.800000p3
+    store notrap aligned v217, v221+4  ; v217 = 0x1.800000p3
+    store notrap aligned v218, v221+8  ; v218 = 0x1.800000p4
+    store notrap aligned v219, v221+12  ; v219 = 0x1.800000p3
+    v222 = iconst.i8 0
+    v223 = iconst.i8 -1
+    v224 = iconst.i8 0
+    v225 = call fn25(v222, v223, v224)  ; v222 = 0, v223 = -1, v224 = 0
+    v226 = iconst.i64 0x55b1_6db3_8c30
+    v227 = call fn0(v226)  ; v226 = 0x55b1_6db3_8c30
+    store notrap aligned v213, v227
+    store notrap aligned v215, v227+8
+    store notrap aligned v221, v227+16
+    store notrap aligned v225, v227+24
+    v228 = global_value.i64 gv16
+    v229 = iconst.i64 0x55b1_6db3_33b0
+    v230 = call fn0(v229)  ; v229 = 0x55b1_6db3_33b0
+    store notrap aligned v208, v230  ; v208 = 2
+    store notrap aligned v209, v230+8  ; v209 = 1
+    store notrap aligned v210, v230+16  ; v210 = 0
+    store notrap aligned v211, v230+24  ; v211 = 1
+    store notrap aligned v227, v230+32
+    store notrap aligned v228, v230+40
+    v231 = iconst.i64 2
+    v232 = iconst.i64 1
+    v233 = iconst.i64 1
+    v234 = iconst.i64 1
+    v235 = f32const 0x1.000000p0
+    v236 = call fn24(v235)  ; v235 = 0x1.000000p0
+    v237 = f32const 0x1.000000p0
+    v238 = call fn24(v237)  ; v237 = 0x1.000000p0
+    v239 = f32const 0x1.800000p3
+    v240 = f32const 0x1.800000p3
+    v241 = f32const 0x1.800000p3
+    v242 = f32const 0x1.800000p3
+    v243 = iconst.i64 0x55b1_6db3_c570
+    v244 = call fn0(v243)  ; v243 = 0x55b1_6db3_c570
+    store notrap aligned v239, v244  ; v239 = 0x1.800000p3
+    store notrap aligned v240, v244+4  ; v240 = 0x1.800000p3
+    store notrap aligned v241, v244+8  ; v241 = 0x1.800000p3
+    store notrap aligned v242, v244+12  ; v242 = 0x1.800000p3
+    v245 = iconst.i8 0
+    v246 = iconst.i8 -1
+    v247 = iconst.i8 0
+    v248 = call fn25(v245, v246, v247)  ; v245 = 0, v246 = -1, v247 = 0
+    v249 = iconst.i64 0x55b1_6db3_8c30
+    v250 = call fn0(v249)  ; v249 = 0x55b1_6db3_8c30
+    store notrap aligned v236, v250
+    store notrap aligned v238, v250+8
+    store notrap aligned v244, v250+16
+    store notrap aligned v248, v250+24
+    v251 = global_value.i64 gv17
+    v252 = iconst.i64 0x55b1_6db3_33b0
+    v253 = call fn0(v252)  ; v252 = 0x55b1_6db3_33b0
+    store notrap aligned v231, v253  ; v231 = 2
+    store notrap aligned v232, v253+8  ; v232 = 1
+    store notrap aligned v233, v253+16  ; v233 = 1
+    store notrap aligned v234, v253+24  ; v234 = 1
+    store notrap aligned v250, v253+32
+    store notrap aligned v251, v253+40
+    v254 = iconst.i64 0x55b1_6db2_7410
+    v255 = iconst.i64 8
+    v256 = call fn1(v254, v255)  ; v254 = 0x55b1_6db2_7410, v255 = 8
+    v257 = load.i64 notrap aligned v256+16
+    store notrap aligned v92, v257
+    store notrap aligned v115, v257+8
+    store notrap aligned v138, v257+16
+    store notrap aligned v161, v257+24
+    store notrap aligned v184, v257+32
+    store notrap aligned v207, v257+40
+    store notrap aligned v230, v257+48
+    store notrap aligned v253, v257+56
+    v258 = iconst.i64 1
+    v259 = iconst.i64 0x55b1_6db9_44f0
+    v260 = call fn0(v259)  ; v259 = 0x55b1_6db9_44f0
+    store notrap aligned v258, v260  ; v258 = 1
+    v261 = iconst.i64 1
+    v262 = iconst.i64 0x55b1_6db9_44f0
+    v263 = call fn0(v262)  ; v262 = 0x55b1_6db9_44f0
+    store notrap aligned v261, v263  ; v261 = 1
+    v264 = iconst.i64 1
+    v265 = iconst.i64 0x55b1_6db9_44f0
+    v266 = call fn0(v265)  ; v265 = 0x55b1_6db9_44f0
+    store notrap aligned v264, v266  ; v264 = 1
+    v267 = iconst.i64 1
+    v268 = iconst.i64 0x55b1_6db9_44f0
+    v269 = call fn0(v268)  ; v268 = 0x55b1_6db9_44f0
+    store notrap aligned v267, v269  ; v267 = 1
+    v270 = iconst.i64 0x55b1_6db4_9520
+    v271 = call fn0(v270)  ; v270 = 0x55b1_6db4_9520
+    store notrap aligned v260, v271
+    store notrap aligned v263, v271+8
+    store notrap aligned v266, v271+16
+    store notrap aligned v269, v271+24
+    v272 = f32const 0x1.800000p3
+    v273 = iconst.i8 0
+    v274 = iconst.i8 0
+    v275 = iconst.i8 0
+    v276 = iconst.i64 0x55b1_6db9_3110
+    v277 = call fn0(v276)  ; v276 = 0x55b1_6db9_3110
+    store notrap aligned v51, v277
+    store notrap aligned v64, v277+8
+    store notrap aligned v68, v277+16
+    store notrap aligned v256, v277+24
+    store notrap aligned v271, v277+32
+    store notrap aligned v272, v277+40  ; v272 = 0x1.800000p3
+    store notrap aligned v273, v277+44  ; v273 = 0
+    store notrap aligned v274, v277+45  ; v274 = 0
+    store notrap aligned v275, v277+46  ; v275 = 0
+    return v277
+}
+
+всё хуйня
+render() {
+measure() {
+measure() }
+arrange() {
+arrange() }
+loop[item] {
+loop[item] value
+loop[item] cell

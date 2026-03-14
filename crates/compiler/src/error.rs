@@ -1,6 +1,6 @@
 use cranelift::module::ModuleError;
 use mollie_shared::Positioned;
-use mollie_typed_ast::TypeError;
+use mollie_typing::TypeError;
 
 use crate::FuncCompilerError;
 

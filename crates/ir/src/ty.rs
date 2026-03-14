@@ -69,6 +69,7 @@ pub trait ConstantCompiler<'a> {
     fn ins<'short>(&'short mut self) -> FuncInstBuilder<'short, 'a>;
 }
 
+#[derive(Debug)]
 pub enum ConstValue {
     Value(ir::Value),
     FatPtr(ir::Value, ir::Value),

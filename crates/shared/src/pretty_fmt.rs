@@ -51,3 +51,48 @@ impl PrettyFmt for fmt::Formatter<'_> {
         Ok(())
     }
 }
+
+pub trait FmtIteratorExt: Iterator + Clone
+where
+    Self::Item: fmt::Display,
+{
+    fn join<Separator: fmt::Display>(self, separator: Separator) -> Join<Self, Separator>;
+}
+
+impl<I: Iterator + Clone> FmtIteratorExt for I
+where
+    I::Item: fmt::Display,
+{
+    fn join<Separator: fmt::Display>(self, separator: Separator) -> Join<Self, Separator> {
+        Join { iter: self, separator }
+    }
+}
+
+pub struct Join<I: Iterator + Clone, Separator: fmt::Display>
+where
+    I::Item: fmt::Display,
+{
+    iter: I,
+    separator: Separator,
+}
+
+impl<I: Iterator + Clone, Separator: fmt::Display> fmt::Display for Join<I, Separator>
+where
+    I::Item: fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut iter = self.iter.clone();
+
+        if let Some(item) = iter.next() {
+            item.fmt(f)?;
+        }
+
+        for item in iter {
+            self.separator.fmt(f)?;
+
+            item.fmt(f)?;
+        }
+
+        Ok(())
+    }
+}
