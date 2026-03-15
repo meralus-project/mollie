@@ -8,7 +8,6 @@ mod field_access;
 mod if_else;
 mod is_pattern;
 mod literal;
-mod type_index;
 mod var;
 mod vtable_access;
 mod r#while;
@@ -180,8 +179,6 @@ impl<S, ML: mollie_typed_ast::ModuleLoader<S>, M: Module> CompileTypedAST<S, ML,
                     unimplemented!("expected fat ptr for accessing dynamic vtable value")
                 }
             }
-            // &Expr::TypeIndex { ty, path } => compiler.compile_type_index_expr(ast, ty, path),
-            // Expr::Nothing => Ok(MolValue::Nothing),
             Expr::Error(_) => unreachable!(),
         }
     }
