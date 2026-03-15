@@ -323,7 +323,9 @@ impl<ML: ModuleLoader> Compiler<ML> {
 
         Ok(compiler)
     }
+}
 
+impl CompilerInner {
     /// Gets a pointer to the compiled function with the specified `name` and
     /// `transmute`s it to `T`.
     ///
@@ -334,16 +336,16 @@ impl<ML: ModuleLoader> Compiler<ML> {
     pub unsafe fn get_func<T>(&self, name: impl AsRef<str>) -> Option<T> {
         debug_assert_eq!(mem::size_of::<T>(), mem::size_of::<*const u8>());
 
-        self.inner.name_to_func_id.get(name.as_ref()).map(|&func_id| {
-            let code = self.inner.codegen.module.get_finalized_function(func_id);
+        self.name_to_func_id.get(name.as_ref()).map(|&func_id| {
+            let code = self.codegen.module.get_finalized_function(func_id);
 
             unsafe { mem::transmute_copy::<mem::ManuallyDrop<*const u8>, T>(&mem::ManuallyDrop::new(code)) }
         })
     }
 
     pub unsafe fn get_vtable_ptr<T: Copy>(&self, hash: u64, trait_ref: Option<TraitRef>) -> Option<T> {
-        let vtable = *self.inner.trait_to_vtable.get(&(hash, trait_ref))?;
-        let (vtable_ptr, vtable_size) = self.inner.codegen.module.get_finalized_data(vtable);
+        let vtable = *self.trait_to_vtable.get(&(hash, trait_ref))?;
+        let (vtable_ptr, vtable_size) = self.codegen.module.get_finalized_data(vtable);
 
         debug_assert_eq!(size_of::<T>() + size_of::<usize>(), vtable_size);
 

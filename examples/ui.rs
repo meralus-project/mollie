@@ -373,7 +373,7 @@ fn main() {
                 size_layout: provider.compiler.find_adt("Size").unwrap().type_layout,
             };
 
-            if let Some(main_func) = unsafe { compiler.get_func::<fn(*const DrawContext) -> GcPtr<()>>("<main>") } {
+            if let Some(main_func) = unsafe { provider.compiler.get_func::<fn(*const DrawContext) -> GcPtr<()>>("<main>") } {
                 if name.as_deref() == Some("stress") {
                     let mut taken = Duration::ZERO;
                     let mut highest = Duration::ZERO;
@@ -424,9 +424,9 @@ fn main() {
                             render: fn(*mut (), point: GcPtr<Point>, parent: GcPtr<Size>, ctx: &mut DrawContext),
                         }
 
-                        let trait_ref = compiler.type_context.type_context.find_trait("Drawable");
+                        let trait_ref = provider.type_context.type_context.find_trait("Drawable");
 
-                        if let Some(vtable) = unsafe { compiler.get_vtable_ptr::<Drawable>(hash, trait_ref) } {
+                        if let Some(vtable) = unsafe { provider.compiler.get_vtable_ptr::<Drawable>(hash, trait_ref) } {
                             (vtable.render)(
                                 value.ptr_mut(),
                                 GcPtr::from(Point { x: 0.0, y: 0.0 }),
