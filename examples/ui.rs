@@ -325,17 +325,22 @@ fn main() {
         Some(command) => panic!("unknown command: {command}"),
     };
 
-    let mut compiler = Compiler::with_symbols(vec![
-        ("DrawContext_draw_rect", DrawContext::draw_rect as *const u8),
-        ("DrawContext_draw_image", DrawContext::draw_image as *const u8),
-        ("DrawContext_image_size", DrawContext::image_size as *const u8),
-        ("ext__get_timestamp", get_timestamp as *const u8),
-    ])
+    let mut compiler = Compiler::with_symbols(
+        FileModuleLoader {
+            current_dir: PathBuf::from("/home/aiving/Documents/dev-v2/dev/meralus-project/mollie/examples"),
+        },
+        [
+            ("DrawContext_draw_rect", DrawContext::draw_rect as *const u8),
+            ("DrawContext_draw_image", DrawContext::draw_image as *const u8),
+            ("DrawContext_image_size", DrawContext::image_size as *const u8),
+            ("ext__get_timestamp", get_timestamp as *const u8),
+        ],
+    )
     .unwrap();
 
     let mut provider = compiler.start_compiling();
 
-    let (draw_ctx_info, drawable_info) = init_compiler(&mut provider.context);
+    let (draw_ctx_info, drawable_info) = init_compiler(provider.type_context);
 
     let pointer_type = provider.compiler.ptr_type();
 
@@ -343,11 +348,8 @@ fn main() {
 
     if let Err(CompileError::Type(errors)) = provider.compile(
         "<main>",
-        vec![(String::from("context"), pointer_type, draw_ctx_info)],
+        [("context", pointer_type, draw_ctx_info)],
         Some((pointer_type, drawable_info)),
-        &mut FileModuleLoader {
-            current_dir: PathBuf::from("/home/aiving/Documents/dev-v2/dev/meralus-project/mollie/examples"),
-        },
         source,
     ) {
         for error in errors {
@@ -355,7 +357,7 @@ fn main() {
 
             error
                 .value
-                .add_to_report(("ui.mol", error.span.start..error.span.end), &mut report, &provider.context.type_context);
+                .add_to_report(("ui.mol", error.span.start..error.span.end), &mut report, &provider.type_context.type_context);
 
             report.finish().print(("ui.mol", Source::from(source))).unwrap();
         }
@@ -371,7 +373,7 @@ fn main() {
                 size_layout: provider.compiler.find_adt("Size").unwrap().type_layout,
             };
 
-            if let Some(main_func) = unsafe { provider.compiler.get_func::<fn(*const DrawContext) -> GcPtr<()>>("<main>") } {
+            if let Some(main_func) = unsafe { compiler.get_func::<fn(*const DrawContext) -> GcPtr<()>>("<main>") } {
                 if name.as_deref() == Some("stress") {
                     let mut taken = Duration::ZERO;
                     let mut highest = Duration::ZERO;
@@ -422,7 +424,7 @@ fn main() {
                             render: fn(*mut (), point: GcPtr<Point>, parent: GcPtr<Size>, ctx: &mut DrawContext),
                         }
 
-                        let trait_ref = provider.context.type_context.find_trait("Drawable");
+                        let trait_ref = compiler.type_context.type_context.find_trait("Drawable");
 
                         if let Some(vtable) = unsafe { compiler.get_vtable_ptr::<Drawable>(hash, trait_ref) } {
                             (vtable.render)(

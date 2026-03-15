@@ -14,7 +14,7 @@ use mollie_typed_ast::{ExprRef, TypedASTContext};
 use mollie_typing::{AdtVariantRef, FuncRef, Type, TypeRef, VFuncRef, VTableRef};
 
 use crate::{
-    Compiler, FuncCompilerError, MolValue, Var,
+    Compiler, CompilerInner, CompilerRef, FuncCompilerError, MolValue, Var,
     allocator::TypeLayout,
     error::{CompileError, CompileResult},
 };
@@ -109,7 +109,7 @@ pub struct FunctionCompiler<'a, M: Module = JITModule> {
     pub(crate) id: FuncId,
     pub(crate) entry_block: Block,
 
-    pub(crate) compiler: &'a mut Compiler<M>,
+    pub(crate) compiler: &'a mut CompilerInner<M>,
     pub(crate) fn_builder: FunctionBuilder<'a>,
     pub(crate) type_context: &'a TypedASTContext,
 
@@ -127,7 +127,7 @@ impl<'a, M: Module> FunctionCompiler<'a, M> {
     pub fn new<T: Into<String>>(
         name: T,
         signature: ir::Signature,
-        compiler: &'a mut Compiler<M>,
+        compiler: &'a mut CompilerInner<M>,
         type_context: &'a TypedASTContext,
         ctx: &'a mut Context,
         fn_builder_ctx: &'a mut FunctionBuilderContext,
@@ -190,8 +190,8 @@ impl<'a, M: Module> FunctionCompiler<'a, M> {
 
     pub fn new_anonymous(
         signature: ir::Signature,
-        compiler: &'a mut Compiler<M>,
-        checker: &'a TypedASTContext,
+        compiler: &'a mut CompilerInner<M>,
+        type_context: &'a TypedASTContext,
         ctx: &'a mut Context,
         fn_builder_ctx: &'a mut FunctionBuilderContext,
     ) -> Result<Self, FuncCompilerError> {
@@ -236,7 +236,7 @@ impl<'a, M: Module> FunctionCompiler<'a, M> {
             branches: None,
             compiler,
             fn_builder,
-            type_context: checker,
+            type_context,
             context,
             this: None,
             assign_ref: None,
