@@ -4,7 +4,7 @@ use mollie_typed_ast::{ExprRef, TypedAST};
 
 use crate::{AsIrType, CompileTypedAST, MolValue, error::CompileResult, func::FunctionCompiler};
 
-impl<S, ML: mollie_typed_ast::ModuleLoader<S>, M: Module> FunctionCompiler<'_, S, ML, M> {
+impl<M: Module> FunctionCompiler<'_, M> {
     /// Compiles the expression `target[index]( = value)?`. Returns
     /// [`MolValue::Nothing`] if an assignment operation occurs, or
     /// [`MolValue::FatPtr`]/[`MolValue::Value`] depending on the type of the

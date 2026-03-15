@@ -50,8 +50,8 @@ const fn get_ir_type(primitive: PrimitiveType, ptr_type: ir::Type) -> ir::Type {
     }
 }
 
-impl<S, ML: mollie_typed_ast::ModuleLoader<S>, M: Module> CompileTypedAST<S, ML, M, MolValue> for ExprRef {
-    fn compile(self, ast: &TypedAST, compiler: &mut FunctionCompiler<'_, S, ML, M>) -> CompileResult<MolValue> {
+impl<M: Module> CompileTypedAST<M, MolValue> for ExprRef {
+    fn compile(self, ast: &TypedAST, compiler: &mut FunctionCompiler<'_, M>) -> CompileResult<MolValue> {
         match &ast[self].value {
             Expr::Lit(literal_expr) => compiler.compile_lit_expr(ast, self, literal_expr),
             &Expr::IfElse { condition, block, otherwise } => compiler.compile_if_expr(ast, condition, block, otherwise),

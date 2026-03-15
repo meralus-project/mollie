@@ -17,8 +17,14 @@ pub enum TypePathResult {
     Error(TypeErrorRef, Span),
 }
 
-impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::TypePathExpr> for ModuleItem {
-    fn from_parsed(path: mollie_parser::TypePathExpr, ast: &mut TypedAST<FirstPass>, context: &mut TypedASTContextRef<'_, E, M>, _span: Span) -> Self {
+impl FromParsed<mollie_parser::TypePathExpr> for ModuleItem {
+    fn from_parsed(
+        path: mollie_parser::TypePathExpr,
+        ast: &mut TypedAST<FirstPass>,
+        context: &mut TypedASTContextRef<'_>,
+        _loader: &mut dyn ModuleLoader,
+        _span: Span,
+    ) -> Self {
         let mut span = None;
         let mut result = Self::SubModule(ast.module);
 
@@ -63,8 +69,14 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::TypePathExpr> for Mo
     }
 }
 
-impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::TypePathExpr> for TypePathResult {
-    fn from_parsed(path: mollie_parser::TypePathExpr, ast: &mut TypedAST<FirstPass>, context: &mut TypedASTContextRef<'_, E, M>, _span: Span) -> Self {
+impl FromParsed<mollie_parser::TypePathExpr> for TypePathResult {
+    fn from_parsed(
+        path: mollie_parser::TypePathExpr,
+        ast: &mut TypedAST<FirstPass>,
+        context: &mut TypedASTContextRef<'_>,
+        loader: &mut dyn ModuleLoader,
+        _span: Span,
+    ) -> Self {
         let mut result = Self::Module(ast.module);
         let segment_count = path.segments.len();
 
@@ -106,7 +118,7 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::TypePathExpr> for Ty
                                         .value
                                         .0
                                         .into_iter()
-                                        .map(|arg| TypeInfo::from_parsed(arg.value, ast, context, arg.span))
+                                        .map(|arg| TypeInfo::from_parsed(arg.value, ast, context, loader, arg.span))
                                         .collect()
                                 });
 
@@ -124,7 +136,7 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::TypePathExpr> for Ty
                                         .value
                                         .0
                                         .into_iter()
-                                        .map(|arg| TypeInfo::from_parsed(arg.value, ast, context, arg.span))
+                                        .map(|arg| TypeInfo::from_parsed(arg.value, ast, context, loader, arg.span))
                                         .collect()
                                 });
 
@@ -202,8 +214,14 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::TypePathExpr> for Ty
     }
 }
 
-impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::TypePathExpr, TypeInfoRef> for TypeInfo {
-    fn from_parsed(path: mollie_parser::TypePathExpr, ast: &mut TypedAST<FirstPass>, context: &mut TypedASTContextRef<'_, E, M>, _span: Span) -> TypeInfoRef {
+impl FromParsed<mollie_parser::TypePathExpr, TypeInfoRef> for TypeInfo {
+    fn from_parsed(
+        path: mollie_parser::TypePathExpr,
+        ast: &mut TypedAST<FirstPass>,
+        context: &mut TypedASTContextRef<'_>,
+        loader: &mut dyn ModuleLoader,
+        _span: Span,
+    ) -> TypeInfoRef {
         enum TypePathResult {
             Type(TypeInfoRef),
             Module(ModuleId),
@@ -229,7 +247,7 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::TypePathExpr, TypeIn
                                     .value
                                     .0
                                     .into_iter()
-                                    .map(|arg| Self::from_parsed(arg.value, ast, context, arg.span))
+                                    .map(|arg| Self::from_parsed(arg.value, ast, context, loader, arg.span))
                                     .collect()
                             });
 
@@ -247,7 +265,7 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::TypePathExpr, TypeIn
                                     .value
                                     .0
                                     .into_iter()
-                                    .map(|arg| Self::from_parsed(arg.value, ast, context, arg.span))
+                                    .map(|arg| Self::from_parsed(arg.value, ast, context, loader, arg.span))
                                     .collect()
                             });
 
@@ -326,31 +344,46 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::TypePathExpr, TypeIn
     }
 }
 
-impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Type, TypeInfoRef> for TypeInfo {
-    fn from_parsed(ty: mollie_parser::Type, ast: &mut TypedAST<FirstPass>, context: &mut TypedASTContextRef<'_, E, M>, span: Span) -> TypeInfoRef {
+impl FromParsed<mollie_parser::Type, TypeInfoRef> for TypeInfo {
+    fn from_parsed(
+        ty: mollie_parser::Type,
+        ast: &mut TypedAST<FirstPass>,
+        context: &mut TypedASTContextRef<'_>,
+        loader: &mut dyn ModuleLoader,
+        span: Span,
+    ) -> TypeInfoRef {
         match ty {
             mollie_parser::Type::Primitive(primitive_type) => context.solver.add_info(Self::Primitive(primitive_type), Some(span)),
             mollie_parser::Type::Array(element, size) => {
-                let element = Self::from_parsed(element.value, ast, context, element.span);
+                let element = Self::from_parsed(element.value, ast, context, loader, element.span);
 
                 context.solver.add_info(Self::Array(element, size.map(|size| size.value)), Some(span))
             }
             mollie_parser::Type::Func(args, returns) => {
-                let args = args.into_iter().map(|arg| Self::from_parsed(arg.value, ast, context, arg.span)).collect();
+                let args = args
+                    .into_iter()
+                    .map(|arg| Self::from_parsed(arg.value, ast, context, loader, arg.span))
+                    .collect();
                 let returns = match returns {
-                    Some(ty) => Self::from_parsed(ty.value, ast, context, ty.span),
+                    Some(ty) => Self::from_parsed(ty.value, ast, context, loader, ty.span),
                     None => context.solver.add_info(Self::Primitive(PrimitiveType::Void), Some(span)),
                 };
 
                 context.solver.add_info(Self::Func(args, returns), Some(span))
             }
-            mollie_parser::Type::Path(type_path_expr) => Self::from_parsed(type_path_expr, ast, context, span),
+            mollie_parser::Type::Path(type_path_expr) => Self::from_parsed(type_path_expr, ast, context, loader, span),
         }
     }
 }
 
-impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::TypePathExpr, TypeRef> for Type {
-    fn from_parsed(path: mollie_parser::TypePathExpr, ast: &mut TypedAST<FirstPass>, context: &mut TypedASTContextRef<'_, E, M>, _span: Span) -> TypeRef {
+impl FromParsed<mollie_parser::TypePathExpr, TypeRef> for Type {
+    fn from_parsed(
+        path: mollie_parser::TypePathExpr,
+        ast: &mut TypedAST<FirstPass>,
+        context: &mut TypedASTContextRef<'_>,
+        loader: &mut dyn ModuleLoader,
+        _span: Span,
+    ) -> TypeRef {
         enum TypePathResult {
             Type(TypeRef),
             Module(ModuleId),
@@ -376,7 +409,7 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::TypePathExpr, TypeRe
                                     .value
                                     .0
                                     .into_iter()
-                                    .map(|arg| Self::from_parsed(arg.value, ast, context, arg.span))
+                                    .map(|arg| Self::from_parsed(arg.value, ast, context, loader, arg.span))
                                     .collect()
                             });
 
@@ -398,7 +431,7 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::TypePathExpr, TypeRe
                                     .value
                                     .0
                                     .into_iter()
-                                    .map(|arg| Self::from_parsed(arg.value, ast, context, arg.span))
+                                    .map(|arg| Self::from_parsed(arg.value, ast, context, loader, arg.span))
                                     .collect()
                             });
 
@@ -486,25 +519,34 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::TypePathExpr, TypeRe
     }
 }
 
-impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Type, TypeRef> for Type {
-    fn from_parsed(ty: mollie_parser::Type, ast: &mut TypedAST<FirstPass>, context: &mut TypedASTContextRef<'_, E, M>, span: Span) -> TypeRef {
+impl FromParsed<mollie_parser::Type, TypeRef> for Type {
+    fn from_parsed(
+        ty: mollie_parser::Type,
+        ast: &mut TypedAST<FirstPass>,
+        context: &mut TypedASTContextRef<'_>,
+        loader: &mut dyn ModuleLoader,
+        span: Span,
+    ) -> TypeRef {
         match ty {
             mollie_parser::Type::Primitive(primitive_type) => context.solver.context.types.get_or_add(Self::Primitive(primitive_type)),
             mollie_parser::Type::Array(element, size) => {
-                let element = Self::from_parsed(element.value, ast, context, element.span);
+                let element = Self::from_parsed(element.value, ast, context, loader, element.span);
 
                 context.solver.context.types.get_or_add(Self::Array(element, size.map(|size| size.value)))
             }
             mollie_parser::Type::Func(args, returns) => {
-                let args = args.into_iter().map(|arg| Self::from_parsed(arg.value, ast, context, arg.span)).collect();
+                let args = args
+                    .into_iter()
+                    .map(|arg| Self::from_parsed(arg.value, ast, context, loader, arg.span))
+                    .collect();
                 let returns = match returns {
-                    Some(ty) => Self::from_parsed(ty.value, ast, context, ty.span),
+                    Some(ty) => Self::from_parsed(ty.value, ast, context, loader, ty.span),
                     None => context.solver.context.types.get_or_add(Self::Primitive(PrimitiveType::Void)),
                 };
 
                 context.solver.context.types.get_or_add(Self::Func(args, returns))
             }
-            mollie_parser::Type::Path(type_path_expr) => Self::from_parsed(type_path_expr, ast, context, span),
+            mollie_parser::Type::Path(type_path_expr) => Self::from_parsed(type_path_expr, ast, context, loader, span),
         }
     }
 }

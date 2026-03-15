@@ -4,7 +4,7 @@ use mollie_typing::Type;
 
 use crate::{AsIrType, CompileTypedAST, MolValue, error::CompileResult, func::FunctionCompiler};
 
-impl<S, ML: mollie_typed_ast::ModuleLoader<S>, M: Module> FunctionCompiler<'_, S, ML, M> {
+impl<M: Module> FunctionCompiler<'_, M> {
     /// Compiles `func(...args)` expression. Returns any of variants
     /// [`MolValue`] depending on return type of function.
     ///

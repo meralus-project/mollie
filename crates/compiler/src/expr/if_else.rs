@@ -4,7 +4,7 @@ use mollie_typed_ast::{BlockRef, ExprRef, TypedAST};
 
 use crate::{AsIrType, CompileTypedAST, MolValue, error::CompileResult, func::FunctionCompiler};
 
-impl<S, ML: mollie_typed_ast::ModuleLoader<S>, M: Module> FunctionCompiler<'_, S, ML, M> {
+impl<M: Module> FunctionCompiler<'_, M> {
     pub fn compile_if_expr(&mut self, ast: &TypedAST, condition: ExprRef, block: BlockRef, else_block: Option<ExprRef>) -> CompileResult<MolValue> {
         self.push_frame();
 

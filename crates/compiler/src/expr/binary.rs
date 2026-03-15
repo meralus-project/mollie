@@ -9,7 +9,7 @@ use mollie_typing::{PrimitiveType, Type, TypeRef};
 
 use crate::{CompileTypedAST, MolValue, error::CompileResult, func::FunctionCompiler};
 
-impl<S, ML: mollie_typed_ast::ModuleLoader<S>, M: Module> FunctionCompiler<'_, S, ML, M> {
+impl<M: Module> FunctionCompiler<'_, M> {
     pub fn bin_op(&mut self, lhs: ir::Value, lhs_ty: TypeRef, operator: Operator, rhs: ir::Value, rhs_ty: TypeRef) -> ir::Value {
         let lhs_type = &self.type_context.type_context.types[lhs_ty];
         let rhs_type = &self.type_context.type_context.types[rhs_ty];

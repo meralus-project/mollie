@@ -13,7 +13,7 @@ use mollie::{
 };
 use mollie_compiler::{allocator::TypeLayout, error::CompileError};
 use mollie_index::Idx;
-use mollie_typed_ast::{FileModuleLoader, FunctionBody, ModuleLoader, TypedASTContext};
+use mollie_typed_ast::{FileModuleLoader, FunctionBody, TypedASTContext};
 use mollie_typing::{Func, ModuleId, Type, TypeRef};
 use tiny_skia::{FillRule, FilterQuality, Paint, PathBuilder, Pattern, Pixmap, Point, Rect, SpreadMode, Transform};
 use tracing::{Level, level_filters::LevelFilter};
@@ -182,7 +182,7 @@ pub fn get_timestamp() -> usize {
         .as_secs() as usize
 }
 
-fn init_compiler<E, ML: ModuleLoader<E>>(context: &mut TypedASTContext<E, ML>) -> (TypeRef, TypeRef) {
+fn init_compiler(context: &mut TypedASTContext) -> (TypeRef, TypeRef) {
     // let std = mollie::module! {
     //     fn println(input: usize);
     //     fn println_frame_addr();
@@ -333,9 +333,7 @@ fn main() {
     ])
     .unwrap();
 
-    let mut provider = compiler.start_compiling(FileModuleLoader {
-        current_dir: PathBuf::from("/home/aiving/Documents/dev-v2/dev/meralus-project/mollie/examples"),
-    });
+    let mut provider = compiler.start_compiling();
 
     let (draw_ctx_info, drawable_info) = init_compiler(&mut provider.context);
 
@@ -347,6 +345,9 @@ fn main() {
         "<main>",
         vec![(String::from("context"), pointer_type, draw_ctx_info)],
         Some((pointer_type, drawable_info)),
+        &mut FileModuleLoader {
+            current_dir: PathBuf::from("/home/aiving/Documents/dev-v2/dev/meralus-project/mollie/examples"),
+        },
         source,
     ) {
         for error in errors {

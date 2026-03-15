@@ -902,7 +902,6 @@ dependencies = [
  "ariadne",
  "derive-where",
  "indexmap",
- "itertools",
  "mollie-const",
  "mollie-index",
  "mollie-lexer",
@@ -917,12 +916,9 @@ name = "mollie-typing"
 version = "0.1.0"
 dependencies = [
  "ariadne",
- "cranelift",
- "derive_more",
  "indexmap",
  "mollie-const",
  "mollie-index",
- "mollie-ir",
  "mollie-shared",
  "serde",
 ]

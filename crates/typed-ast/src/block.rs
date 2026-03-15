@@ -17,14 +17,20 @@ pub struct Block {
     pub expr: Option<ExprRef>,
 }
 
-impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::BlockExpr, BlockRef> for Block {
-    fn from_parsed(expr: mollie_parser::BlockExpr, ast: &mut TypedAST<FirstPass>, context: &mut TypedASTContextRef<'_, E, M>, span: Span) -> BlockRef {
+impl FromParsed<mollie_parser::BlockExpr, BlockRef> for Block {
+    fn from_parsed(
+        expr: mollie_parser::BlockExpr,
+        ast: &mut TypedAST<FirstPass>,
+        context: &mut TypedASTContextRef<'_>,
+        loader: &mut dyn ModuleLoader,
+        span: Span,
+    ) -> BlockRef {
         let mut stmts = Vec::new();
 
         context.solver.push_frame();
 
         for stmt in expr.stmts {
-            if let Some(stmt) = Stmt::from_parsed(stmt.value, ast, context, stmt.span) {
+            if let Some(stmt) = Stmt::from_parsed(stmt.value, ast, context, loader, stmt.span) {
                 stmts.push(stmt);
             }
         }
@@ -36,7 +42,7 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::BlockExpr, BlockRef>
                 value: mollie_parser::Stmt::Expression(expr),
                 span,
             }) => {
-                let expr = Expr::from_parsed(expr, ast, context, span);
+                let expr = Expr::from_parsed(expr, ast, context, loader, span);
 
                 (Some(expr), ast[expr].ty)
             }

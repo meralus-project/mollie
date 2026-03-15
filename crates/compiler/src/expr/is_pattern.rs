@@ -7,7 +7,7 @@ use cranelift::{
 };
 use mollie_index::Idx;
 use mollie_ir::{Field, MollieType};
-use mollie_typed_ast::{ExprRef, IsPattern, ModuleLoader, SolvedPass, TypedAST};
+use mollie_typed_ast::{ExprRef, IsPattern, SolvedPass, TypedAST};
 use mollie_typing::{PrimitiveType, Type, TypeRef};
 
 use crate::{
@@ -16,14 +16,14 @@ use crate::{
     func::{FunctionCompiler, Variable},
 };
 
-impl<S, ML: mollie_typed_ast::ModuleLoader<S>, M: Module> FunctionCompiler<'_, S, ML, M> {
+impl<M: Module> FunctionCompiler<'_, M> {
     pub fn compile_is_pattern_expr(&mut self, ast: &TypedAST, target: ExprRef, pattern: &IsPattern<SolvedPass>) -> CompileResult<MolValue> {
-        fn compile_pattern<S, ML: ModuleLoader<S>, M: Module>(
+        fn compile_pattern<M: Module>(
             target: &MolValue,
             target_ty: TypeRef,
             pattern: &IsPattern<SolvedPass>,
             ast: &TypedAST,
-            compiler: &mut FunctionCompiler<'_, S, ML, M>,
+            compiler: &mut FunctionCompiler<'_, M>,
         ) -> CompileResult<MolValue> {
             match pattern {
                 &IsPattern::Literal(expr_ref) => {

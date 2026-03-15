@@ -41,12 +41,18 @@ pub enum IsPattern<D: Descriptor> {
     },
 }
 
-impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::IsPattern> for IsPattern<FirstPass> {
-    fn from_parsed(pattern: mollie_parser::IsPattern, ast: &mut TypedAST<FirstPass>, context: &mut TypedASTContextRef<'_, E, M>, span: Span) -> Self {
+impl FromParsed<mollie_parser::IsPattern> for IsPattern<FirstPass> {
+    fn from_parsed(
+        pattern: mollie_parser::IsPattern,
+        ast: &mut TypedAST<FirstPass>,
+        context: &mut TypedASTContextRef<'_>,
+        loader: &mut dyn ModuleLoader,
+        span: Span,
+    ) -> Self {
         match pattern {
-            mollie_parser::IsPattern::Literal(literal_expr) => Self::Literal(Expr::from_parsed(literal_expr, ast, context, span)),
+            mollie_parser::IsPattern::Literal(literal_expr) => Self::Literal(Expr::from_parsed(literal_expr, ast, context, loader, span)),
             mollie_parser::IsPattern::Type { ty, pattern } => {
-                let path = TypePathResult::from_parsed(ty.value, ast, context, ty.span);
+                let path = TypePathResult::from_parsed(ty.value, ast, context, loader, ty.span);
 
                 match path {
                     TypePathResult::Adt(adt, adt_type_args, adt_variant) => match (adt_variant, pattern.value) {
@@ -66,7 +72,7 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::IsPattern> for IsPat
                                     }
                                 }) {
                                     let pattern = if let Some(value) = value.value.value {
-                                        Some(Self::from_parsed(value.value, ast, context, value.span))
+                                        Some(Self::from_parsed(value.value, ast, context, loader, value.span))
                                     } else {
                                         None
                                     };
@@ -173,8 +179,14 @@ pub enum Expr<D: Descriptor = SolvedPass> {
     Error(TypeErrorRef),
 }
 
-impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::LiteralExpr, ExprRef> for Expr<FirstPass> {
-    fn from_parsed(lit: mollie_parser::LiteralExpr, ast: &mut TypedAST<FirstPass>, context: &mut TypedASTContextRef<'_, E, M>, span: Span) -> ExprRef {
+impl FromParsed<mollie_parser::LiteralExpr, ExprRef> for Expr<FirstPass> {
+    fn from_parsed(
+        lit: mollie_parser::LiteralExpr,
+        ast: &mut TypedAST<FirstPass>,
+        context: &mut TypedASTContextRef<'_>,
+        _loader: &mut dyn ModuleLoader,
+        span: Span,
+    ) -> ExprRef {
         match lit {
             mollie_parser::LiteralExpr::Number(number, postfix) => match (number.value, postfix) {
                 (mollie_parser::Number::I64(value), Some(postfix)) => {
@@ -298,13 +310,19 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::LiteralExpr, ExprRef
     }
 }
 
-impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Expr, ExprRef> for Expr<FirstPass> {
-    fn from_parsed(expr: mollie_parser::Expr, ast: &mut TypedAST<FirstPass>, context: &mut TypedASTContextRef<'_, E, M>, span: Span) -> ExprRef {
+impl FromParsed<mollie_parser::Expr, ExprRef> for Expr<FirstPass> {
+    fn from_parsed(
+        expr: mollie_parser::Expr,
+        ast: &mut TypedAST<FirstPass>,
+        context: &mut TypedASTContextRef<'_>,
+        loader: &mut dyn ModuleLoader,
+        span: Span,
+    ) -> ExprRef {
         match expr {
-            mollie_parser::Expr::Literal(literal_expr) => Self::from_parsed(literal_expr, ast, context, span),
+            mollie_parser::Expr::Literal(literal_expr) => Self::from_parsed(literal_expr, ast, context, loader, span),
             mollie_parser::Expr::FunctionCall(func_call_expr) => {
                 let func_span = func_call_expr.function.span;
-                let func = Self::from_parsed(func_call_expr.function.value, ast, context, func_call_expr.function.span);
+                let func = Self::from_parsed(func_call_expr.function.value, ast, context, loader, func_call_expr.function.span);
 
                 let ty = if let TypeInfo::Func(_, returns) = context.solver.type_infos[ast[func].ty].value {
                     returns
@@ -316,7 +334,7 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Expr, ExprRef> for E
                     .args
                     .value
                     .into_iter()
-                    .map(|arg| Self::from_parsed(arg.value, ast, context, arg.span))
+                    .map(|arg| Self::from_parsed(arg.value, ast, context, loader, arg.span))
                     .collect();
 
                 let func_ty = context
@@ -329,7 +347,7 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Expr, ExprRef> for E
             }
             mollie_parser::Expr::Node(mut node_expr) => {
                 let name_span = node_expr.name.span;
-                let ty = TypePathResult::from_parsed(node_expr.name.value, ast, context, node_expr.name.span);
+                let ty = TypePathResult::from_parsed(node_expr.name.value, ast, context, loader, node_expr.name.span);
 
                 let (adt, type_args, variant) = match ty {
                     TypePathResult::Adt(adt, type_args, variant) => (adt, type_args, variant),
@@ -414,7 +432,7 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Expr, ExprRef> for E
 
                     if let Some(field) = field {
                         let value = match prop.value.value {
-                            Some(value) => Self::from_parsed(value.value, ast, context, value.span),
+                            Some(value) => Self::from_parsed(value.value, ast, context, loader, value.span),
                             None => {
                                 if let Some((frame, ty)) = context.solver.get_var(&name) {
                                     if let Some(current_frame) = context.current_frame
@@ -466,13 +484,13 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Expr, ExprRef> for E
                             let value = if element_count == 1 {
                                 let node = node_expr.children.value.remove(0);
 
-                                Self::from_parsed(mollie_parser::Expr::Node(node.value), ast, context, node.span)
+                                Self::from_parsed(mollie_parser::Expr::Node(node.value), ast, context, loader, node.span)
                             } else {
                                 let elements: Box<[ExprRef]> = node_expr
                                     .children
                                     .value
                                     .into_iter()
-                                    .map(|child| Self::from_parsed(mollie_parser::Expr::Node(child.value), ast, context, child.span))
+                                    .map(|child| Self::from_parsed(mollie_parser::Expr::Node(child.value), ast, context, loader, child.span))
                                     .collect();
 
                                 let element = ast.exprs[elements[0]].ty;
@@ -497,7 +515,7 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Expr, ExprRef> for E
                 ast.add_expr(Self::Construct { adt, variant, fields }, ty, span)
             }
             mollie_parser::Expr::Index(index_expr) => {
-                let target = Self::from_parsed(index_expr.target.value, ast, context, index_expr.target.span);
+                let target = Self::from_parsed(index_expr.target.value, ast, context, loader, index_expr.target.span);
 
                 match index_expr.index.value {
                     mollie_parser::IndexTarget::Named(ident) => {
@@ -518,7 +536,7 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Expr, ExprRef> for E
                         ast.add_expr(Self::AdtIndex { target, field: ident.0 }, ty, span)
                     }
                     mollie_parser::IndexTarget::Expression(expr) => {
-                        let element = Self::from_parsed(*expr, ast, context, index_expr.index.span);
+                        let element = Self::from_parsed(*expr, ast, context, loader, index_expr.index.span);
                         let usize = context
                             .solver
                             .add_info(TypeInfo::Primitive(PrimitiveType::UInt(UIntType::USize)), Some(index_expr.index.span));
@@ -534,8 +552,8 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Expr, ExprRef> for E
                 }
             }
             mollie_parser::Expr::Binary(binary_expr) => {
-                let lhs = Self::from_parsed(binary_expr.lhs.value, ast, context, binary_expr.lhs.span);
-                let rhs = Self::from_parsed(binary_expr.rhs.value, ast, context, binary_expr.rhs.span);
+                let lhs = Self::from_parsed(binary_expr.lhs.value, ast, context, loader, binary_expr.lhs.span);
+                let rhs = Self::from_parsed(binary_expr.rhs.value, ast, context, loader, binary_expr.rhs.span);
 
                 context.solver.unify(ast[rhs].ty, ast[lhs].ty);
 
@@ -562,7 +580,7 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Expr, ExprRef> for E
                 )
             }
             mollie_parser::Expr::TypeIndex(type_path_expr) => {
-                let result = TypePathResult::from_parsed(type_path_expr, ast, context, span);
+                let result = TypePathResult::from_parsed(type_path_expr, ast, context, loader, span);
 
                 match result {
                     TypePathResult::VFunc(adt_ref, type_info_refs, vtable, func) => {
@@ -664,7 +682,7 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Expr, ExprRef> for E
                 let mut elements = Vec::with_capacity(array_expr.elements.capacity());
 
                 for arr_element in array_expr.elements {
-                    let arr_element = Self::from_parsed(arr_element.value, ast, context, arr_element.span);
+                    let arr_element = Self::from_parsed(arr_element.value, ast, context, loader, arr_element.span);
 
                     context.solver.unify(ast[arr_element].ty, element);
 
@@ -678,14 +696,14 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Expr, ExprRef> for E
                 ast.add_expr(Self::Array { element, elements }, array_ty, span)
             }
             mollie_parser::Expr::IfElse(if_else_expr) => {
-                let condition = Self::from_parsed(if_else_expr.condition.value, ast, context, if_else_expr.condition.span);
+                let condition = Self::from_parsed(if_else_expr.condition.value, ast, context, loader, if_else_expr.condition.span);
                 let expected = context.solver.add_info(TypeInfo::Primitive(PrimitiveType::Bool), None);
 
                 context.solver.unify(ast[condition].ty, expected);
 
-                let block = Block::from_parsed(if_else_expr.block.value, ast, context, if_else_expr.block.span);
+                let block = Block::from_parsed(if_else_expr.block.value, ast, context, loader, if_else_expr.block.span);
                 let otherwise = if let Some(otherwise) = if_else_expr.else_block {
-                    let expr = Self::from_parsed(otherwise.value, ast, context, otherwise.span);
+                    let expr = Self::from_parsed(otherwise.value, ast, context, loader, otherwise.span);
 
                     context.solver.unify(ast[block].ty, ast[expr].ty);
 
@@ -703,12 +721,12 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Expr, ExprRef> for E
                 ast.add_expr(Self::IfElse { condition, block, otherwise }, ty, span)
             }
             mollie_parser::Expr::While(while_expr) => {
-                let condition = Self::from_parsed(while_expr.condition.value, ast, context, while_expr.condition.span);
+                let condition = Self::from_parsed(while_expr.condition.value, ast, context, loader, while_expr.condition.span);
                 let expected = context.solver.add_info(TypeInfo::Primitive(PrimitiveType::Bool), None);
 
                 context.solver.unify(ast[condition].ty, expected);
 
-                let block = Block::from_parsed(while_expr.block.value, ast, context, while_expr.block.span);
+                let block = Block::from_parsed(while_expr.block.value, ast, context, loader, while_expr.block.span);
                 let ty = ast[block].ty;
                 let expected = context.solver.add_info(TypeInfo::Primitive(PrimitiveType::Void), None);
 
@@ -717,14 +735,14 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Expr, ExprRef> for E
                 ast.add_expr(Self::While { condition, block }, ty, span)
             }
             mollie_parser::Expr::Block(block_expr) => {
-                let block = Block::from_parsed(block_expr, ast, context, span);
+                let block = Block::from_parsed(block_expr, ast, context, loader, span);
                 let ty = ast[block].ty;
 
                 ast.add_expr(Self::Block(block), ty, span)
             }
             mollie_parser::Expr::ForIn(for_in) => {
                 let target_span = for_in.target.span;
-                let target = Self::from_parsed(for_in.target.value, ast, context, for_in.target.span);
+                let target = Self::from_parsed(for_in.target.value, ast, context, loader, for_in.target.span);
                 let while_loop = (|| {
                     let into_iterator = context.solver.context.get_trait_item(LangItem::IntoIterator)?;
                     let ty = context.solver.solve(ast[target].ty);
@@ -851,7 +869,7 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Expr, ExprRef> for E
                         span,
                     );
 
-                    let block = Block::from_parsed(for_in.block.value, ast, context, for_in.block.span);
+                    let block = Block::from_parsed(for_in.block.value, ast, context, loader, for_in.block.span);
                     let while_loop = ast.add_expr(Self::While { condition, block }, ast[block].ty, span);
 
                     stmts.push(ast.add_stmt(Stmt::Expr(while_loop)));
@@ -874,8 +892,8 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Expr, ExprRef> for E
                 while_loop.unwrap()
             }
             mollie_parser::Expr::Is(is_expr) => {
-                let target = Self::from_parsed(is_expr.target.value, ast, context, is_expr.target.span);
-                let pattern = IsPattern::from_parsed(is_expr.pattern.value, ast, context, is_expr.pattern.span);
+                let target = Self::from_parsed(is_expr.target.value, ast, context, loader, is_expr.target.span);
+                let pattern = IsPattern::from_parsed(is_expr.pattern.value, ast, context, loader, is_expr.pattern.span);
 
                 match &pattern {
                     IsPattern::Literal(_) => (),
@@ -909,7 +927,7 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Expr, ExprRef> for E
                 )
             }
             mollie_parser::Expr::Cast(expr, new_type) => {
-                let expr = Self::from_parsed(expr.value, ast, context, expr.span);
+                let expr = Self::from_parsed(expr.value, ast, context, loader, expr.span);
 
                 ast.add_expr(
                     Self::TypeCast(expr, new_type.value),
@@ -939,7 +957,7 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Expr, ExprRef> for E
                     })
                     .collect();
 
-                let body = Block::from_parsed(closure_expr.body.value, ast, context, closure_expr.body.span);
+                let body = Block::from_parsed(closure_expr.body.value, ast, context, loader, closure_expr.body.span);
                 let ty = context
                     .solver
                     .add_info(TypeInfo::Func(args.iter().map(|arg| arg.ty).collect(), ast[body].ty), Some(span));

@@ -21,16 +21,22 @@ pub enum Stmt {
     NewVar { mutable: bool, name: String, value: ExprRef },
 }
 
-impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Stmt, Option<StmtRef>> for Stmt {
-    fn from_parsed(stmt: mollie_parser::Stmt, ast: &mut TypedAST<FirstPass>, context: &mut TypedASTContextRef<'_, E, M>, span: Span) -> Option<StmtRef> {
+impl FromParsed<mollie_parser::Stmt, Option<StmtRef>> for Stmt {
+    fn from_parsed(
+        stmt: mollie_parser::Stmt,
+        ast: &mut TypedAST<FirstPass>,
+        context: &mut TypedASTContextRef<'_>,
+        loader: &mut dyn ModuleLoader,
+        span: Span,
+    ) -> Option<StmtRef> {
         match stmt {
             mollie_parser::Stmt::Expression(expr) => {
-                let expr = Expr::from_parsed(expr, ast, context, span);
+                let expr = Expr::from_parsed(expr, ast, context, loader, span);
 
                 Some(ast.add_stmt(Self::Expr(expr)))
             }
             mollie_parser::Stmt::VariableDecl(variable_decl) => {
-                let value = Expr::from_parsed(variable_decl.value.value, ast, context, variable_decl.value.span);
+                let value = Expr::from_parsed(variable_decl.value.value, ast, context, loader, variable_decl.value.span);
 
                 context.solver.set_var(&variable_decl.name.value.0, ast[value].ty);
 
@@ -53,12 +59,12 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Stmt, Option<StmtRef
 
                 for property in struct_decl.properties.value {
                     let name = property.value.name.value.0;
-                    let ty = Type::from_parsed(property.value.ty.value, ast, context, property.value.ty.span);
+                    let ty = Type::from_parsed(property.value.ty.value, ast, context, loader, property.value.ty.span);
                     let default_value = match property.value.default_value {
                         Some(value) => {
                             let mut ast = TypedAST::default();
                             let mut default_context = context.fork();
-                            let value = Expr::from_parsed(value.value, &mut ast, &mut default_context, value.span);
+                            let value = Expr::from_parsed(value.value, &mut ast, &mut default_context, loader, value.span);
                             let expected_ty = TypeSolver::type_to_info(&mut default_context.solver.type_infos, default_context.solver.context, ty, &[]);
 
                             default_context.solver.unify(ast[value].ty, expected_ty);
@@ -120,12 +126,12 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Stmt, Option<StmtRef
 
                 for property in view_decl.properties {
                     let name = property.value.name.value.0;
-                    let ty = Type::from_parsed(property.value.ty.value, ast, context, property.value.ty.span);
+                    let ty = Type::from_parsed(property.value.ty.value, ast, context, loader, property.value.ty.span);
                     let default_value = match property.value.default_value {
                         Some(value) => {
                             let mut ast = TypedAST::default();
                             let mut default_context = context.fork();
-                            let value = Expr::from_parsed(value.value, &mut ast, &mut default_context, value.span);
+                            let value = Expr::from_parsed(value.value, &mut ast, &mut default_context, loader, value.span);
                             let expected_ty = TypeSolver::type_to_info(&mut default_context.solver.type_infos, default_context.solver.context, ty, &[]);
 
                             default_context.solver.unify(ast[value].ty, expected_ty);
@@ -226,7 +232,7 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Stmt, Option<StmtRef
 
                     for arg in function.value.args {
                         let name = arg.value.name.value.0;
-                        let ty = Type::from_parsed(arg.value.ty.value, ast, context, arg.value.ty.span);
+                        let ty = Type::from_parsed(arg.value.ty.value, ast, context, loader, arg.value.ty.span);
 
                         args.push(Arg {
                             name,
@@ -237,7 +243,7 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Stmt, Option<StmtRef
 
                     let args = args.into_boxed_slice();
                     let returns = match function.value.returns {
-                        Some(returns) => Type::from_parsed(returns.value, ast, context, returns.span),
+                        Some(returns) => Type::from_parsed(returns.value, ast, context, loader, returns.span),
                         None => context.solver.context.types.get_or_add(Type::Primitive(PrimitiveType::Void)),
                     };
 
@@ -312,7 +318,7 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Stmt, Option<StmtRef
                     if let Some(properties) = variant.value.properties {
                         for property in properties.value {
                             let name = property.value.name.value.0;
-                            let ty = Type::from_parsed(property.value.ty.value, ast, context, property.value.ty.span);
+                            let ty = Type::from_parsed(property.value.ty.value, ast, context, loader, property.value.ty.span);
 
                             fields.push(AdtVariantField { name, ty, default_value: None });
                         }
@@ -377,7 +383,7 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Stmt, Option<StmtRef
                 };
 
                 for arg in func_decl.args.value {
-                    let ty = Type::from_parsed(arg.value.ty.value, &mut ast, &mut func_context, arg.value.ty.span);
+                    let ty = Type::from_parsed(arg.value.ty.value, &mut ast, &mut func_context, loader, arg.value.ty.span);
                     let type_info = TypeSolver::type_to_info(&mut func_context.solver.type_infos, func_context.solver.context, ty, &[]);
 
                     if let Type::Adt(adt_ref, adt_args) = &func_context.solver.context.types[ty] {
@@ -434,13 +440,13 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Stmt, Option<StmtRef
                 }
 
                 let returns = if let Some(returns) = func_decl.returns {
-                    Type::from_parsed(returns.value, &mut ast, &mut func_context, returns.span)
+                    Type::from_parsed(returns.value, &mut ast, &mut func_context, loader, returns.span)
                 } else {
                     func_context.solver.context.types.get_or_add(Type::Primitive(PrimitiveType::Void))
                 };
 
                 let returns_info = TypeSolver::type_to_info(&mut func_context.solver.type_infos, func_context.solver.context, returns, &[]);
-                let body = Block::from_parsed(func_decl.body.value, &mut ast, &mut func_context, func_decl.body.span);
+                let body = Block::from_parsed(func_decl.body.value, &mut ast, &mut func_context, loader, func_decl.body.span);
 
                 func_context.solver.unify(ast[body].ty, returns_info);
 
@@ -484,7 +490,7 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Stmt, Option<StmtRef
 
                 let (trait_name, origin_trait) = match implementation.trait_name {
                     Some(trait_name) => {
-                        if let ModuleItem::Trait(trait_ref) = ModuleItem::from_parsed(trait_name.value, ast, context, trait_name.span) {
+                        if let ModuleItem::Trait(trait_ref) = ModuleItem::from_parsed(trait_name.value, ast, context, loader, trait_name.span) {
                             (Some(context.solver.context.traits[trait_ref].name.clone()), Some(trait_ref))
                         } else {
                             (None, None)
@@ -504,7 +510,7 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Stmt, Option<StmtRef
                     context.solver.available_generics.insert(name, (ty_info, ty));
                 }
 
-                let ty = Type::from_parsed(implementation.target.value, ast, context, implementation.target.span);
+                let ty = Type::from_parsed(implementation.target.value, ast, context, loader, implementation.target.span);
 
                 let vtable = if let Some(vtable) = context.solver.context.get_vtable(ty, origin_trait) {
                     vtable
@@ -558,7 +564,7 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Stmt, Option<StmtRef
                             }
 
                             for arg in function.value.args {
-                                let ty = Type::from_parsed(arg.value.ty.value, &mut ast, &mut func_context, arg.value.ty.span);
+                                let ty = Type::from_parsed(arg.value.ty.value, &mut ast, &mut func_context, loader, arg.value.ty.span);
                                 let ty_info = TypeSolver::type_to_info(&mut func_context.solver.type_infos, func_context.solver.context, ty, &[]);
 
                                 func_context.solver.set_var(&arg.value.name.value.0, ty_info);
@@ -581,13 +587,13 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Stmt, Option<StmtRef
                             }
 
                             let returns = if let Some(returns) = function.value.returns {
-                                Type::from_parsed(returns.value, &mut ast, &mut func_context, returns.span)
+                                Type::from_parsed(returns.value, &mut ast, &mut func_context, loader, returns.span)
                             } else {
                                 func_context.solver.context.types.get_or_add(Type::Primitive(PrimitiveType::Void))
                             };
 
                             let returns_info = TypeSolver::type_to_info(&mut func_context.solver.type_infos, func_context.solver.context, returns, &[]);
-                            let body = Block::from_parsed(function.value.body.value, &mut ast, &mut func_context, function.value.body.span);
+                            let body = Block::from_parsed(function.value.body.value, &mut ast, &mut func_context, loader, function.value.body.span);
 
                             func_context.solver.unify(ast[body].ty, returns_info);
 
@@ -644,7 +650,7 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Stmt, Option<StmtRef
                     }
 
                     for arg in function.value.args {
-                        let ty = Type::from_parsed(arg.value.ty.value, &mut ast, &mut func_context, arg.value.ty.span);
+                        let ty = Type::from_parsed(arg.value.ty.value, &mut ast, &mut func_context, loader, arg.value.ty.span);
                         let ty_info = TypeSolver::type_to_info(&mut func_context.solver.type_infos, func_context.solver.context, ty, &[]);
 
                         func_context.solver.set_var(&arg.value.name.value.0, ty_info);
@@ -667,13 +673,13 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Stmt, Option<StmtRef
                     }
 
                     let returns = if let Some(returns) = function.value.returns {
-                        Type::from_parsed(returns.value, &mut ast, &mut func_context, returns.span)
+                        Type::from_parsed(returns.value, &mut ast, &mut func_context, loader, returns.span)
                     } else {
                         func_context.solver.context.types.get_or_add(Type::Primitive(PrimitiveType::Void))
                     };
 
                     let returns_info = TypeSolver::type_to_info(&mut func_context.solver.type_infos, func_context.solver.context, returns, &[]);
-                    let body = Block::from_parsed(function.value.body.value, &mut ast, &mut func_context, function.value.body.span);
+                    let body = Block::from_parsed(function.value.body.value, &mut ast, &mut func_context, loader, function.value.body.span);
 
                     func_context.solver.unify(ast[body].ty, returns_info);
 
@@ -703,7 +709,7 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Stmt, Option<StmtRef
             }
             mollie_parser::Stmt::Import(import) => {
                 // let _path_span = import.path.span;
-                let path = ModuleItem::from_parsed(import.path.value, ast, context, import.path.span);
+                let path = ModuleItem::from_parsed(import.path.value, ast, context, loader, import.path.span);
 
                 #[allow(clippy::single_match)]
                 match path {
@@ -731,7 +737,7 @@ impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Stmt, Option<StmtRef
             mollie_parser::Stmt::Module(module) => {
                 let module = context.solver.context.register_module_in_module(ast.module, module.name.value);
 
-                M::load_module(context.fork(), module);
+                loader.load_module(context.fork(), module);
 
                 None
             }

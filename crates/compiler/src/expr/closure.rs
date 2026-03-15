@@ -15,7 +15,7 @@ use crate::{
     func::{FunctionCompiler, Variable},
 };
 
-impl<S, ML: mollie_typed_ast::ModuleLoader<S>, M: Module> FunctionCompiler<'_, S, ML, M> {
+impl<M: Module> FunctionCompiler<'_, M> {
     pub fn compile_closure_expr(
         &mut self,
         ast: &TypedAST,

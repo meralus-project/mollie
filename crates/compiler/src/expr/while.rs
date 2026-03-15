@@ -3,7 +3,7 @@ use mollie_typed_ast::{BlockRef, ExprRef, TypedAST};
 
 use crate::{CompileTypedAST, MolValue, error::CompileResult, func::FunctionCompiler};
 
-impl<S, ML: mollie_typed_ast::ModuleLoader<S>, M: Module> FunctionCompiler<'_, S, ML, M> {
+impl<M: Module> FunctionCompiler<'_, M> {
     pub fn compile_while_expr(&mut self, ast: &TypedAST, condition: ExprRef, block: BlockRef) -> CompileResult<MolValue> {
         self.push_frame();
 

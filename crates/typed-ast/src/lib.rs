@@ -25,18 +25,18 @@ pub use crate::{
     stmt::{Stmt, StmtRef},
 };
 
-pub enum FunctionBody<E> {
+pub enum FunctionBody {
     Local { ast: TypedAST, entry: BlockRef },
     Import(&'static str),
-    External(E),
+    BuiltIn(&'static str),
 }
 
-pub trait ModuleLoader<E>: Sized {
-    fn load_module(ast: TypedASTContextRef<'_, E, Self>, module: ModuleId);
+pub trait ModuleLoader {
+    fn load_module(&mut self, ast: TypedASTContextRef<'_>, module: ModuleId);
 }
 
-impl<E> ModuleLoader<E> for () {
-    fn load_module(_: TypedASTContextRef<'_, E, Self>, _: ModuleId) {
+impl ModuleLoader for () {
+    fn load_module(&mut self, _: TypedASTContextRef<'_>, _: ModuleId) {
         panic!("load_module: noop")
     }
 }
@@ -45,8 +45,8 @@ pub struct FileModuleLoader {
     pub current_dir: PathBuf,
 }
 
-impl<E> ModuleLoader<E> for FileModuleLoader {
-    fn load_module(mut ast: TypedASTContextRef<'_, E, Self>, module: ModuleId) {
+impl ModuleLoader for FileModuleLoader {
+    fn load_module(&mut self, mut ast: TypedASTContextRef<'_>, module: ModuleId) {
         fn module_path(base: &Path, type_context: &TypeContext, module: ModuleId) -> PathBuf {
             if module == ModuleId::ZERO {
                 base.to_path_buf()
@@ -60,66 +60,61 @@ impl<E> ModuleLoader<E> for FileModuleLoader {
             }
         }
 
-        let path = module_path(&ast.state.current_dir, ast.solver.context, module).with_extension("mol");
+        let path = module_path(&self.current_dir, ast.solver.context, module).with_extension("mol");
 
         println!("load_module: {}", path.display());
 
         let source = fs::read_to_string(path).unwrap();
         let void = ast.solver.context.core_types.void;
 
-        ast.process(module, source, void);
+        ast.process(module, self, source, void);
     }
 }
 
-pub struct TypedASTContext<E, M: ModuleLoader<E>> {
-    pub vtables: IndexVec<VTableRef, IndexVec<VFuncRef, FunctionBody<E>>>,
-    pub functions: IndexVec<FuncRef, FunctionBody<E>>,
+pub struct TypedASTContext {
+    pub vtables: IndexVec<VTableRef, IndexVec<VFuncRef, FunctionBody>>,
+    pub functions: IndexVec<FuncRef, FunctionBody>,
     pub type_context: TypeContext,
-    pub state: M,
 }
 
-impl<E, M: ModuleLoader<E>> TypedASTContext<E, M> {
-    pub const fn new(type_context: TypeContext, state: M) -> Self {
+impl TypedASTContext {
+    pub const fn new(type_context: TypeContext) -> Self {
         Self {
             vtables: IndexVec::new(),
             functions: IndexVec::new(),
             type_context,
-            state,
         }
     }
 
-    pub fn take_ref(&mut self) -> TypedASTContextRef<'_, E, M> {
-        TypedASTContextRef::new(&mut self.vtables, &mut self.functions, self.type_context.solver(), &mut self.state)
+    pub fn take_ref(&mut self) -> TypedASTContextRef<'_> {
+        TypedASTContextRef::new(&mut self.vtables, &mut self.functions, self.type_context.solver())
     }
 }
 
-pub struct TypedASTContextRef<'a, E, M: ModuleLoader<E>> {
-    pub vtables: &'a mut IndexVec<VTableRef, IndexVec<VFuncRef, FunctionBody<E>>>,
-    pub functions: &'a mut IndexVec<FuncRef, FunctionBody<E>>,
+pub struct TypedASTContextRef<'a> {
+    pub vtables: &'a mut IndexVec<VTableRef, IndexVec<VFuncRef, FunctionBody>>,
+    pub functions: &'a mut IndexVec<FuncRef, FunctionBody>,
     pub solver: TypeSolver<'a>,
-    pub state: &'a mut M,
     pub captures: Vec<(String, TypeInfoRef)>,
     pub current_frame: Option<TypeFrameRef>,
 }
 
-impl<'a, E, M: ModuleLoader<E>> TypedASTContextRef<'a, E, M> {
+impl<'a> TypedASTContextRef<'a> {
     pub const fn new(
-        vtables: &'a mut IndexVec<VTableRef, IndexVec<VFuncRef, FunctionBody<E>>>,
-        functions: &'a mut IndexVec<FuncRef, FunctionBody<E>>,
+        vtables: &'a mut IndexVec<VTableRef, IndexVec<VFuncRef, FunctionBody>>,
+        functions: &'a mut IndexVec<FuncRef, FunctionBody>,
         solver: TypeSolver<'a>,
-        state: &'a mut M,
     ) -> Self {
         Self {
             vtables,
             functions,
             solver,
-            state,
             captures: Vec::new(),
             current_frame: None,
         }
     }
 
-    pub fn process<T: AsRef<str>>(&mut self, module: ModuleId, source: T, returns: TypeRef) -> (TypedAST, BlockRef) {
+    pub fn process<T: AsRef<str>>(&mut self, module: ModuleId, module_loader: &mut dyn ModuleLoader, source: T, returns: TypeRef) -> (TypedAST, BlockRef) {
         let (stmts, final_stmt) =
             mollie_parser::parse_statements_until(&mut mollie_parser::Parser::new(mollie_lexer::Lexer::lex(source)), &mollie_lexer::Token::EOF).unwrap();
 
@@ -127,7 +122,7 @@ impl<'a, E, M: ModuleLoader<E>> TypedASTContextRef<'a, E, M> {
         let mut block_stmts = Vec::new();
 
         for stmt in stmts {
-            if let Some(stmt) = Stmt::from_parsed(stmt.value, &mut ast, self, stmt.span) {
+            if let Some(stmt) = Stmt::from_parsed(stmt.value, &mut ast, self, module_loader, stmt.span) {
                 block_stmts.push(stmt);
             }
         }
@@ -137,7 +132,7 @@ impl<'a, E, M: ModuleLoader<E>> TypedASTContextRef<'a, E, M> {
                 value: mollie_parser::Stmt::Expression(expr),
                 span,
             }) => {
-                let expr = Expr::from_parsed(expr, &mut ast, self, span);
+                let expr = Expr::from_parsed(expr, &mut ast, self, module_loader, span);
 
                 (Some(expr), ast[expr].ty)
             }
@@ -156,20 +151,19 @@ impl<'a, E, M: ModuleLoader<E>> TypedASTContextRef<'a, E, M> {
         ast.solve(result, self, returns)
     }
 
-    pub fn fork(&mut self) -> TypedASTContextRef<'_, E, M> {
+    pub fn fork(&mut self) -> TypedASTContextRef<'_> {
         TypedASTContextRef {
             vtables: self.vtables,
             functions: self.functions,
             solver: self.solver.fork(),
-            state: self.state,
             captures: Vec::new(),
             current_frame: None,
         }
     }
 }
 
-pub trait FromParsed<E, M: ModuleLoader<E>, T, O = Self> {
-    fn from_parsed(value: T, ast: &mut TypedAST<FirstPass>, context: &mut TypedASTContextRef<'_, E, M>, span: Span) -> O;
+pub trait FromParsed<T, O = Self> {
+    fn from_parsed(value: T, ast: &mut TypedAST<FirstPass>, context: &mut TypedASTContextRef<'_>, module_loader: &mut dyn ModuleLoader, span: Span) -> O;
 }
 
 pub trait Descriptor {
@@ -240,11 +234,11 @@ impl<D: Descriptor> TypedAST<D> {
         result
     }
 
-    fn use_item<E>(
+    fn use_item(
         &mut self,
         adt_types: &IndexVec<AdtRef, Adt>,
-        vtables: &IndexVec<VTableRef, IndexVec<VFuncRef, FunctionBody<E>>>,
-        functions: &IndexVec<FuncRef, FunctionBody<E>>,
+        vtables: &IndexVec<VTableRef, IndexVec<VFuncRef, FunctionBody>>,
+        functions: &IndexVec<FuncRef, FunctionBody>,
         types: &mut TypeStorage,
         item: UsedItem,
         current_vtable: Option<VTableRef>,
@@ -291,12 +285,12 @@ impl<D: Descriptor> TypedAST<D> {
                     for variant in adt_types[*adt].variants.values() {
                         for field in variant.fields.values() {
                             #[allow(clippy::too_many_arguments)]
-                            fn recurse_on_field<D: Descriptor, E>(
+                            fn recurse_on_field<D: Descriptor>(
                                 ty: TypeRef,
                                 ast: &mut TypedAST<D>,
                                 adt_types: &IndexVec<AdtRef, Adt>,
-                                vtables: &IndexVec<VTableRef, IndexVec<VFuncRef, FunctionBody<E>>>,
-                                functions: &IndexVec<FuncRef, FunctionBody<E>>,
+                                vtables: &IndexVec<VTableRef, IndexVec<VFuncRef, FunctionBody>>,
+                                functions: &IndexVec<FuncRef, FunctionBody>,
                                 types: &mut TypeStorage,
                                 current_vtable: Option<VTableRef>,
                                 type_args: &[TypeRef],
@@ -341,7 +335,7 @@ impl<D: Descriptor> TypedAST<D> {
     }
 }
 
-impl<E, M: ModuleLoader<E>> TypedASTContextRef<'_, E, M> {
+impl TypedASTContextRef<'_> {
     fn use_vtable_impl(&mut self, target: TypeRef, vtable: VTableRef) -> Box<[TypeInfoRef]> {
         let type_args: Box<[_]> = self.solver.context.vtables[vtable]
             .generics
@@ -369,7 +363,7 @@ impl<E, M: ModuleLoader<E>> TypedASTContextRef<'_, E, M> {
 }
 
 impl TypedAST<FirstPass> {
-    fn solve_expr<E, M: ModuleLoader<E>>(&self, ast: &mut TypedAST, expr: ExprRef, context: &mut TypedASTContextRef<'_, E, M>) -> ExprRef {
+    fn solve_expr(&self, ast: &mut TypedAST, expr: ExprRef, context: &mut TypedASTContextRef<'_>) -> ExprRef {
         let value = match self[expr].value.clone() {
             Expr::Lit(lit_expr) => Expr::Lit(lit_expr),
             Expr::Var(var) => Expr::Var(var),
@@ -780,11 +774,11 @@ impl TypedAST<FirstPass> {
                 Expr::TypeCast(expr, ty)
             }
             Expr::IsPattern { target, pattern } => {
-                fn solve_pattern<E, M: ModuleLoader<E>>(
+                fn solve_pattern(
                     first_pass: &TypedAST<FirstPass>,
                     ast: &mut TypedAST,
                     pattern: IsPattern<FirstPass>,
-                    context: &mut TypedASTContextRef<'_, E, M>,
+                    context: &mut TypedASTContextRef<'_>,
                 ) -> IsPattern<SolvedPass> {
                     match pattern {
                         IsPattern::Literal(expr) => {
@@ -857,7 +851,7 @@ impl TypedAST<FirstPass> {
         ast.add_expr(value, ty, self[expr].span)
     }
 
-    fn solve_block<E, M: ModuleLoader<E>>(&self, ast: &mut TypedAST, block: BlockRef, context: &mut TypedASTContextRef<'_, E, M>) -> BlockRef {
+    fn solve_block(&self, ast: &mut TypedAST, block: BlockRef, context: &mut TypedASTContextRef<'_>) -> BlockRef {
         let input_block = &self.blocks[block];
         let output_block = Block {
             stmts: input_block
@@ -883,7 +877,7 @@ impl TypedAST<FirstPass> {
         ast.add_block(output_block, context.solver.solve(input_block.ty), input_block.span)
     }
 
-    fn solve_expr_final<E, M: ModuleLoader<E>>(self, root: ExprRef, context: &mut TypedASTContextRef<'_, E, M>) -> (TypedAST, ExprRef) {
+    fn solve_expr_final(self, root: ExprRef, context: &mut TypedASTContextRef<'_>) -> (TypedAST, ExprRef) {
         // context.solver.finalize();
 
         let mut ast = TypedAST {
@@ -899,7 +893,7 @@ impl TypedAST<FirstPass> {
         (ast, expr)
     }
 
-    pub fn solve<E, M: ModuleLoader<E>>(mut self, root: BlockRef, context: &mut TypedASTContextRef<'_, E, M>, returns: TypeRef) -> (TypedAST, BlockRef) {
+    pub fn solve(mut self, root: BlockRef, context: &mut TypedASTContextRef<'_>, returns: TypeRef) -> (TypedAST, BlockRef) {
         // context.solver.finalize();
 
         let mut ast = TypedAST {
@@ -1049,8 +1043,8 @@ pub trait IntoConstVal {
 mod tests {
     use std::{fmt, mem, path::PathBuf};
 
-    use itertools::Itertools;
     use mollie_index::{Idx, IndexBoxedSlice, IndexVec};
+    use mollie_shared::pretty_fmt::FmtIteratorExt;
     use mollie_typing::{
         Adt, AdtKind, AdtVariant, AdtVariantField, Arg, ArgType, Func, IntType, ModuleId, PrimitiveType, Trait, TraitFunc, Type, TypeContext, TypeInfo,
         UIntType,
@@ -1444,9 +1438,11 @@ mod tests {
             mm
         }";
         let source = include_str!("../../../examples/ui.mol");
-        let mut context = TypedASTContext::<(), _>::new(TypeContext::new(), FileModuleLoader {
+        let mut context = TypedASTContext::new(TypeContext::new());
+
+        let mut loader = FileModuleLoader {
             current_dir: PathBuf::from("/home/aiving/Documents/dev-v2/dev/meralus-project/mollie/examples"),
-        });
+        };
 
         let usize = context.type_context.types.get_or_add(Type::Primitive(PrimitiveType::UInt(UIntType::USize)));
         let string = context.type_context.types.get_or_add(Type::Primitive(PrimitiveType::String));
@@ -1741,7 +1737,7 @@ mod tests {
         context_ref.solver.set_var("context", draw_ctx_info);
         context_ref.solver.set_var("calc_smth", func);
 
-        let (solved, block) = context_ref.process(ModuleId::ZERO, source, void);
+        let (solved, block) = context_ref.process(ModuleId::ZERO, &mut loader, source, void);
         let mut type_context = context.type_context;
 
         println!("Solved Typed AST dump (fmt):\n{}", TypeBlockFmt {

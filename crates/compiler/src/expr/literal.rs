@@ -4,7 +4,7 @@ use mollie_typed_ast::{ExprRef, LitExpr, TypedAST};
 
 use crate::{AsIrType, MolValue, error::CompileResult, func::FunctionCompiler};
 
-impl<S, ML: mollie_typed_ast::ModuleLoader<S>, M: Module> FunctionCompiler<'_, S, ML, M> {
+impl<M: Module> FunctionCompiler<'_, M> {
     pub fn compile_lit_expr(&mut self, ast: &TypedAST, expr: ExprRef, lit_expr: &LitExpr) -> CompileResult<MolValue> {
         Ok(MolValue::Value(match lit_expr {
             &LitExpr::Int(value) => match ast[expr].ty.as_ir_type(&self.type_context.type_context.types, self.compiler.isa()) {

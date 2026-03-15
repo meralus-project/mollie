@@ -8,7 +8,7 @@ use crate::{
     func::{FuncKey, FunctionCompiler},
 };
 
-impl<S, ML: mollie_typed_ast::ModuleLoader<S>, M: Module> FunctionCompiler<'_, S, ML, M> {
+impl<M: Module> FunctionCompiler<'_, M> {
     /// Retrieves the variable's value and returns it, or assigns a new value to
     /// the variable.
     ///

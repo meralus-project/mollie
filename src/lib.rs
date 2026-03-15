@@ -7,7 +7,6 @@ pub use mollie_ir as ir;
 pub use mollie_parser as parser;
 pub use mollie_shared as shared;
 pub use mollie_typed_ast as typed_ast;
-use mollie_typed_ast::ModuleLoader;
 pub use mollie_typing as typing;
 
 use self::{
@@ -456,16 +455,16 @@ impl<'a> TraitBuilder<'a> {
     }
 }
 
-pub struct VTableBuilder<'a, E, ML: ModuleLoader<E>> {
-    context: &'a mut TypedASTContext<E, ML>,
+pub struct VTableBuilder<'a> {
+    context: &'a mut TypedASTContext,
     target: TypeRef,
     generics: usize,
     functions: IndexVec<VFuncRef, VTableFunc>,
-    external_functions: IndexVec<VFuncRef, FunctionBody<E>>,
+    external_functions: IndexVec<VFuncRef, FunctionBody>,
 }
 
-impl<'a, E, ML: ModuleLoader<E>> VTableBuilder<'a, E, ML> {
-    pub const fn new(context: &'a mut TypedASTContext<E, ML>, target: TypeRef) -> Self {
+impl<'a> VTableBuilder<'a> {
+    pub const fn new(context: &'a mut TypedASTContext, target: TypeRef) -> Self {
         Self {
             context,
             target,
