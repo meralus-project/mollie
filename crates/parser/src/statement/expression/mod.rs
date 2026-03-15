@@ -16,6 +16,7 @@ mod while_expr;
 
 use mollie_lexer::Token;
 use mollie_shared::{Operator, Positioned};
+use mollie_typing::PrimitiveType;
 
 pub use self::{
     array::ArrayExpr,
@@ -33,7 +34,7 @@ pub use self::{
     type_index::{TypePathExpr, TypePathSegment},
     while_expr::WhileExpr,
 };
-use crate::{Parse, ParseResult, Parser, PrimitiveType};
+use crate::{Parse, ParseError, ParseResult, Parser};
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Hash)]
 pub enum Precedence {
@@ -106,7 +107,6 @@ fn go_parse_pratt_expr(parser: &mut Parser, precedence: Precedence, left: Positi
                 parser.consume(&Token::As)?;
 
                 let primitive = PrimitiveType::parse(parser)?;
-
                 let left = left.between(&primitive).wrap(Expr::Cast(Box::new(left), primitive));
 
                 go_parse_pratt_expr(parser, precedence, left, is_limited_expr)
@@ -174,13 +174,17 @@ impl Expr {
                 .or_else(|_| ForInExpr::parse(parser).map(|v| v.map(Self::ForIn)))
                 .or_else(|_| ClosureExpr::parse(parser).map(|v| v.map(Self::Closure)))
                 .or_else(|_| {
-                    Ident::parse(parser).and_then(|name| {
-                        Ok(if parser.check(&Token::PathSep) {
-                            TypePathExpr::parse(name.span.wrap(TypePathSegment { name, args: None }), parser, true)?.map(Self::TypeIndex)
-                        } else {
-                            name.map(Self::Ident)
+                    Ident::parse(parser)
+                        .or_else(|_| parser.consume_map(|token| if matches!(token, Token::Super) { Some(Ident::new("super")) } else { None }))
+                        .and_then(|name| {
+                            Ok(if parser.check(&Token::PathSep) {
+                                TypePathExpr::parse(name.span.wrap(TypePathSegment { name, args: None }), parser, true)?.map(Self::TypeIndex)
+                            } else if name.value.0 == "super" {
+                                return Err(ParseError::unexpected_token(Some(&name.span.wrap(Token::Super))));
+                            } else {
+                                name.map(Self::Ident)
+                            })
                         })
-                    })
                 })
                 .or_else(|_| parser.consume(&Token::This).map(|v| v.wrap(Self::This)))
         } else {
@@ -193,27 +197,35 @@ impl Expr {
                 .or_else(|_| ForInExpr::parse(parser).map(|v| v.map(Self::ForIn)))
                 .or_else(|_| ClosureExpr::parse(parser).map(|v| v.map(Self::Closure)))
                 .or_else(|_| {
-                    Ident::parse(parser).and_then(|name| {
-                        Ok(if parser.check(&Token::PathSep) {
-                            let path = TypePathExpr::parse(name.span.wrap(TypePathSegment { name, args: None }), parser, true)?;
+                    Ident::parse(parser)
+                        .or_else(|_| parser.consume_map(|token| if matches!(token, Token::Super) { Some(Ident::new("super")) } else { None }))
+                        .and_then(|name| {
+                            Ok(if parser.check(&Token::PathSep) {
+                                let path = TypePathExpr::parse(name.span.wrap(TypePathSegment { name, args: None }), parser, true)?;
 
-                            if parser.check_one_of(&[Token::BraceOpen, Token::From]) {
-                                NodeExpr::parse(path, parser)?.map(Self::Node)
+                                if parser.check_one_of(&[Token::BraceOpen, Token::From]) {
+                                    NodeExpr::parse(path, parser)?.map(Self::Node)
+                                } else {
+                                    path.map(Self::TypeIndex)
+                                }
                             } else {
-                                path.map(Self::TypeIndex)
-                            }
-                        } else if parser.check_one_of(&[Token::BraceOpen, Token::From]) {
-                            NodeExpr::parse(
-                                name.span.wrap(TypePathExpr {
-                                    segments: vec![name.span.wrap(TypePathSegment { name, args: None })],
-                                }),
-                                parser,
-                            )?
-                            .map(Self::Node)
-                        } else {
-                            name.map(Self::Ident)
+                                if name.value.0 == "super" {
+                                    return Err(ParseError::unexpected_token(Some(&name.span.wrap(Token::Super))));
+                                }
+
+                                if parser.check_one_of(&[Token::BraceOpen, Token::From]) {
+                                    NodeExpr::parse(
+                                        name.span.wrap(TypePathExpr {
+                                            segments: vec![name.span.wrap(TypePathSegment { name, args: None })],
+                                        }),
+                                        parser,
+                                    )?
+                                    .map(Self::Node)
+                                } else {
+                                    name.map(Self::Ident)
+                                }
+                            })
                         })
-                    })
                 })
                 .or_else(|_| parser.consume(&Token::This).map(|v| v.wrap(Self::This)))
         }

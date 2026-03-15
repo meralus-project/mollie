@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 mollie-shared = { workspace = true }
 derive_more = { workspace = true }
+phf = { version = "0.13.1", features = ["macros"] }
 
 [lints]
 workspace = true

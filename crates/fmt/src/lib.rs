@@ -136,22 +136,7 @@ impl<'a, 'b> Formatter<'a, 'b> {
 
     pub fn fmt_type(&mut self, ty: &mollie_parser::Type) -> fmt::Result {
         match ty {
-            mollie_parser::Type::Primitive(primitive_type) => match primitive_type {
-                mollie_parser::PrimitiveType::ISize => self.f.write_str("isize"),
-                mollie_parser::PrimitiveType::I64 => self.f.write_str("i64"),
-                mollie_parser::PrimitiveType::I32 => self.f.write_str("i32"),
-                mollie_parser::PrimitiveType::I16 => self.f.write_str("i16"),
-                mollie_parser::PrimitiveType::I8 => self.f.write_str("i8"),
-                mollie_parser::PrimitiveType::USize => self.f.write_str("usize"),
-                mollie_parser::PrimitiveType::U64 => self.f.write_str("u64"),
-                mollie_parser::PrimitiveType::U32 => self.f.write_str("u32"),
-                mollie_parser::PrimitiveType::U16 => self.f.write_str("u16"),
-                mollie_parser::PrimitiveType::U8 => self.f.write_str("u8"),
-                mollie_parser::PrimitiveType::F32 => self.f.write_str("f32"),
-                mollie_parser::PrimitiveType::Bool => self.f.write_str("bool"),
-                mollie_parser::PrimitiveType::String => self.f.write_str("string"),
-                mollie_parser::PrimitiveType::Void => self.f.write_str("void"),
-            },
+            mollie_parser::Type::Primitive(primitive_type) => primitive_type.fmt(self.f),
             mollie_parser::Type::Array(element, size) => {
                 self.fmt_type(&element.value)?;
 
@@ -223,9 +208,7 @@ impl<'a, 'b> Formatter<'a, 'b> {
     }
 
     pub fn fmt_expr(&mut self, expr: &mollie_parser::Expr) -> fmt::Result {
-        use mollie_parser::Expr::{
-            Array, Binary, Block, Closure, ForIn, FunctionCall, Ident, IfElse, Index, Is, Literal, Node, Nothing, This, TypeIndex, While,
-        };
+        use mollie_parser::Expr::{Array, Binary, Block, Closure, ForIn, FunctionCall, Ident, IfElse, Index, Is, Literal, Node, This, TypeIndex, While};
 
         match expr {
             Literal(literal_expr) => self.fmt_literal(literal_expr),

@@ -28,7 +28,7 @@ use crate::{
     func::{FuncKey, FunctionCompiler},
 };
 
-fn get_ir_type(primitive: PrimitiveType, ptr_type: ir::Type) -> ir::Type {
+const fn get_ir_type(primitive: PrimitiveType, ptr_type: ir::Type) -> ir::Type {
     match primitive {
         PrimitiveType::Int(int_type) => match int_type {
             IntType::ISize => ptr_type,
@@ -45,12 +45,14 @@ fn get_ir_type(primitive: PrimitiveType, ptr_type: ir::Type) -> ir::Type {
             UIntType::U8 => ir::types::I8,
         },
         PrimitiveType::F32 => ir::types::F32,
-        _ => unimplemented!(),
+        PrimitiveType::Bool => ir::types::I8,
+        PrimitiveType::String => ptr_type,
+        PrimitiveType::Any | PrimitiveType::Void => ir::types::INVALID,
     }
 }
 
-impl<S, M: Module> CompileTypedAST<S, M, MolValue> for ExprRef {
-    fn compile(self, ast: &TypedAST, compiler: &mut FunctionCompiler<'_, S, M>) -> CompileResult<MolValue> {
+impl<S, ML: mollie_typed_ast::ModuleLoader<S>, M: Module> CompileTypedAST<S, ML, M, MolValue> for ExprRef {
+    fn compile(self, ast: &TypedAST, compiler: &mut FunctionCompiler<'_, S, ML, M>) -> CompileResult<MolValue> {
         match &ast[self].value {
             Expr::Lit(literal_expr) => compiler.compile_lit_expr(ast, self, literal_expr),
             &Expr::IfElse { condition, block, otherwise } => compiler.compile_if_expr(ast, condition, block, otherwise),

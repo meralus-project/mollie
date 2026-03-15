@@ -1,26 +1,28 @@
-mod view_decl;
 mod enum_decl;
 mod expression;
 mod func_decl;
 mod implementation;
 mod import;
+mod module_decl;
 mod struct_decl;
 mod trait_decl;
 mod variable_decl;
+mod view_decl;
 
 use mollie_lexer::Token;
 use mollie_shared::{LangItem, Positioned};
 
 pub use self::{
-    view_decl::{ViewDecl, ViewProperty},
     enum_decl::EnumDecl,
     expression::*,
     func_decl::{Argument, FuncDecl, FuncModifier},
     implementation::{Impl, ImplFunction},
     import::{Import, ImportKind},
+    module_decl::ModuleDecl,
     struct_decl::{Property, StructDecl},
     trait_decl::{TraitDecl, TraitFuncArgument, TraitFunction},
     variable_decl::VariableDecl,
+    view_decl::{ViewDecl, ViewProperty},
 };
 use super::{ParseResult, Parser};
 use crate::{Parse, ParseError};
@@ -82,6 +84,7 @@ pub enum Stmt {
     FuncDecl(FuncDecl),
     Impl(Impl),
     Import(Import),
+    Module(ModuleDecl),
 }
 
 impl Parse for Stmt {
@@ -105,6 +108,7 @@ impl Parse for Stmt {
             Some(Token::Func | Token::Postfix | Token::Public) => Ok(FuncDecl::parse(parser)?.map(Self::FuncDecl)),
             Some(Token::Trait) => Ok(TraitDecl::parse(parser, attributes)?.map(Self::TraitDecl)),
             Some(Token::Import) => Ok(Import::parse(parser)?.map(Self::Import)),
+            Some(Token::Module) => Ok(ModuleDecl::parse(parser)?.map(Self::Module)),
             Some(_) => Ok(Expr::parse(parser)?.map(Self::Expression)),
             None => Err(ParseError::new("unexpected <EOF>", None)),
         }

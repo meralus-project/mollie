@@ -1,6 +1,6 @@
 use std::mem::{ManuallyDrop, transmute};
 
-use mollie_typed_ast::{BlockRef, Expr, ExprRef, FuncSource, Stmt, StmtRef, TypeChecker, TypedAST, VFunc};
+use mollie_typed_ast::{BlockRef, Expr, ExprRef, Stmt, StmtRef, TypedAST};
 use mollie_typing::{AdtVariantRef, FieldRef, TypeInfo, TypeInfoRef};
 use tokio::{
     io::{stdin, stdout},

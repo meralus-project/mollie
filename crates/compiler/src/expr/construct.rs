@@ -9,12 +9,12 @@ use cranelift::{
 use itertools::Itertools;
 use mollie_index::Idx;
 use mollie_ir::{Array, ConstValue, ConstantCompiler, MollieType, compile_constant};
-use mollie_typed_ast::{ExprRef, TypedAST};
+use mollie_typed_ast::{ExprRef, ModuleLoader, TypedAST};
 use mollie_typing::{AdtKind, AdtVariantRef, FieldRef, Type, TypeRef};
 
 use crate::{AsIrType, CompileTypedAST, MolValue, error::CompileResult, func::FunctionCompiler};
 
-impl<'a, S, M: Module> ConstantCompiler<'a> for FunctionCompiler<'a, S, M> {
+impl<'a, S, ML: ModuleLoader<S>, M: Module> ConstantCompiler<'a> for FunctionCompiler<'a, S, ML, M> {
     fn construct(&mut self, ty: usize, variant: usize, values: Box<[Option<ConstValue>]>) -> Option<ir::Value> {
         let ty = TypeRef::new(ty);
         let hash = self.hash_of(ty);
@@ -148,7 +148,7 @@ impl<'a, S, M: Module> ConstantCompiler<'a> for FunctionCompiler<'a, S, M> {
     }
 }
 
-impl<S, M: Module> FunctionCompiler<'_, S, M> {
+impl<S, ML: mollie_typed_ast::ModuleLoader<S>, M: Module> FunctionCompiler<'_, S, ML, M> {
     pub fn compile_construct(
         &mut self,
         ast: &TypedAST,

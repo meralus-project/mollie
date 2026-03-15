@@ -3,12 +3,12 @@ use std::iter;
 use mollie_index::{Idx, IdxEnumerate, IndexVec};
 use mollie_shared::Span;
 use mollie_typing::{
-    Adt, AdtKind, AdtRef, AdtVariant, AdtVariantField, AdtVariantRef, Arg, ArgType, Func, FuncRef, LangItemValue, ModuleId, ModuleItem, PrimitiveType, Trait,
-    TraitFunc, Type, TypeError, TypeInfo, TypeSolver, UIntType, VTableFunc, VTableGenerator,
+    Adt, AdtKind, AdtRef, AdtVariant, AdtVariantField, AdtVariantRef, Arg, ArgType, Func, FuncRef, LangItemValue, ModuleItem, PrimitiveType, Trait, TraitFunc,
+    Type, TypeError, TypeInfo, TypeSolver, UIntType, VTableFunc, VTableGenerator,
 };
 
 use crate::{
-    ConstantContext, FirstPass, FromParsed, FunctionBody, IntoConstVal, TypedAST, TypedASTContextRef, UsedItem,
+    ConstantContext, FirstPass, FromParsed, FunctionBody, IntoConstVal, ModuleLoader, TypedAST, TypedASTContextRef, UsedItem,
     block::Block,
     expr::{Expr, ExprRef},
 };
@@ -21,8 +21,8 @@ pub enum Stmt {
     NewVar { mutable: bool, name: String, value: ExprRef },
 }
 
-impl<E> FromParsed<E, mollie_parser::Stmt, Option<StmtRef>> for Stmt {
-    fn from_parsed(stmt: mollie_parser::Stmt, ast: &mut TypedAST<FirstPass>, context: &mut TypedASTContextRef<'_, E>, span: Span) -> Option<StmtRef> {
+impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Stmt, Option<StmtRef>> for Stmt {
+    fn from_parsed(stmt: mollie_parser::Stmt, ast: &mut TypedAST<FirstPass>, context: &mut TypedASTContextRef<'_, E, M>, span: Span) -> Option<StmtRef> {
         match stmt {
             mollie_parser::Stmt::Expression(expr) => {
                 let expr = Expr::from_parsed(expr, ast, context, span);
@@ -713,18 +713,25 @@ impl<E> FromParsed<E, mollie_parser::Stmt, Option<StmtRef>> for Stmt {
                                 let name = item.value.0;
 
                                 if let Some(item) = context.solver.context.modules[module].items.get(&name).copied() {
-                                    context.solver.context.modules[ModuleId::ZERO].items.insert(name, item);
+                                    context.solver.context.modules[ast.module].items.insert(name, item);
                                 }
                             }
                         }
                         mollie_parser::ImportKind::Named => {
                             let name = context.solver.context.modules[module].name.clone();
 
-                            context.solver.context.modules[ModuleId::ZERO].items.insert(name, ModuleItem::SubModule(module));
+                            context.solver.context.modules[ast.module].items.insert(name, ModuleItem::SubModule(module));
                         }
                     },
                     _ => todo!("error or value depending on import"),
                 }
+
+                None
+            }
+            mollie_parser::Stmt::Module(module) => {
+                let module = context.solver.context.register_module_in_module(ast.module, module.name.value);
+
+                M::load_module(context.fork(), module);
 
                 None
             }

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use mollie_index::IndexVec;
 use mollie_shared::{MaybePositioned, Span};
 
-use crate::{AdtRef, AdtVariantRef, FieldRef, Type, TypeInfo, TypeInfoRef, ty::TypeRef, type_context::TypeContext};
+use crate::{AdtRef, AdtVariantRef, FieldRef, IntType, PrimitiveType, Type, TypeInfo, TypeInfoRef, ty::TypeRef, type_context::TypeContext};
 
 mollie_index::new_idx_type!(TypeFrameRef);
 
@@ -93,8 +93,14 @@ impl<'a> TypeSolver<'a> {
         }
 
         match (self.type_infos[a].value.clone(), self.type_infos[b].value.clone()) {
-            (TypeInfo::Unknown(None), _) | (TypeInfo::Unknown(Some(_)), TypeInfo::Unknown(Some(_))) => self.type_infos[a].value = TypeInfo::Ref(b),
-            (_, TypeInfo::Unknown(None)) => self.type_infos[b].value = TypeInfo::Ref(a),
+            (TypeInfo::Unknown(None), _)
+            | (TypeInfo::Unknown(Some(_)), TypeInfo::Unknown(Some(_)))
+            | (TypeInfo::Integer, TypeInfo::Primitive(PrimitiveType::Int(_) | PrimitiveType::UInt(_)) | TypeInfo::Integer) => {
+                self.type_infos[a].value = TypeInfo::Ref(b);
+            }
+            (_, TypeInfo::Unknown(None)) | (TypeInfo::Primitive(PrimitiveType::Int(_) | PrimitiveType::UInt(_)), TypeInfo::Integer) => {
+                self.type_infos[b].value = TypeInfo::Ref(a);
+            }
             (TypeInfo::Unknown(Some(_)), _) => self.type_infos[a].value = TypeInfo::Ref(b),
             (_, TypeInfo::Unknown(Some(_))) => self.type_infos[b].value = TypeInfo::Ref(a),
             (TypeInfo::Ref(a), _) => self.unify(a, b),
@@ -174,6 +180,7 @@ impl<'a> TypeSolver<'a> {
             }
             &TypeInfo::Unknown(Some(info)) | &TypeInfo::Ref(info) => self.solve(info),
             &TypeInfo::Unknown(None) | TypeInfo::Error => self.context.types.get_or_add(Type::Error),
+            &TypeInfo::Integer => self.context.types.get_or_add(Type::Primitive(PrimitiveType::Int(IntType::I32))),
             TypeInfo::Adt(adt_ref, type_args) => {
                 let adt_ref = *adt_ref;
                 let type_args = type_args.clone().into_iter().map(|arg| self.solve(arg)).collect();

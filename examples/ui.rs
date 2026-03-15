@@ -1,6 +1,7 @@
 use core::fmt;
 use std::{
     collections::HashMap,
+    path::PathBuf,
     time::{Duration, Instant},
 };
 
@@ -12,7 +13,7 @@ use mollie::{
 };
 use mollie_compiler::{allocator::TypeLayout, error::CompileError};
 use mollie_index::Idx;
-use mollie_typed_ast::{FunctionBody, TypedASTContext};
+use mollie_typed_ast::{FileModuleLoader, FunctionBody, ModuleLoader, TypedASTContext};
 use mollie_typing::{Func, ModuleId, Type, TypeRef};
 use tiny_skia::{FillRule, FilterQuality, Paint, PathBuilder, Pattern, Pixmap, Point, Rect, SpreadMode, Transform};
 use tracing::{Level, level_filters::LevelFilter};
@@ -149,7 +150,7 @@ impl DrawContext {
                 SpreadMode::Pad,
                 FilterQuality::Nearest,
                 1.0,
-                Transform::from_scale(width / image_width, height / image_height),
+                Transform::from_scale(width / image_width, height / image_height).post_translate(x, y),
             ),
             ..Paint::default()
         };
@@ -181,7 +182,7 @@ pub fn get_timestamp() -> usize {
         .as_secs() as usize
 }
 
-fn init_compiler<E>(context: &mut TypedASTContext<E>) -> (TypeRef, TypeRef) {
+fn init_compiler<E, ML: ModuleLoader<E>>(context: &mut TypedASTContext<E, ML>) -> (TypeRef, TypeRef) {
     // let std = mollie::module! {
     //     fn println(input: usize);
     //     fn println_frame_addr();
@@ -297,12 +298,7 @@ fn init_compiler<E>(context: &mut TypedASTContext<E>) -> (TypeRef, TypeRef) {
             [draw_ctx_ty, f32, f32, f32, f32, corner_radius_ty, color_ty],
             void,
         )
-        .func(
-            "draw_image",
-            "DrawContext_draw_image",
-            [draw_ctx_ty, f32, f32, f32, f32, image_ty],
-            void,
-        )
+        .func("draw_image", "DrawContext_draw_image", [draw_ctx_ty, f32, f32, f32, f32, image_ty], void)
         .func("image_size", "DrawContext_image_size", [draw_ctx_ty, image_ty], size_ty)
         .finish();
 
@@ -336,7 +332,10 @@ fn main() {
         ("ext__get_timestamp", get_timestamp as *const u8),
     ])
     .unwrap();
-    let mut provider = compiler.start_compiling();
+
+    let mut provider = compiler.start_compiling(FileModuleLoader {
+        current_dir: PathBuf::from("/home/aiving/Documents/dev-v2/dev/meralus-project/mollie/examples"),
+    });
 
     let (draw_ctx_info, drawable_info) = init_compiler(&mut provider.context);
 

@@ -1,40 +1,41 @@
 use mollie_lexer::Token;
 use mollie_shared::Positioned;
+use mollie_typing::{IntType, PrimitiveType, UIntType};
 
 use crate::{Ident, Parse, ParseResult, Parser, TypePathExpr, TypePathSegment};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
-pub enum PrimitiveType {
-    ISize,
-    I64,
-    I32,
-    I16,
-    I8,
-    USize,
-    U64,
-    U32,
-    U16,
-    U8,
-    F32,
-    Bool,
-    String,
-    Void,
-}
+// #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
+// pub enum PrimitiveType {
+//     ISize,
+//     I64,
+//     I32,
+//     I16,
+//     I8,
+//     USize,
+//     U64,
+//     U32,
+//     U16,
+//     U8,
+//     F32,
+//     Bool,
+//     String,
+//     Void,
+// }
 
 impl Parse for PrimitiveType {
     fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
         parser.consume_map(|token| match token {
             Token::Ident(value) => match value.as_str() {
-                "isize" => Some(Self::ISize),
-                "i64" => Some(Self::I64),
-                "i32" => Some(Self::I32),
-                "i16" => Some(Self::I16),
-                "i8" => Some(Self::I8),
-                "usize" => Some(Self::USize),
-                "u64" => Some(Self::U64),
-                "u32" => Some(Self::U32),
-                "u16" => Some(Self::U16),
-                "u8" => Some(Self::U8),
+                "isize" => Some(Self::Int(IntType::ISize)),
+                "i64" => Some(Self::Int(IntType::I64)),
+                "i32" => Some(Self::Int(IntType::I32)),
+                "i16" => Some(Self::Int(IntType::I16)),
+                "i8" => Some(Self::Int(IntType::I8)),
+                "usize" => Some(Self::UInt(UIntType::USize)),
+                "u64" => Some(Self::UInt(UIntType::U64)),
+                "u32" => Some(Self::UInt(UIntType::U32)),
+                "u16" => Some(Self::UInt(UIntType::U16)),
+                "u8" => Some(Self::UInt(UIntType::U8)),
                 "f32" => Some(Self::F32),
                 "bool" => Some(Self::Bool),
                 "string" => Some(Self::String),

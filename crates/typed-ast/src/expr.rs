@@ -5,12 +5,12 @@ use mollie_const::ConstantValue;
 use mollie_index::{Idx, IndexBoxedSlice};
 use mollie_shared::{LangItem, Operator, Positioned, Span};
 use mollie_typing::{
-    AdtKind, AdtRef, AdtVariantRef, Arg, ArgType, FieldRef, FuncRef, IntType, LookupType, ModuleId, ModuleItem, PrimitiveType, SpecialAdtKind, TraitFuncRef,
-    TraitRef, Type, TypeContext, TypeError, TypeErrorRef, TypeErrorValue, TypeInfo, TypeSolver, UIntType, VFuncRef, VTableRef,
+    AdtKind, AdtRef, AdtVariantRef, Arg, ArgType, FieldRef, FuncRef, IntType, LookupType, ModuleItem, PrimitiveType, SpecialAdtKind, TraitFuncRef, TraitRef,
+    Type, TypeContext, TypeError, TypeErrorRef, TypeErrorValue, TypeInfo, TypeSolver, UIntType, VFuncRef, VTableRef,
 };
 
 use crate::{
-    ConstantContext, Descriptor, FirstPass, FromParsed, IntoConstVal, SolvedPass, TypedAST, TypedASTContextRef, UsedItem,
+    ConstantContext, Descriptor, FirstPass, FromParsed, IntoConstVal, ModuleLoader, SolvedPass, TypedAST, TypedASTContextRef, UsedItem,
     block::{Block, BlockRef},
     stmt::Stmt,
     ty::TypePathResult,
@@ -41,8 +41,8 @@ pub enum IsPattern<D: Descriptor> {
     },
 }
 
-impl<E> FromParsed<E, mollie_parser::IsPattern> for IsPattern<FirstPass> {
-    fn from_parsed(pattern: mollie_parser::IsPattern, ast: &mut TypedAST<FirstPass>, context: &mut TypedASTContextRef<'_, E>, span: Span) -> Self {
+impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::IsPattern> for IsPattern<FirstPass> {
+    fn from_parsed(pattern: mollie_parser::IsPattern, ast: &mut TypedAST<FirstPass>, context: &mut TypedASTContextRef<'_, E, M>, span: Span) -> Self {
         match pattern {
             mollie_parser::IsPattern::Literal(literal_expr) => Self::Literal(Expr::from_parsed(literal_expr, ast, context, span)),
             mollie_parser::IsPattern::Type { ty, pattern } => {
@@ -173,8 +173,8 @@ pub enum Expr<D: Descriptor = SolvedPass> {
     Error(TypeErrorRef),
 }
 
-impl<E> FromParsed<E, mollie_parser::LiteralExpr, ExprRef> for Expr<FirstPass> {
-    fn from_parsed(lit: mollie_parser::LiteralExpr, ast: &mut TypedAST<FirstPass>, context: &mut TypedASTContextRef<'_, E>, span: Span) -> ExprRef {
+impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::LiteralExpr, ExprRef> for Expr<FirstPass> {
+    fn from_parsed(lit: mollie_parser::LiteralExpr, ast: &mut TypedAST<FirstPass>, context: &mut TypedASTContextRef<'_, E, M>, span: Span) -> ExprRef {
         match lit {
             mollie_parser::LiteralExpr::Number(number, postfix) => match (number.value, postfix) {
                 (mollie_parser::Number::I64(value), Some(postfix)) => {
@@ -189,26 +189,20 @@ impl<E> FromParsed<E, mollie_parser::LiteralExpr, ExprRef> for Expr<FirstPass> {
                         "i32" => TypeInfo::Primitive(PrimitiveType::Int(IntType::I32)),
                         "i16" => TypeInfo::Primitive(PrimitiveType::Int(IntType::I16)),
                         "i8" => TypeInfo::Primitive(PrimitiveType::Int(IntType::I8)),
-                        _ => TypeInfo::Unknown(Some(
-                            context
-                                .solver
-                                .add_info(TypeInfo::Primitive(PrimitiveType::Int(IntType::I32)), Some(number.span)),
-                        )),
+                        _ => TypeInfo::Integer,
                     };
 
                     ast.add_expr(Self::Lit(LitExpr::Int(value)), context.solver.add_info(info, Some(number.span)), number.span)
                 }
                 (mollie_parser::Number::I64(value), None) => ast.add_expr(
                     Self::Lit(LitExpr::Int(value)),
-                    context
-                        .solver
-                        .add_unknown(Some(TypeInfo::Primitive(PrimitiveType::Int(IntType::I32))), Some(number.span)),
+                    context.solver.add_info(TypeInfo::Integer, Some(number.span)),
                     number.span,
                 ),
                 (mollie_parser::Number::F32(value), Some(postfix)) => {
                     let postfix_span = postfix.span;
 
-                    if let Some(func_ref) = context.solver.context.modules[ModuleId::ZERO]
+                    if let Some(func_ref) = context.solver.context.modules[ast.module]
                         .items
                         .get(postfix.value.as_str())
                         .and_then(|item| if let &ModuleItem::Func(func) = item { Some(func) } else { None })
@@ -304,8 +298,8 @@ impl<E> FromParsed<E, mollie_parser::LiteralExpr, ExprRef> for Expr<FirstPass> {
     }
 }
 
-impl<E> FromParsed<E, mollie_parser::Expr, ExprRef> for Expr<FirstPass> {
-    fn from_parsed(expr: mollie_parser::Expr, ast: &mut TypedAST<FirstPass>, context: &mut TypedASTContextRef<'_, E>, span: Span) -> ExprRef {
+impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::Expr, ExprRef> for Expr<FirstPass> {
+    fn from_parsed(expr: mollie_parser::Expr, ast: &mut TypedAST<FirstPass>, context: &mut TypedASTContextRef<'_, E, M>, span: Span) -> ExprRef {
         match expr {
             mollie_parser::Expr::Literal(literal_expr) => Self::from_parsed(literal_expr, ast, context, span),
             mollie_parser::Expr::FunctionCall(func_call_expr) => {
@@ -916,26 +910,10 @@ impl<E> FromParsed<E, mollie_parser::Expr, ExprRef> for Expr<FirstPass> {
             }
             mollie_parser::Expr::Cast(expr, new_type) => {
                 let expr = Self::from_parsed(expr.value, ast, context, expr.span);
-                let ty = match new_type.value {
-                    mollie_parser::PrimitiveType::ISize => PrimitiveType::Int(IntType::ISize),
-                    mollie_parser::PrimitiveType::I64 => PrimitiveType::Int(IntType::I64),
-                    mollie_parser::PrimitiveType::I32 => PrimitiveType::Int(IntType::I32),
-                    mollie_parser::PrimitiveType::I16 => PrimitiveType::Int(IntType::I16),
-                    mollie_parser::PrimitiveType::I8 => PrimitiveType::Int(IntType::I8),
-                    mollie_parser::PrimitiveType::USize => PrimitiveType::UInt(UIntType::USize),
-                    mollie_parser::PrimitiveType::U64 => PrimitiveType::UInt(UIntType::U64),
-                    mollie_parser::PrimitiveType::U32 => PrimitiveType::UInt(UIntType::U32),
-                    mollie_parser::PrimitiveType::U16 => PrimitiveType::UInt(UIntType::U16),
-                    mollie_parser::PrimitiveType::U8 => PrimitiveType::UInt(UIntType::U8),
-                    mollie_parser::PrimitiveType::F32 => PrimitiveType::F32,
-                    mollie_parser::PrimitiveType::Bool => PrimitiveType::Bool,
-                    mollie_parser::PrimitiveType::String => PrimitiveType::String,
-                    mollie_parser::PrimitiveType::Void => PrimitiveType::Void,
-                };
 
                 ast.add_expr(
-                    Self::TypeCast(expr, ty),
-                    context.solver.add_info(TypeInfo::Primitive(ty), Some(new_type.span)),
+                    Self::TypeCast(expr, new_type.value),
+                    context.solver.add_info(TypeInfo::Primitive(new_type.value), Some(new_type.span)),
                     span,
                 )
             }
@@ -982,7 +960,7 @@ impl<E> FromParsed<E, mollie_parser::Expr, ExprRef> for Expr<FirstPass> {
                     }
 
                     ast.add_expr(Self::Var(ident.0), ty, span)
-                } else if let Some(item) = context.solver.context.modules[ModuleId::ZERO].items.get(&ident) {
+                } else if let Some(item) = context.solver.context.modules[ast.module].items.get(&ident) {
                     match item {
                         ModuleItem::SubModule(_) => {
                             let ty = context.solver.add_info(TypeInfo::Error, None);

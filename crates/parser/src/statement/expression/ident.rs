@@ -80,3 +80,9 @@ impl From<&Ident> for String {
         value.0.clone()
     }
 }
+
+impl From<Ident> for String {
+    fn from(value: Ident) -> Self {
+        value.0
+    }
+}

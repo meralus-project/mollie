@@ -4,7 +4,7 @@ use mollie_typed_ast::{BlockRef, ExprRef, TypedAST};
 
 use crate::{AsIrType, CompileTypedAST, MolValue, error::CompileResult, func::FunctionCompiler};
 
-impl<S, M: Module> FunctionCompiler<'_, S, M> {
+impl<S, ML: mollie_typed_ast::ModuleLoader<S>, M: Module> FunctionCompiler<'_, S, ML, M> {
     pub fn compile_if_expr(&mut self, ast: &TypedAST, condition: ExprRef, block: BlockRef, else_block: Option<ExprRef>) -> CompileResult<MolValue> {
         self.push_frame();
 
@@ -19,13 +19,15 @@ impl<S, M: Module> FunctionCompiler<'_, S, M> {
         self.branches.take();
 
         let returning_param = if let Some(final_stmt) = &ast[block].value.expr {
-            Some(match ast[*final_stmt].ty.as_ir_type(&self.type_context.type_context.types, self.compiler.isa()) {
-                MollieType::Fat(ty, metadata_ty) => MolValue::FatPtr(
-                    self.fn_builder.append_block_param(after_block, ty),
-                    self.fn_builder.append_block_param(after_block, metadata_ty),
-                ),
-                MollieType::Regular(ty) => MolValue::Value(self.fn_builder.append_block_param(after_block, ty)),
-            })
+            Some(
+                match ast[*final_stmt].ty.as_ir_type(&self.type_context.type_context.types, self.compiler.isa()) {
+                    MollieType::Fat(ty, metadata_ty) => MolValue::FatPtr(
+                        self.fn_builder.append_block_param(after_block, ty),
+                        self.fn_builder.append_block_param(after_block, metadata_ty),
+                    ),
+                    MollieType::Regular(ty) => MolValue::Value(self.fn_builder.append_block_param(after_block, ty)),
+                },
+            )
         } else {
             None
         };

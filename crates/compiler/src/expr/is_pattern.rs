@@ -7,7 +7,7 @@ use cranelift::{
 };
 use mollie_index::Idx;
 use mollie_ir::{Field, MollieType};
-use mollie_typed_ast::{ExprRef, IsPattern, SolvedPass, TypedAST};
+use mollie_typed_ast::{ExprRef, IsPattern, ModuleLoader, SolvedPass, TypedAST};
 use mollie_typing::{PrimitiveType, Type, TypeRef};
 
 use crate::{
@@ -16,14 +16,14 @@ use crate::{
     func::{FunctionCompiler, Variable},
 };
 
-impl<S, M: Module> FunctionCompiler<'_, S, M> {
+impl<S, ML: mollie_typed_ast::ModuleLoader<S>, M: Module> FunctionCompiler<'_, S, ML, M> {
     pub fn compile_is_pattern_expr(&mut self, ast: &TypedAST, target: ExprRef, pattern: &IsPattern<SolvedPass>) -> CompileResult<MolValue> {
-        fn compile_pattern<S, M: Module>(
+        fn compile_pattern<S, ML: ModuleLoader<S>, M: Module>(
             target: &MolValue,
             target_ty: TypeRef,
             pattern: &IsPattern<SolvedPass>,
             ast: &TypedAST,
-            compiler: &mut FunctionCompiler<'_, S, M>,
+            compiler: &mut FunctionCompiler<'_, S, ML, M>,
         ) -> CompileResult<MolValue> {
             match pattern {
                 &IsPattern::Literal(expr_ref) => {
@@ -35,10 +35,7 @@ impl<S, M: Module> FunctionCompiler<'_, S, M> {
                         };
 
                         Ok(MolValue::Value(
-                            if matches!(
-                                (target_ty, expr_ty),
-                                (Type::Primitive(PrimitiveType::F32), Type::Primitive(PrimitiveType::F32))
-                            ) {
+                            if matches!((target_ty, expr_ty), (Type::Primitive(PrimitiveType::F32), Type::Primitive(PrimitiveType::F32))) {
                                 compiler.fn_builder.ins().fcmp(FloatCC::Equal, target, value)
                             } else {
                                 compiler.fn_builder.ins().icmp(IntCC::Equal, target, value)

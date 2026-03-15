@@ -84,7 +84,8 @@ impl NodeExpr {
 
                     last_comma = Some(parser.try_consume(&Token::Comma));
                 } else {
-                    let name = Ident::parse(parser)?;
+                    let name = Ident::parse(parser)
+                        .or_else(|_| parser.consume_map(|token| if matches!(token, Token::Super) { Some(Ident::new("super")) } else { None }))?;
 
                     children.push(Self::parse(
                         TypePathExpr::parse(TypePathSegment::parse_from(name, parser, false)?, parser, false)?,

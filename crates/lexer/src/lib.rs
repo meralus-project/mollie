@@ -12,36 +12,39 @@ pub use crate::token::{NumberToken, Token};
 
 pub struct Lexer;
 
+static KEYWORDS: phf::Map<&'static str, Token> = phf::phf_map! {
+    "true" => Token::Bool(true),
+    "false" => Token::Bool(false),
+    "self" => Token::This,
+    "view" => Token::View,
+    "inherits" => Token::Inherits,
+    "as" => Token::As,
+    "from" => Token::From,
+    "struct" => Token::Struct,
+    "enum" => Token::Enum,
+    "import" => Token::Import,
+    "module" => Token::Module,
+    "super" => Token::Super,
+    "switch" => Token::Switch,
+    "func" => Token::Func,
+    "trait" => Token::Trait,
+    "impl" => Token::Impl,
+    "const" => Token::Const,
+    "let" => Token::Let,
+    "while" => Token::While,
+    "for" => Token::For,
+    "public" => Token::Public,
+    "postfix" => Token::Postfix,
+    "in" => Token::In,
+    "loop" => Token::Loop,
+    "if" => Token::If,
+    "else" => Token::Else,
+    "is" => Token::Is,
+};
+
 impl Lexer {
     fn lex_reserved(ident: String) -> Token {
-        match ident.as_str() {
-            "true" => Token::Bool(true),
-            "false" => Token::Bool(false),
-            "self" => Token::This,
-            "view" => Token::View,
-            "inherits" => Token::Inherits,
-            "as" => Token::As,
-            "from" => Token::From,
-            "struct" => Token::Struct,
-            "enum" => Token::Enum,
-            "import" => Token::Import,
-            "switch" => Token::Switch,
-            "func" => Token::Func,
-            "trait" => Token::Trait,
-            "impl" => Token::Impl,
-            "const" => Token::Const,
-            "let" => Token::Let,
-            "while" => Token::While,
-            "for" => Token::For,
-            "public" => Token::Public,
-            "postfix" => Token::Postfix,
-            "in" => Token::In,
-            "loop" => Token::Loop,
-            "if" => Token::If,
-            "else" => Token::Else,
-            "is" => Token::Is,
-            _ => Token::Ident(ident),
-        }
+        KEYWORDS.get(&ident).cloned().unwrap_or(Token::Ident(ident))
     }
 
     fn lex_other(chars: &mut Peekable<Chars>, span: &mut Span, character: char) -> Option<Token> {

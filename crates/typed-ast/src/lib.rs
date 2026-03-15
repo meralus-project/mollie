@@ -3,7 +3,11 @@ mod expr;
 mod stmt;
 mod ty;
 
-use std::{mem, ops::Index};
+use std::{
+    fs, mem,
+    ops::Index,
+    path::{Path, PathBuf},
+};
 
 use derive_where::derive_where;
 use indexmap::IndexMap;
@@ -12,7 +16,7 @@ use mollie_index::{Idx, IndexVec};
 use mollie_shared::Span;
 use mollie_typing::{
     Adt, AdtKind, AdtRef, AdtVariantRef, Arg, FieldRef, FuncRef, ModuleId, PrimitiveType, SpecialAdtKind, Type, TypeContext, TypeError, TypeErrorValue,
-    TypeFrameRef, TypeInfoRef, TypeRef, TypeSolver, TypeStorage, VFuncRef, VTableRef,
+    TypeFrameRef, TypeInfo, TypeInfoRef, TypeRef, TypeSolver, TypeStorage, VFuncRef, VTableRef,
 };
 
 pub use crate::{
@@ -27,62 +31,145 @@ pub enum FunctionBody<E> {
     External(E),
 }
 
-pub struct TypedASTContext<E = ()> {
+pub trait ModuleLoader<E>: Sized {
+    fn load_module(ast: TypedASTContextRef<'_, E, Self>, module: ModuleId);
+}
+
+impl<E> ModuleLoader<E> for () {
+    fn load_module(_: TypedASTContextRef<'_, E, Self>, _: ModuleId) {
+        panic!("load_module: noop")
+    }
+}
+
+pub struct FileModuleLoader {
+    pub current_dir: PathBuf,
+}
+
+impl<E> ModuleLoader<E> for FileModuleLoader {
+    fn load_module(mut ast: TypedASTContextRef<'_, E, Self>, module: ModuleId) {
+        fn module_path(base: &Path, type_context: &TypeContext, module: ModuleId) -> PathBuf {
+            if module == ModuleId::ZERO {
+                base.to_path_buf()
+            } else {
+                let module = &type_context.modules[module];
+                let base = module
+                    .parent
+                    .map_or_else(|| base.to_path_buf(), |parent| module_path(base, type_context, parent));
+
+                base.join(&module.name)
+            }
+        }
+
+        let path = module_path(&ast.state.current_dir, ast.solver.context, module).with_extension("mol");
+
+        println!("load_module: {}", path.display());
+
+        let source = fs::read_to_string(path).unwrap();
+        let void = ast.solver.context.core_types.void;
+
+        ast.process(module, source, void);
+    }
+}
+
+pub struct TypedASTContext<E, M: ModuleLoader<E>> {
     pub vtables: IndexVec<VTableRef, IndexVec<VFuncRef, FunctionBody<E>>>,
     pub functions: IndexVec<FuncRef, FunctionBody<E>>,
     pub type_context: TypeContext,
+    pub state: M,
 }
 
-impl<E> TypedASTContext<E> {
-    pub const fn new(type_context: TypeContext) -> Self {
+impl<E, M: ModuleLoader<E>> TypedASTContext<E, M> {
+    pub const fn new(type_context: TypeContext, state: M) -> Self {
         Self {
             vtables: IndexVec::new(),
             functions: IndexVec::new(),
             type_context,
+            state,
         }
     }
 
-    pub fn take_ref(&mut self) -> TypedASTContextRef<'_, E> {
-        TypedASTContextRef::new(&mut self.vtables, &mut self.functions, self.type_context.solver())
+    pub fn take_ref(&mut self) -> TypedASTContextRef<'_, E, M> {
+        TypedASTContextRef::new(&mut self.vtables, &mut self.functions, self.type_context.solver(), &mut self.state)
     }
 }
 
-pub struct TypedASTContextRef<'a, E> {
+pub struct TypedASTContextRef<'a, E, M: ModuleLoader<E>> {
     pub vtables: &'a mut IndexVec<VTableRef, IndexVec<VFuncRef, FunctionBody<E>>>,
     pub functions: &'a mut IndexVec<FuncRef, FunctionBody<E>>,
     pub solver: TypeSolver<'a>,
+    pub state: &'a mut M,
     pub captures: Vec<(String, TypeInfoRef)>,
     pub current_frame: Option<TypeFrameRef>,
 }
 
-impl<'a, E> TypedASTContextRef<'a, E> {
+impl<'a, E, M: ModuleLoader<E>> TypedASTContextRef<'a, E, M> {
     pub const fn new(
         vtables: &'a mut IndexVec<VTableRef, IndexVec<VFuncRef, FunctionBody<E>>>,
         functions: &'a mut IndexVec<FuncRef, FunctionBody<E>>,
         solver: TypeSolver<'a>,
+        state: &'a mut M,
     ) -> Self {
         Self {
             vtables,
             functions,
             solver,
+            state,
             captures: Vec::new(),
             current_frame: None,
         }
     }
 
-    pub fn fork(&mut self) -> TypedASTContextRef<'_, E> {
+    pub fn process<T: AsRef<str>>(&mut self, module: ModuleId, source: T, returns: TypeRef) -> (TypedAST, BlockRef) {
+        let (stmts, final_stmt) =
+            mollie_parser::parse_statements_until(&mut mollie_parser::Parser::new(mollie_lexer::Lexer::lex(source)), &mollie_lexer::Token::EOF).unwrap();
+
+        let mut ast = TypedAST { module, ..TypedAST::default() };
+        let mut block_stmts = Vec::new();
+
+        for stmt in stmts {
+            if let Some(stmt) = Stmt::from_parsed(stmt.value, &mut ast, self, stmt.span) {
+                block_stmts.push(stmt);
+            }
+        }
+
+        let (expr, ty) = match final_stmt {
+            Some(mollie_shared::Positioned {
+                value: mollie_parser::Stmt::Expression(expr),
+                span,
+            }) => {
+                let expr = Expr::from_parsed(expr, &mut ast, self, span);
+
+                (Some(expr), ast[expr].ty)
+            }
+            _ => (None, self.solver.add_info(TypeInfo::Primitive(PrimitiveType::Void), None)),
+        };
+
+        let result = ast.add_block(
+            Block {
+                stmts: block_stmts.into_boxed_slice(),
+                expr,
+            },
+            ty,
+            Span::default(),
+        );
+
+        ast.solve(result, self, returns)
+    }
+
+    pub fn fork(&mut self) -> TypedASTContextRef<'_, E, M> {
         TypedASTContextRef {
             vtables: self.vtables,
             functions: self.functions,
             solver: self.solver.fork(),
+            state: self.state,
             captures: Vec::new(),
             current_frame: None,
         }
     }
 }
 
-pub trait FromParsed<E, T, O = Self> {
-    fn from_parsed(value: T, ast: &mut TypedAST<FirstPass>, context: &mut TypedASTContextRef<'_, E>, span: Span) -> O;
+pub trait FromParsed<E, M: ModuleLoader<E>, T, O = Self> {
+    fn from_parsed(value: T, ast: &mut TypedAST<FirstPass>, context: &mut TypedASTContextRef<'_, E, M>, span: Span) -> O;
 }
 
 pub trait Descriptor {
@@ -254,7 +341,7 @@ impl<D: Descriptor> TypedAST<D> {
     }
 }
 
-impl<E> TypedASTContextRef<'_, E> {
+impl<E, M: ModuleLoader<E>> TypedASTContextRef<'_, E, M> {
     fn use_vtable_impl(&mut self, target: TypeRef, vtable: VTableRef) -> Box<[TypeInfoRef]> {
         let type_args: Box<[_]> = self.solver.context.vtables[vtable]
             .generics
@@ -282,13 +369,23 @@ impl<E> TypedASTContextRef<'_, E> {
 }
 
 impl TypedAST<FirstPass> {
-    fn solve_expr<E>(&self, ast: &mut TypedAST, expr: ExprRef, context: &mut TypedASTContextRef<'_, E>) -> ExprRef {
+    fn solve_expr<E, M: ModuleLoader<E>>(&self, ast: &mut TypedAST, expr: ExprRef, context: &mut TypedASTContextRef<'_, E, M>) -> ExprRef {
         let value = match self[expr].value.clone() {
             Expr::Lit(lit_expr) => Expr::Lit(lit_expr),
             Expr::Var(var) => Expr::Var(var),
             Expr::Binary { operator, lhs, rhs } => {
                 let lhs = self.solve_expr(ast, lhs, context);
                 let rhs = self.solve_expr(ast, rhs, context);
+
+                if !context.solver.context.is_same(ast[lhs].ty, ast[rhs].ty) {
+                    context.solver.context.error(
+                        TypeError::Unexpected {
+                            expected: TypeErrorValue::ExplicitType(ast[lhs].ty),
+                            found: TypeErrorValue::ExplicitType(ast[rhs].ty),
+                        },
+                        ast[rhs].span,
+                    );
+                }
 
                 Expr::Binary { operator, lhs, rhs }
             }
@@ -305,6 +402,16 @@ impl TypedAST<FirstPass> {
                         let field_type = context.solver.get_info(field_type);
                         let field_type = context.solver.solve(field_type);
                         let expected_field_ty = context.solver.context.adt_types[adt].variants[variant].fields[field_ref].ty;
+
+                        if expr != ExprRef::INVALID && !context.solver.context.is_same(ast[expr].ty, field_type) {
+                            context.solver.context.error(
+                                TypeError::Unexpected {
+                                    expected: TypeErrorValue::ExplicitType(field_type),
+                                    found: TypeErrorValue::ExplicitType(ast[expr].ty),
+                                },
+                                ast[expr].span,
+                            );
+                        }
 
                         match context.solver.context.types[expected_field_ty] {
                             Type::Trait(trait_ref, _) => {
@@ -673,11 +780,11 @@ impl TypedAST<FirstPass> {
                 Expr::TypeCast(expr, ty)
             }
             Expr::IsPattern { target, pattern } => {
-                fn solve_pattern<E>(
+                fn solve_pattern<E, M: ModuleLoader<E>>(
                     first_pass: &TypedAST<FirstPass>,
                     ast: &mut TypedAST,
                     pattern: IsPattern<FirstPass>,
-                    context: &mut TypedASTContextRef<'_, E>,
+                    context: &mut TypedASTContextRef<'_, E, M>,
                 ) -> IsPattern<SolvedPass> {
                     match pattern {
                         IsPattern::Literal(expr) => {
@@ -750,7 +857,7 @@ impl TypedAST<FirstPass> {
         ast.add_expr(value, ty, self[expr].span)
     }
 
-    fn solve_block<E>(&self, ast: &mut TypedAST, block: BlockRef, context: &mut TypedASTContextRef<'_, E>) -> BlockRef {
+    fn solve_block<E, M: ModuleLoader<E>>(&self, ast: &mut TypedAST, block: BlockRef, context: &mut TypedASTContextRef<'_, E, M>) -> BlockRef {
         let input_block = &self.blocks[block];
         let output_block = Block {
             stmts: input_block
@@ -776,7 +883,7 @@ impl TypedAST<FirstPass> {
         ast.add_block(output_block, context.solver.solve(input_block.ty), input_block.span)
     }
 
-    fn solve_expr_final<E>(self, root: ExprRef, context: &mut TypedASTContextRef<'_, E>) -> (TypedAST, ExprRef) {
+    fn solve_expr_final<E, M: ModuleLoader<E>>(self, root: ExprRef, context: &mut TypedASTContextRef<'_, E, M>) -> (TypedAST, ExprRef) {
         // context.solver.finalize();
 
         let mut ast = TypedAST {
@@ -792,7 +899,7 @@ impl TypedAST<FirstPass> {
         (ast, expr)
     }
 
-    pub fn solve<E>(mut self, root: BlockRef, context: &mut TypedASTContextRef<'_, E>, returns: TypeRef) -> (TypedAST, BlockRef) {
+    pub fn solve<E, M: ModuleLoader<E>>(mut self, root: BlockRef, context: &mut TypedASTContextRef<'_, E, M>, returns: TypeRef) -> (TypedAST, BlockRef) {
         // context.solver.finalize();
 
         let mut ast = TypedAST {
@@ -802,6 +909,10 @@ impl TypedAST<FirstPass> {
             exprs: IndexVec::new(),
             used_items: mem::take(&mut self.used_items),
         };
+
+        let returns_info = TypeSolver::type_to_info(&mut context.solver.type_infos, context.solver.context, returns, &[]);
+
+        context.solver.unify(self[root].ty, returns_info);
 
         let output_block = self.solve_block(&mut ast, root, context);
 
@@ -875,31 +986,6 @@ impl<D: Descriptor> Index<StmtRef> for TypedAST<D> {
     }
 }
 
-// pub enum CastedType {
-//     Primitive(PrimitiveType),
-//     Adt(AdtRef),
-//     Trait(TraitRef),
-//     Func(FuncRef),
-//     Intrinsic(IntrinsicKind, TypeInfoRef),
-// }
-
-// pub enum TypeInfoCastError {
-//     IsModule,
-//     IsVariable,
-//     TypeInPath(PrimitiveType),
-//     NotFound,
-// }
-
-// impl mollie_typing::TypeStorage for TypeContext {
-//     fn get_adt(&self, adt_ref: AdtRef) -> &Adt {
-//         &self.adt_types[adt_ref]
-//     }
-
-//     fn get_trait_name(&self, trait_ref: TraitRef) -> Option<&str> {
-//         Some(self.traits[trait_ref].name.as_str())
-//     }
-// }
-
 #[derive(Debug, Default)]
 pub struct ConstantContext {
     pub frames: Vec<IndexMap<String, ConstantValue>>,
@@ -953,7 +1039,7 @@ impl ConstantContext {
 
 pub trait IntoConstVal {
     /// # Errors
-    /// 
+    ///
     /// TODO
     #[allow(clippy::result_unit_err)]
     fn into_const_val(self, ast: &TypedAST, type_context: &TypeContext, const_context: &mut ConstantContext) -> Result<ConstantValue, ()>;
@@ -961,74 +1047,21 @@ pub trait IntoConstVal {
 
 #[cfg(test)]
 mod tests {
-    use std::{fmt, mem};
+    use std::{fmt, mem, path::PathBuf};
 
     use itertools::Itertools;
     use mollie_index::{Idx, IndexBoxedSlice, IndexVec};
-    use mollie_lexer::{Lexer, Token};
-    use mollie_parser::Parser;
-    use mollie_shared::{Positioned, Span};
     use mollie_typing::{
         Adt, AdtKind, AdtVariant, AdtVariantField, Arg, ArgType, Func, IntType, ModuleId, PrimitiveType, Trait, TraitFunc, Type, TypeContext, TypeInfo,
-        TypeRef, UIntType,
+        UIntType,
     };
 
     use super::Stmt;
     use crate::{
-        FromParsed, FunctionBody, SolvedPass, TypedAST, TypedASTContext, UsedItem,
-        block::{Block, BlockRef},
+        FileModuleLoader, FunctionBody, SolvedPass, TypedAST, TypedASTContext, UsedItem,
+        block::BlockRef,
         expr::{Expr, ExprRef, IsPattern, LitExpr},
     };
-
-    struct TypeFmt<'a> {
-        storage: &'a TypeContext,
-        ty: TypeRef,
-    }
-
-    impl fmt::Display for TypeFmt<'_> {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            match &self.storage.types[self.ty] {
-                Type::Primitive(primitive_type) => primitive_type.fmt(f),
-                &Type::Array(ty, size) => match size {
-                    Some(size) => write!(f, "{}[{size}]", TypeFmt { storage: self.storage, ty }),
-                    None => write!(f, "{}[]", TypeFmt { storage: self.storage, ty }),
-                },
-                Type::Adt(adt_ref, type_args) => write!(
-                    f,
-                    "{}{}",
-                    self.storage.adt_types[*adt_ref].name.as_deref().unwrap_or_default(),
-                    if type_args.is_empty() {
-                        String::new()
-                    } else {
-                        format!("<{}>", type_args.iter().map(|&ty| TypeFmt { storage: self.storage, ty }).join(", "))
-                    },
-                ),
-                Type::Trait(trait_ref, type_args) => write!(
-                    f,
-                    "{}{}",
-                    self.storage.traits[*trait_ref].name,
-                    if type_args.is_empty() {
-                        String::new()
-                    } else {
-                        format!("<{}>", type_args.iter().map(|&ty| TypeFmt { storage: self.storage, ty }).join(", "))
-                    },
-                ),
-                Type::Generic(generic) => write!(f, "<generic({generic})>"),
-                Type::Func(args, returns) => {
-                    write!(
-                        f,
-                        "({}) -> {}",
-                        args.iter().map(|&ty| TypeFmt { storage: self.storage, ty }).join(", "),
-                        TypeFmt {
-                            storage: self.storage,
-                            ty: *returns
-                        }
-                    )
-                }
-                Type::Error => f.write_str("<error>"),
-            }
-        }
-    }
 
     struct TypeBlockFmt<'a> {
         ast: &'a TypedAST,
@@ -1074,10 +1107,7 @@ mod tests {
                             f,
                             "{} {name}: {} = {};",
                             if *mutable { "let" } else { "const" },
-                            TypeFmt {
-                                storage: self.storage,
-                                ty: self.ast[*value].ty
-                            },
+                            self.storage.display_of(self.ast[*value].ty),
                             TypeExprFmt {
                                 ast: self.ast,
                                 storage: self.storage,
@@ -1130,10 +1160,7 @@ mod tests {
                     if adt_type_args.is_empty() {
                         String::new()
                     } else {
-                        format!(
-                            "::<{}>",
-                            adt_type_args.iter().copied().map(|ty| TypeFmt { storage: self.storage, ty }).join(", ")
-                        )
+                        format!("::<{}>", adt_type_args.iter().copied().map(|ty| self.storage.display_of(ty)).join(", "))
                     },
                     self.storage.adt_types[*adt].variants[*adt_variant].name.as_deref().unwrap_or_default(),
                     if values.is_empty() {
@@ -1158,10 +1185,7 @@ mod tests {
                         )
                     }
                 ),
-                IsPattern::TypeName { ty, name } => write!(f, "{} {name}", TypeFmt {
-                    storage: self.storage,
-                    ty: *ty
-                }),
+                IsPattern::TypeName { ty, name } => write!(f, "{} {name}", self.storage.display_of(*ty)),
             }
         }
     }
@@ -1193,10 +1217,7 @@ mod tests {
                 Expr::Lit(value) => match value {
                     LitExpr::Bool(value) => write!(f, "{value}"),
                     LitExpr::F32(value) => write!(f, "{value}"),
-                    LitExpr::Int(value) => write!(f, "{value}{}", TypeFmt {
-                        storage: self.storage,
-                        ty: self.ast[self.expr].ty
-                    }),
+                    LitExpr::Int(value) => write!(f, "{value}{}", self.storage.display_of(self.ast[self.expr].ty)),
                     LitExpr::String(value) => write!(f, "{value:?}"),
                 },
                 Expr::Array { elements, .. } => {
@@ -1209,24 +1230,13 @@ mod tests {
                     write!(
                         f,
                         "|{}|{} {{ {} }}",
-                        args.iter()
-                            .map(|arg| format!("{}: {}", arg.name, TypeFmt {
-                                storage: self.storage,
-                                ty: arg.ty
-                            }))
-                            .join(", "),
+                        args.iter().map(|arg| format!("{}: {}", arg.name, self.storage.display_of(arg.ty))).join(", "),
                         if captures.is_empty() {
                             String::new()
                         } else {
                             format!(
                                 "({})",
-                                captures
-                                    .iter()
-                                    .map(|(name, ty)| format!("{name}: {}", TypeFmt {
-                                        storage: self.storage,
-                                        ty: *ty
-                                    }))
-                                    .join(", ")
+                                captures.iter().map(|(name, ty)| format!("{name}: {}", self.storage.display_of(*ty))).join(", ")
                             )
                         },
                         self.fork(self.ast[*body].value.expr.unwrap())
@@ -1282,20 +1292,14 @@ mod tests {
                     (None, Some(origin_trait)) => write!(
                         f,
                         "({} as {}).{}",
-                        TypeFmt {
-                            storage: self.storage,
-                            ty: target_ty
-                        },
+                        self.storage.display_of(target_ty),
                         self.storage.traits[origin_trait].name,
                         self.storage.vtables[vtable].functions[func].name
                     ),
                     (None, None) => write!(
                         f,
                         "{}::{}",
-                        TypeFmt {
-                            storage: self.storage,
-                            ty: target_ty
-                        },
+                        self.storage.display_of(target_ty),
                         self.storage.vtables[vtable].functions[func].name
                     ),
                 },
@@ -1440,10 +1444,9 @@ mod tests {
             mm
         }";
         let source = include_str!("../../../examples/ui.mol");
-        let (stmts, final_stmt) = mollie_parser::parse_statements_until(&mut Parser::new(Lexer::lex(source)), &Token::EOF).unwrap();
-
-        let mut ast = TypedAST::default();
-        let mut context = TypedASTContext::<()>::new(TypeContext::new());
+        let mut context = TypedASTContext::<(), _>::new(TypeContext::new(), FileModuleLoader {
+            current_dir: PathBuf::from("/home/aiving/Documents/dev-v2/dev/meralus-project/mollie/examples"),
+        });
 
         let usize = context.type_context.types.get_or_add(Type::Primitive(PrimitiveType::UInt(UIntType::USize)));
         let string = context.type_context.types.get_or_add(Type::Primitive(PrimitiveType::String));
@@ -1738,38 +1741,7 @@ mod tests {
         context_ref.solver.set_var("context", draw_ctx_info);
         context_ref.solver.set_var("calc_smth", func);
 
-        let mut block_stmts = Vec::new();
-
-        for stmt in stmts {
-            if let Some(stmt) = Stmt::from_parsed(stmt.value, &mut ast, &mut context_ref, stmt.span) {
-                block_stmts.push(stmt);
-            }
-        }
-
-        let (expr, ty) = match final_stmt {
-            Some(Positioned {
-                value: mollie_parser::Stmt::Expression(expr),
-                span,
-            }) => {
-                let expr = Expr::from_parsed(expr, &mut ast, &mut context_ref, span);
-
-                (Some(expr), ast[expr].ty)
-            }
-            _ => (None, context_ref.solver.add_info(TypeInfo::Primitive(PrimitiveType::Void), None)),
-        };
-
-        let result = ast.add_block(
-            Block {
-                stmts: block_stmts.into_boxed_slice(),
-                expr,
-            },
-            ty,
-            Span::default(),
-        );
-
-        let void = context_ref.solver.context.core_types.void;
-        let (solved, block) = ast.solve(result, &mut context_ref, void);
-
+        let (solved, block) = context_ref.process(ModuleId::ZERO, source, void);
         let mut type_context = context.type_context;
 
         println!("Solved Typed AST dump (fmt):\n{}", TypeBlockFmt {

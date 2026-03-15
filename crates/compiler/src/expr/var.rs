@@ -8,7 +8,16 @@ use crate::{
     func::{FuncKey, FunctionCompiler},
 };
 
-impl<S, M: Module> FunctionCompiler<'_, S, M> {
+impl<S, ML: mollie_typed_ast::ModuleLoader<S>, M: Module> FunctionCompiler<'_, S, ML, M> {
+    /// Retrieves the variable's value and returns it, or assigns a new value to
+    /// the variable.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`CompileError`] if an error occurs while compiling the new
+    /// value for the variable.
+    ///
+    /// [`CompileError`]: crate::error::CompileError
     pub fn compile_var_expr(&mut self, ast: &TypedAST, expr: ExprRef, name: &str) -> CompileResult<MolValue> {
         if let Some((_, operator, value_ref)) = self.assign_ref.take_if(|(lhs_ref, ..)| *lhs_ref == expr) {
             let value = value_ref.compile(ast, self)?;

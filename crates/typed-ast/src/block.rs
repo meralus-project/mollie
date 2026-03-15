@@ -3,7 +3,7 @@ use mollie_shared::{Positioned, Span};
 use mollie_typing::{PrimitiveType, TypeContext, TypeInfo};
 
 use crate::{
-    ConstantContext, FirstPass, FromParsed, IntoConstVal, SolvedPass, TypedAST, TypedASTContextRef,
+    ConstantContext, FirstPass, FromParsed, IntoConstVal, ModuleLoader, SolvedPass, TypedAST, TypedASTContextRef,
     expr::{Expr, ExprRef},
     stmt::{Stmt, StmtRef},
 };
@@ -17,8 +17,8 @@ pub struct Block {
     pub expr: Option<ExprRef>,
 }
 
-impl<E> FromParsed<E, mollie_parser::BlockExpr, BlockRef> for Block {
-    fn from_parsed(expr: mollie_parser::BlockExpr, ast: &mut TypedAST<FirstPass>, context: &mut TypedASTContextRef<'_, E>, span: Span) -> BlockRef {
+impl<E, M: ModuleLoader<E>> FromParsed<E, M, mollie_parser::BlockExpr, BlockRef> for Block {
+    fn from_parsed(expr: mollie_parser::BlockExpr, ast: &mut TypedAST<FirstPass>, context: &mut TypedASTContextRef<'_, E, M>, span: Span) -> BlockRef {
         let mut stmts = Vec::new();
 
         context.solver.push_frame();

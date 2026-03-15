@@ -1,7 +1,7 @@
 use mollie_lexer::Token;
 use mollie_shared::Positioned;
 
-use crate::{Ident, Parse, ParseResult, Parser, TypeArgs};
+use crate::{Ident, Parse, ParseError, ParseResult, Parser, TypeArgs};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub struct TypePathSegment {
@@ -36,6 +36,10 @@ impl TypePathExpr {
 
         while parser.try_consume(&Token::PathSep) {
             segments.push(TypePathSegment::parse_from(Ident::parse(parser)?, parser, special_case)?);
+        }
+
+        if segments.len() == 1 && segments[0].value.name.value.0 == "super" {
+            return Err(ParseError::unexpected_token(Some(&segments[0].value.name.span.wrap(Token::Super))));
         }
 
         Ok(segments[0].between(&segments[segments.len() - 1]).wrap(Self { segments }))

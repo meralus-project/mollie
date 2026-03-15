@@ -36,8 +36,12 @@ pub enum Token {
     Bool(bool),
     #[display("import")]
     Import,
+    #[display("module")]
+    Module,
     #[display("public")]
     Public,
+    #[display("super")]
+    Super,
     #[display("self")]
     This,
     #[display("view")]

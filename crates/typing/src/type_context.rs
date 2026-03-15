@@ -173,7 +173,7 @@ impl TypeStorage {
             &Type::Generic(i) => match self.generics.get(i) {
                 Some(&ty) => self.hash_into(state, ty),
                 None => unimplemented!("can't hash <generic({i})>"),
-            }
+            },
             Type::Error => unimplemented!("can't hash error"),
         }
     }
@@ -421,6 +421,33 @@ impl TypeContext {
         }
     }
 
+    pub fn is_same(&self, ty: TypeRef, other: TypeRef) -> bool {
+        match (&self.types[ty], &self.types[other]) {
+            (Type::Primitive(PrimitiveType::Any), _) | (_, Type::Primitive(PrimitiveType::Any)) => true,
+            (Type::Generic(index), Type::Generic(other_index)) => index == other_index,
+            (Type::Primitive(primitive_type), Type::Primitive(other_primitive_type)) => primitive_type == other_primitive_type,
+            (&Type::Array(element, size), &Type::Array(other_element, other_size)) => self.is_same(element, other_element) && size == other_size,
+            (Type::Func(args, returns), Type::Func(other_args, other_returns)) => {
+                args.len() == other_args.len()
+                    && args.iter().zip(other_args).all(|(&arg, &other_arg)| self.is_same(arg, other_arg))
+                    && self.is_same(*returns, *other_returns)
+            }
+            (Type::Adt(adt, type_args), Type::Adt(other_adt, other_type_args)) => {
+                type_args.len() == other_type_args.len()
+                    && type_args.iter().zip(other_type_args).all(|(&arg, &other_arg)| self.is_same(arg, other_arg))
+                    && adt == other_adt
+            }
+            (Type::Trait(trait_ref, type_args), Type::Trait(other_trait_ref, other_type_args)) => {
+                type_args.len() == other_type_args.len()
+                    && type_args.iter().zip(other_type_args).all(|(&arg, &other_arg)| self.is_same(arg, other_arg))
+                    && trait_ref == other_trait_ref
+            }
+            (Type::Trait(trait_ref, _), _) => self.find_vtable(other, Some(*trait_ref)).is_some(),
+            (_, Type::Trait(other_trait_ref, _)) => self.find_vtable(ty, Some(*other_trait_ref)).is_some(),
+            _ => false,
+        }
+    }
+
     pub const fn display_of(&self, ty: TypeRef) -> TypeDisplay<'_> {
         TypeDisplay { ty, context: self }
     }
@@ -505,16 +532,23 @@ impl TypeContext {
     }
 
     pub fn register_module<T: Into<String>>(&mut self, name: T) -> ModuleId {
-        let id = self.modules.next_index();
-        let name = name.into();
+        self.register_module_in_module(ModuleId::ZERO, name)
+    }
 
-        self.modules[ModuleId::ZERO].items.insert(name.clone(), ModuleItem::SubModule(id));
-        self.modules.insert(Module {
-            parent: Some(ModuleId::ZERO),
-            name,
+    pub fn register_module_in_module<T: Into<String>>(&mut self, parent: ModuleId, name: T) -> ModuleId {
+        let name = name.into();
+        let id = self.modules.next_index();
+        let id = self.modules.insert(Module {
+            parent: Some(parent),
+            name: name.clone(),
             id,
             items: IndexMap::new(),
-        })
+        });
+
+        self.modules[parent].items.insert(name, ModuleItem::SubModule(id));
+        self.modules[id].items.insert(String::from("super"), ModuleItem::SubModule(parent));
+
+        id
     }
 
     pub fn register_adt(&mut self, ty: Adt) -> AdtRef {

@@ -6,7 +6,7 @@ use mollie_typing::{Type, TypeRef};
 
 use crate::{AsIrType, CompileTypedAST, MolValue, allocator::TypeLayout, error::CompileResult, func::FunctionCompiler};
 
-impl<S, M: Module> FunctionCompiler<'_, S, M> {
+impl<S, ML: mollie_typed_ast::ModuleLoader<S>, M: Module> FunctionCompiler<'_, S, ML, M> {
     pub fn type_layout_of(&self, ty: TypeRef) -> &'static TypeLayout {
         match self.type_context.type_context.types[ty] {
             Type::Primitive(primitive) => self.compiler.core_types.cast_primitive(primitive),

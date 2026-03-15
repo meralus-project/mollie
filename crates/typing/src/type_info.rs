@@ -10,6 +10,7 @@ pub enum TypeInfo {
     Adt(AdtRef, Box<[TypeInfoRef]>),
     Trait(TraitRef, Box<[TypeInfoRef]>),
     Unknown(Option<TypeInfoRef>),
+    Integer,
     Generic(usize),
     Ref(TypeInfoRef),
     Error,

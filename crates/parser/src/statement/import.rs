@@ -29,8 +29,15 @@ impl Parse for Import {
             ImportKind::Named
         };
 
-        let path = TypePathExpr::parse(TypePathSegment::parse_from(Ident::parse(parser)?, parser, false)?, parser, false)?;
-
+        let path = TypePathExpr::parse(
+            TypePathSegment::parse_from(
+                Ident::parse(parser).or_else(|_| parser.consume_map(|token| if matches!(token, Token::Super) { Some(Ident::new("super")) } else { None }))?,
+                parser,
+                false,
+            )?,
+            parser,
+            false,
+        )?;
         let end = parser.consume(&Token::Semi)?;
 
         Ok(start.between(&end).wrap(Self { kind, path }))

@@ -25,7 +25,7 @@ use mollie_ir::{Array, CodeGenerator, Field, MollieType, Symbol, VTablePtr};
 use mollie_lexer::{Lexer, Token};
 use mollie_parser::Parser;
 use mollie_shared::{Positioned, Span};
-use mollie_typed_ast::{Block, BlockRef, Expr, FromParsed, FunctionBody, Stmt, StmtRef, TypedAST, TypedASTContext, UsedItem};
+use mollie_typed_ast::{Block, BlockRef, Expr, FromParsed, FunctionBody, ModuleLoader, Stmt, StmtRef, TypedAST, TypedASTContext, UsedItem};
 use mollie_typing::{
     AdtVariantRef, CoreTypes, FieldRef, FuncRef, IntType, PrimitiveType, TraitRef, Type, TypeContext, TypeInfo, TypeRef, TypeStorage, UIntType, VFuncRef,
     VTableFunc, VTableGenerator, VTableRef,
@@ -316,7 +316,7 @@ impl Compiler {
 }
 
 impl<M: Module> Compiler<M> {
-    pub fn start_compiling(&mut self) -> FuncCompiler<'_, M> {
+    pub fn start_compiling<ML: ModuleLoader<SpecialCase<M>>>(&mut self, loader: ML) -> FuncCompiler<'_, M, ML> {
         fn push<M: Module>(
             fn_builder: &mut FunctionBuilder<'_>,
             compiler: &mut Compiler<M>,
@@ -350,7 +350,7 @@ impl<M: Module> Compiler<M> {
             MolValue::Nothing
         }
 
-        let mut context = TypedASTContext::<SpecialCase<M>>::new(TypeContext::new());
+        let mut context = TypedASTContext::<SpecialCase<M>, ML>::new(TypeContext::new(), loader);
         let element = context.type_context.types.get_or_add(Type::Generic(0));
         let this = context.type_context.types.get_or_add(Type::Array(element, None));
 
@@ -382,11 +382,11 @@ impl<M: Module> Compiler<M> {
 
 type SpecialCase<M> = fn(&mut FunctionBuilder<'_>, &mut Compiler<M>, FunctionContext, ir::Block, &[MollieType]) -> MolValue;
 
-pub struct FuncCompiler<'a, M: Module = JITModule> {
+pub struct FuncCompiler<'a, M: Module, ML: ModuleLoader<SpecialCase<M>>> {
     pub compiler: &'a mut Compiler<M>,
     pub ctx: Context,
     pub fn_builder_ctx: FunctionBuilderContext,
-    pub context: TypedASTContext<SpecialCase<M>>,
+    pub context: TypedASTContext<SpecialCase<M>, ML>,
 }
 
 #[derive(Debug)]
@@ -401,7 +401,7 @@ impl From<ModuleError> for FuncCompilerError {
     }
 }
 
-impl FuncCompiler<'_> {
+impl<ML: ModuleLoader<SpecialCase<JITModule>>> FuncCompiler<'_, JITModule, ML> {
     pub fn compile<T: AsRef<str>>(
         &mut self,
         name: T,
@@ -1031,8 +1031,8 @@ impl MolValue {
     }
 }
 
-pub trait CompileTypedAST<S, M: Module, T> {
-    fn compile(self, ast: &TypedAST, compiler: &mut FunctionCompiler<'_, S, M>) -> CompileResult<T>;
+pub trait CompileTypedAST<S, ML: ModuleLoader<S>, M: Module, T> {
+    fn compile(self, ast: &TypedAST, compiler: &mut FunctionCompiler<'_, S, ML, M>) -> CompileResult<T>;
 }
 
 pub trait AsIrType {
@@ -1061,8 +1061,8 @@ impl AsIrType for TypeRef {
     }
 }
 
-impl<S, M: Module> CompileTypedAST<S, M, MolValue> for StmtRef {
-    fn compile(self, ast: &TypedAST, compiler: &mut FunctionCompiler<'_, S, M>) -> CompileResult<MolValue> {
+impl<S, ML: ModuleLoader<S>, M: Module> CompileTypedAST<S, ML, M, MolValue> for StmtRef {
+    fn compile(self, ast: &TypedAST, compiler: &mut FunctionCompiler<'_, S, ML, M>) -> CompileResult<MolValue> {
         match &ast[self] {
             Stmt::Expr(expr_ref) => expr_ref.compile(ast, compiler),
             Stmt::NewVar { name, value, .. } => {
@@ -1098,8 +1098,8 @@ impl<S, M: Module> CompileTypedAST<S, M, MolValue> for StmtRef {
     }
 }
 
-impl<S, M: Module> CompileTypedAST<S, M, MolValue> for BlockRef {
-    fn compile(self, ast: &TypedAST, compiler: &mut FunctionCompiler<'_, S, M>) -> CompileResult<MolValue> {
+impl<S, ML: ModuleLoader<S>, M: Module> CompileTypedAST<S, ML, M, MolValue> for BlockRef {
+    fn compile(self, ast: &TypedAST, compiler: &mut FunctionCompiler<'_, S, ML, M>) -> CompileResult<MolValue> {
         compiler.push_frame();
 
         for statement in &ast[self].value.stmts {

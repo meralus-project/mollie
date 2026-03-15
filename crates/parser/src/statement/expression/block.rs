@@ -41,7 +41,10 @@ pub fn parse_statements_until(parser: &mut Parser, token: &Token) -> ParseResult
         } else if return_statement.is_none() {
             statements.push(statement);
         } else {
-            return Err(ParseError::new("return value already exists", Some(statement.span)));
+            return Err(ParseError::new(
+                format!("return value already exists: {return_statement:?}"),
+                Some(statement.span),
+            ));
         }
     }
 

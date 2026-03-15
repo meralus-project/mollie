@@ -2,7 +2,7 @@ use std::fmt;
 
 use mollie_index::Idx;
 
-use crate::{AdtKind, AdtRef, AdtVariantRef, ModuleId, PrimitiveType, TypeContext, ty::TypeRef};
+use crate::{AdtKind, AdtRef, AdtVariantRef, ModuleId, PrimitiveType, TypeContext, TypeRef};
 
 #[derive(Debug, Clone, Copy)]
 pub enum SpecialAdtKind {

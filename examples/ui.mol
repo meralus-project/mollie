@@ -1,3 +1,11 @@
+struct B {
+    value: bool
+}
+
+module test;
+
+test::do();
+
 import { timestamp } from std;
 import { Size, Point } from graphics;
 
@@ -524,10 +532,14 @@ impl Drawable for Grid {
     }
 }
 
+let a = test::A { value: 1.0 };
+
+a.value = 1.0;
+
 Grid {
     spacing: 12.0,
     columns: [
-        Definition::new(256.0px),
+        Definition::new(128.0px),
         Definition::new(1.0wh),
         Definition::new(100.0px),
     ],
@@ -583,11 +595,10 @@ Grid {
         column: 1,
         row: 1,
 
-        Rectangle {
+        Image {
             width: 1.0wh,
             height: 1.0wh,
-            corner_radius: graphics::CornerRadius { top_left: 12.0, top_right: 12.0, bottom_left: 12.0, bottom_right: 12.0 },
-            background: graphics::Color::new(0, 255, 0)
+            image: graphics::Image::path("./examples/assets/graphql.png")
         }
     }
 

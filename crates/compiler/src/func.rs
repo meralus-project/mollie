@@ -10,7 +10,7 @@ use cranelift::{
 use indexmap::{IndexMap, map::Entry};
 use mollie_ir::MollieType;
 use mollie_shared::Operator;
-use mollie_typed_ast::{ExprRef, TypedASTContext};
+use mollie_typed_ast::{ExprRef, ModuleLoader, TypedASTContext};
 use mollie_typing::{AdtVariantRef, FuncRef, Type, TypeRef, VFuncRef, VTableRef};
 
 use crate::{
@@ -105,13 +105,13 @@ impl Default for Frames {
     }
 }
 
-pub struct FunctionCompiler<'a, S, T: Module = JITModule> {
+pub struct FunctionCompiler<'a, S, ML: ModuleLoader<S>, M: Module = JITModule> {
     pub(crate) id: FuncId,
     pub(crate) entry_block: Block,
 
-    pub(crate) compiler: &'a mut Compiler<T>,
+    pub(crate) compiler: &'a mut Compiler<M>,
     pub(crate) fn_builder: FunctionBuilder<'a>,
-    pub(crate) type_context: &'a TypedASTContext<S>,
+    pub(crate) type_context: &'a TypedASTContext<S, ML>,
 
     pub(crate) context: FunctionContext,
 
@@ -123,12 +123,12 @@ pub struct FunctionCompiler<'a, S, T: Module = JITModule> {
     pub(crate) frames: Frames,
 }
 
-impl<'a, S, M: Module> FunctionCompiler<'a, S, M> {
+impl<'a, S, ML: ModuleLoader<S>, M: Module> FunctionCompiler<'a, S, ML, M> {
     pub fn new<T: Into<String>>(
         name: T,
         signature: ir::Signature,
         compiler: &'a mut Compiler<M>,
-        type_context: &'a TypedASTContext<S>,
+        type_context: &'a TypedASTContext<S, ML>,
         ctx: &'a mut Context,
         fn_builder_ctx: &'a mut FunctionBuilderContext,
     ) -> Result<Self, FuncCompilerError> {
@@ -191,7 +191,7 @@ impl<'a, S, M: Module> FunctionCompiler<'a, S, M> {
     pub fn new_anonymous(
         signature: ir::Signature,
         compiler: &'a mut Compiler<M>,
-        checker: &'a TypedASTContext<S>,
+        checker: &'a TypedASTContext<S, ML>,
         ctx: &'a mut Context,
         fn_builder_ctx: &'a mut FunctionBuilderContext,
     ) -> Result<Self, FuncCompilerError> {

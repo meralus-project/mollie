@@ -24,3 +24,4 @@ workspace = true
 
 [dev-dependencies]
 ariadne = "0.6.0"
+mollie-typing = { workspace = true, features = ["ariadne"] }

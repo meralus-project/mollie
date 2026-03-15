@@ -4,7 +4,7 @@ use mollie_typing::{TypeRef, VFuncRef, VTableRef};
 
 use crate::{CompileTypedAST, MolValue, error::CompileResult, func::FunctionCompiler};
 
-impl<S, M: Module> FunctionCompiler<'_, S, M> {
+impl<S, ML: mollie_typed_ast::ModuleLoader<S>, M: Module> FunctionCompiler<'_, S, ML, M> {
     pub fn compile_vtable_index(
         &mut self,
         ast: &TypedAST,
