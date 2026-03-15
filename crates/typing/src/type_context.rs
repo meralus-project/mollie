@@ -587,6 +587,10 @@ impl TypeContext {
         func
     }
 
+    pub fn inst_adt(&mut self, ty: AdtRef, type_args: &[TypeRef]) -> TypeRef {
+        self.types.get_or_add(Type::Adt(ty, type_args.iter().copied().collect()))
+    }
+
     // pub fn register_intrinsic_in_module<T: Into<String>>(&mut self, module:
     // ModuleId, name: T, kind: IntrinsicKind, ty: TypeInfo) {
     //     self.modules[module]
