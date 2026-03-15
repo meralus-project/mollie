@@ -5,7 +5,7 @@ use mollie_shared::{Operator, Positioned};
 
 use crate::{Expr, ParseError, ParseResult, Parser, Precedence};
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct BinaryExpr {
     pub lhs: Box<Positioned<Expr>>,
     pub rhs: Box<Positioned<Expr>>,
@@ -22,7 +22,7 @@ impl BinaryExpr {
     /// # Errors
     ///
     /// Returns `ParseError` if parsing failed
-    pub fn parse(parser: &mut Parser, lhs: Positioned<Expr>) -> ParseResult<Positioned<Self>> {
+    pub fn parse(parser: &mut Parser, lhs: Positioned<Expr>, is_limited_expr: bool) -> ParseResult<Positioned<Self>> {
         let peeked = parser.peek().ok_or_else(|| ParseError::new("expected operator", None))?;
 
         let (precedence, operator) = Precedence::from_ref(&peeked.value);
@@ -33,7 +33,7 @@ impl BinaryExpr {
 
         parser.next();
 
-        let rhs = Expr::parse_pratt_expr(parser, precedence, false)?;
+        let rhs = Expr::parse_pratt_expr(parser, precedence, is_limited_expr)?;
 
         Ok(lhs.between(&rhs).wrap(Self {
             lhs: Box::new(lhs),

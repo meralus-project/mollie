@@ -3,7 +3,7 @@ use mollie_shared::Positioned;
 
 use crate::{Expr, ParseResult, Parser};
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct FuncCallExpr {
     pub function: Box<Positioned<Expr>>,
     pub args: Positioned<Vec<Positioned<Expr>>>,

@@ -3,7 +3,7 @@ use mollie_shared::Positioned;
 
 use crate::{Expr, Parse, ParseResult, Parser};
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct ArrayExpr {
     pub elements: Vec<Positioned<Expr>>,
 }

@@ -1,56 +1,53 @@
 use mollie_lexer::Token;
 use mollie_shared::Positioned;
+use mollie_typing::{IntType, PrimitiveType, UIntType};
 
-use crate::{Ident, Parse, ParseResult, Parser};
+use crate::{Ident, Parse, ParseResult, Parser, TypePathExpr, TypePathSegment};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
-pub enum PrimitiveType {
-    IntSize,
-    Int64,
-    Int32,
-    Int16,
-    Int8,
-    UIntSize,
-    UInt64,
-    UInt32,
-    UInt16,
-    UInt8,
-    Float,
-    Boolean,
-    String,
-    Component,
-    Void,
-    Null,
-}
+// #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
+// pub enum PrimitiveType {
+//     ISize,
+//     I64,
+//     I32,
+//     I16,
+//     I8,
+//     USize,
+//     U64,
+//     U32,
+//     U16,
+//     U8,
+//     F32,
+//     Bool,
+//     String,
+//     Void,
+// }
 
 impl Parse for PrimitiveType {
     fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
         parser.consume_map(|token| match token {
             Token::Ident(value) => match value.as_str() {
-                "uint_size" => Some(Self::UIntSize),
-                "int64" => Some(Self::Int64),
-                "int32" => Some(Self::Int32),
-                "int16" => Some(Self::Int16),
-                "int8" => Some(Self::Int8),
-                "int_size" => Some(Self::IntSize),
-                "uint64" => Some(Self::UInt64),
-                "uint32" => Some(Self::UInt32),
-                "uint16" => Some(Self::UInt16),
-                "uint8" => Some(Self::UInt8),
-                "float" => Some(Self::Float),
-                "boolean" => Some(Self::Boolean),
+                "isize" => Some(Self::Int(IntType::ISize)),
+                "i64" => Some(Self::Int(IntType::I64)),
+                "i32" => Some(Self::Int(IntType::I32)),
+                "i16" => Some(Self::Int(IntType::I16)),
+                "i8" => Some(Self::Int(IntType::I8)),
+                "usize" => Some(Self::UInt(UIntType::USize)),
+                "u64" => Some(Self::UInt(UIntType::U64)),
+                "u32" => Some(Self::UInt(UIntType::U32)),
+                "u16" => Some(Self::UInt(UIntType::U16)),
+                "u8" => Some(Self::UInt(UIntType::U8)),
+                "f32" => Some(Self::F32),
+                "bool" => Some(Self::Bool),
                 "string" => Some(Self::String),
-                "component" => Some(Self::Component),
                 "void" => Some(Self::Void),
                 _ => None,
             },
-            Token::Null => Some(Self::Null),
             _ => None,
         })
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub struct NameWithGenerics {
     pub name: Positioned<Ident>,
     pub generics: Vec<Positioned<Ident>>,
@@ -73,44 +70,29 @@ impl Parse for NameWithGenerics {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
-pub struct CustomType {
-    pub name: Positioned<Ident>,
-    pub generics: Vec<Positioned<Type>>,
-}
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
+pub struct TypeArgs(pub Vec<Positioned<Type>>);
 
-impl Parse for CustomType {
+impl Parse for TypeArgs {
     fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
-        let name = Ident::parse(parser)?;
-
-        let (generics, end) = if parser.try_consume(&Token::Less) {
-            let generics = parser.consume_separated_until(&Token::Comma, &Token::Greater)?;
-            let end = parser.consume(&Token::Greater)?;
-
-            (generics, end.span)
-        } else {
-            (Vec::new(), name.span)
-        };
-
-        Ok(name.span.between(end).wrap(Self { name, generics }))
+        Ok(parser.consume_separated_in(&Token::Comma, &Token::Less, &Token::Greater)?.map(Self))
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub enum Type {
     Primitive(PrimitiveType),
-    Custom(CustomType),
     Array(Box<Positioned<Self>>, Option<Positioned<usize>>),
-    OneOf(Vec<Positioned<Self>>),
     Func(Vec<Positioned<Self>>, Option<Box<Positioned<Self>>>),
+    Path(TypePathExpr),
 }
 
-impl Parse for Type {
-    fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
-        let value = PrimitiveType::parse(parser)
+impl Type {
+    fn parse_simple(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
+        PrimitiveType::parse(parser)
             .map(|v| v.map(Self::Primitive))
             .or_else(|_| {
-                let start = parser.consume(&Token::Fn)?;
+                let start = parser.consume(&Token::Func)?;
                 let args = parser.consume_separated_in(&Token::Comma, &Token::ParenOpen, &Token::ParenClose)?;
                 let returns = if parser.try_consume(&Token::Arrow) {
                     Some(Box::new(Self::parse(parser)?))
@@ -125,13 +107,31 @@ impl Parse for Type {
                         .wrap(Self::Func(args.value, returns)),
                 )
             })
-            .or_else(|_| CustomType::parse(parser).map(|v| v.map(Self::Custom)))?;
+            .or_else(|_| {
+                let name = Ident::parse(parser)?;
+
+                TypePathExpr::parse(TypePathSegment::parse_from(name, parser, false)?, parser, false).map(|path| path.map(Self::Path))
+            })
+    }
+}
+
+impl Parse for Type {
+    fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
+        let value = if parser.try_consume(&Token::ParenOpen) {
+            let value = Self::parse_simple(parser)?;
+
+            parser.consume(&Token::ParenClose)?;
+
+            value
+        } else {
+            Self::parse_simple(parser)?
+        };
 
         let value = if parser.try_consume(&Token::BracketOpen) {
             let size = parser
-                .consume_if(Token::is_integer)
+                .consume_if(Token::is_i64)
                 .map(|v| v.map(Token::unwrap_integer))
-                .map_or(None, |size| size.value.0.try_into().ok().map(|v| size.span.wrap(v)));
+                .map_or(None, |size| size.value.0.value.try_into().ok().map(|v| size.span.wrap(v)));
 
             let end = parser.consume(&Token::BracketClose)?;
 
@@ -140,16 +140,6 @@ impl Parse for Type {
             value
         };
 
-        if parser.try_consume(&Token::Or) {
-            let mut types = vec![value, Self::parse(parser)?];
-
-            while parser.try_consume(&Token::Or) {
-                types.push(Self::parse(parser)?);
-            }
-
-            Ok(types[0].span.between(types[types.len() - 1].span).wrap(Self::OneOf(types)))
-        } else {
-            Ok(value)
-        }
+        Ok(value)
     }
 }

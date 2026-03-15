@@ -1,43 +1,41 @@
 use mollie_lexer::Token;
 use mollie_shared::Positioned;
 
-use crate::{CustomType, Expr, Ident, Parse, ParseResult, Parser};
+use crate::{Expr, Ident, Parse, ParseResult, Parser, TypePathExpr, TypePathSegment};
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct NameValue {
     pub name: Positioned<Ident>,
-    pub value: Positioned<Expr>,
+    pub value: Option<Positioned<Expr>>,
 }
 
 impl Parse for NameValue {
     fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
-        parser.verify_if(Token::is_ident)?;
-        parser.verify2(&Token::Colon)?;
-
         let name = Ident::parse(parser)?;
+        let value = if parser.try_consume(&Token::Colon) {
+            Some(Expr::parse(parser)?)
+        } else {
+            None
+        };
 
-        parser.consume(&Token::Colon)?;
-
-        let value = Expr::parse(parser)?;
-
-        Ok(name.span.between(value.span).wrap(Self { name, value }))
+        Ok(name
+            .span
+            .between(value.as_ref().map_or(name.span, |value| value.span))
+            .wrap(Self { name, value }))
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct NodeExpr {
-    pub name: Positioned<CustomType>,
+    pub name: Positioned<TypePathExpr>,
     pub from: Option<(Positioned<Box<Expr>>, Positioned<Ident>)>,
     pub properties: Vec<Positioned<NameValue>>,
     pub children: Positioned<Vec<Positioned<Self>>>,
 }
 
-impl Parse for NodeExpr {
-    fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
-        parser.verify_if(Token::is_ident)?;
-        parser.verify2_if(|t| matches!(t, Token::BraceOpen | Token::From | Token::Less))?;
-
-        let name = CustomType::parse(parser)?;
+impl NodeExpr {
+    pub fn parse(name: Positioned<TypePathExpr>, parser: &mut Parser) -> ParseResult<Positioned<Self>> {
+        parser.verify_if(|t| matches!(t, Token::BraceOpen | Token::From | Token::Less))?;
 
         let from = if parser.try_consume(&Token::From) {
             parser.consume(&Token::Less)?;
@@ -58,23 +56,44 @@ impl Parse for NodeExpr {
         parser.consume(&Token::BraceOpen)?;
 
         let mut properties = Vec::new();
+        let mut children = Vec::new();
+        let mut is_property_parsing = true;
+        let mut last_comma = None;
 
         loop {
-            if !properties.is_empty() && parser.check2_if(Token::is_ident) && parser.check3(&Token::Colon) {
-                parser.consume(&Token::Comma)?;
-            }
+            if parser.check_if(Token::is_ident) {
+                if is_property_parsing {
+                    if parser.check2_one_of(&[Token::BraceOpen, Token::PathSep, Token::From, Token::Less]) {
+                        is_property_parsing = false;
 
-            match NameValue::parse(parser) {
-                Ok(property) => properties.push(property),
-                Err(_) => break,
-            }
-        }
+                        continue;
+                    } else if parser.check2(&Token::Colon) && last_comma.is_none_or(|last_comma| last_comma) {
+                        let name = Ident::parse(parser)?;
 
-        let mut children = Vec::new();
+                        parser.consume(&Token::Colon)?;
 
-        if (parser.try_consume(&Token::Comma) || properties.is_empty()) && parser.check_if(Token::is_ident) {
-            while !parser.check(&Token::BraceClose) {
-                children.push(Self::parse(parser)?);
+                        let value = Expr::parse(parser)?;
+                        let width = name.between(&value);
+
+                        properties.push(width.wrap(NameValue { name, value: Some(value) }));
+                    } else if last_comma.is_none_or(|last_comma| last_comma) {
+                        let name = Ident::parse(parser)?;
+
+                        properties.push(name.inner_map(|name| NameValue { name, value: None }));
+                    }
+
+                    last_comma = Some(parser.try_consume(&Token::Comma));
+                } else {
+                    let name = Ident::parse(parser)
+                        .or_else(|_| parser.consume_map(|token| if matches!(token, Token::Super) { Some(Ident::new("super")) } else { None }))?;
+
+                    children.push(Self::parse(
+                        TypePathExpr::parse(TypePathSegment::parse_from(name, parser, false)?, parser, false)?,
+                        parser,
+                    )?);
+                }
+            } else {
+                break;
             }
         }
 

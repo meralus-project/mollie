@@ -27,6 +27,7 @@ pub fn parse_statements_until(parser: &mut Parser, token: &Token) -> ParseResult
                         ..
                     }) | Expr::Block(_)
                         | Expr::While(_)
+                        | Expr::ForIn(_)
                 )
             )
         {
@@ -40,14 +41,17 @@ pub fn parse_statements_until(parser: &mut Parser, token: &Token) -> ParseResult
         } else if return_statement.is_none() {
             statements.push(statement);
         } else {
-            return Err(ParseError::new("return value already exists", Some(statement.span)));
+            return Err(ParseError::new(
+                format!("return value already exists: {return_statement:?}"),
+                Some(statement.span),
+            ));
         }
     }
 
     Ok((statements, return_statement))
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct BlockExpr {
     pub stmts: Vec<Positioned<Stmt>>,
     pub final_stmt: Option<Box<Positioned<Stmt>>>,

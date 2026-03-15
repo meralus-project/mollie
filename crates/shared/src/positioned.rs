@@ -2,7 +2,7 @@ use std::fmt;
 
 use crate::Span;
 
-#[derive(Debug, Hash, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Hash, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
 pub struct Positioned<T> {
     pub value: T,
     pub span: Span,
@@ -29,6 +29,10 @@ impl<T> Positioned<T> {
 
     pub fn map<U, F: FnOnce(T) -> U>(self, f: F) -> Positioned<U> {
         self.span.wrap(f(self.value))
+    }
+
+    pub fn inner_map<U, F: FnOnce(Self) -> U>(self, f: F) -> Positioned<U> {
+        self.span.wrap(f(self))
     }
 
     pub fn unpack(self) -> (Span, T) {

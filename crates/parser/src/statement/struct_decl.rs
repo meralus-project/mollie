@@ -1,9 +1,9 @@
 use mollie_lexer::Token;
 use mollie_shared::Positioned;
 
-use crate::{Expr, Ident, NameWithGenerics, Parse, ParseResult, Parser, Type};
+use crate::{Attribute, Expr, Ident, NameWithGenerics, Parse, ParseResult, Parser, Type};
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct Property {
     pub name: Positioned<Ident>,
     pub nullable: Option<Positioned<bool>>,
@@ -34,20 +34,20 @@ impl Parse for Property {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct StructDecl {
+    pub attributes: Vec<Positioned<Attribute>>,
     pub name: Positioned<NameWithGenerics>,
     pub properties: Positioned<Vec<Positioned<Property>>>,
 }
 
-impl Parse for StructDecl {
-    fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
+impl StructDecl {
+    pub fn parse(parser: &mut Parser, attributes: Vec<Positioned<Attribute>>) -> ParseResult<Positioned<Self>> {
         parser.consume(&Token::Struct)?;
 
         let name = NameWithGenerics::parse(parser)?;
-
         let properties = parser.consume_separated_in(&Token::Comma, &Token::BraceOpen, &Token::BraceClose)?;
 
-        Ok(name.span.between(properties.span).wrap(Self { name, properties }))
+        Ok(name.span.between(properties.span).wrap(Self { attributes, name, properties }))
     }
 }

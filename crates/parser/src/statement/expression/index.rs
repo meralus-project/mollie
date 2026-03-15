@@ -3,7 +3,7 @@ use mollie_shared::Positioned;
 
 use crate::{Expr, Ident, Parse, ParseResult, Parser};
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub enum IndexTarget {
     Named(Ident),
     Expression(Box<Expr>),
@@ -23,7 +23,7 @@ impl Parse for IndexTarget {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct IndexExpr {
     pub target: Box<Positioned<Expr>>,
     pub index: Positioned<IndexTarget>,

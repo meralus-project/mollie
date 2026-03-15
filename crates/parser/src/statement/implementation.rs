@@ -1,12 +1,12 @@
 use mollie_lexer::Token;
 use mollie_shared::Positioned;
 
-use crate::{Argument, BlockExpr, CustomType, Ident, Parse, ParseResult, Parser, ty::Type};
+use crate::{Argument, BlockExpr, Ident, Parse, ParseError, ParseResult, Parser, TypePathExpr, ty::Type};
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct ImplFunction {
     pub name: Positioned<Ident>,
-    pub this: Option<Positioned<Token>>,
+    pub this: Option<Positioned<()>>,
     pub args: Vec<Positioned<Argument>>,
     pub returns: Option<Positioned<Type>>,
     pub body: Positioned<BlockExpr>,
@@ -14,13 +14,13 @@ pub struct ImplFunction {
 
 impl Parse for ImplFunction {
     fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
-        let start = parser.consume(&Token::Fn)?;
+        let start = parser.consume(&Token::Func)?;
 
         let name = Ident::parse(parser)?;
 
         parser.consume(&Token::ParenOpen)?;
 
-        let this = parser.consume(&Token::This).ok();
+        let this = parser.consume(&Token::This).ok().map(|v| v.wrap(()));
 
         if this.is_some() {
             parser.try_consume(&Token::Comma);
@@ -60,10 +60,10 @@ impl Parse for ImplFunction {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct Impl {
     pub generics: Vec<Positioned<Ident>>,
-    pub trait_name: Option<Positioned<CustomType>>,
+    pub trait_name: Option<Positioned<TypePathExpr>>,
     pub target: Positioned<Type>,
     pub functions: Positioned<Vec<Positioned<ImplFunction>>>,
 }
@@ -82,17 +82,21 @@ impl Parse for Impl {
             Vec::new()
         };
 
-        let trait_name = if parser.try_consume(&Token::Trait) {
-            let name = CustomType::parse(parser)?;
-
-            parser.consume(&Token::For)?;
-
-            Some(name)
-        } else {
-            None
-        };
-
         let target = Type::parse(parser)?;
+
+        let (trait_name, target) = if parser.try_consume(&Token::For) {
+            let trait_name = if let Type::Path(ty) = target.value {
+                target.span.wrap(ty)
+            } else {
+                return Err(ParseError::new("expected valid trait name", Some(target.span)));
+            };
+
+            let target = Type::parse(parser)?;
+
+            (Some(trait_name), target)
+        } else {
+            (None, target)
+        };
 
         let functions = parser.consume_in(&Token::BraceOpen, &Token::BraceClose)?;
 

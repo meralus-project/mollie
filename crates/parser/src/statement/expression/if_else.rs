@@ -3,7 +3,7 @@ use mollie_shared::Positioned;
 
 use crate::{BlockExpr, Expr, Parse, ParseResult, Parser, Precedence};
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct IfElseExpr {
     pub condition: Box<Positioned<Expr>>,
     pub block: Positioned<BlockExpr>,

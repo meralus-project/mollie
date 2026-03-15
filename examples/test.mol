@@ -1,0 +1,7 @@
+struct A {
+    value: f32
+}
+
+func do() {
+    super::println_bool(super::B { value: false }.value);
+}

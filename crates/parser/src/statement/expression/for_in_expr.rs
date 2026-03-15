@@ -1,9 +1,9 @@
 use mollie_lexer::Token;
 use mollie_shared::Positioned;
 
-use crate::{BlockExpr, Expr, Ident, Parse, ParseResult, Parser};
+use crate::{BlockExpr, Expr, Ident, Parse, ParseResult, Parser, Precedence};
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct ForInExpr {
     pub name: Positioned<Ident>,
     pub target: Box<Positioned<Expr>>,
@@ -17,7 +17,7 @@ impl Parse for ForInExpr {
 
         parser.consume(&Token::In)?;
 
-        let target = Expr::parse(parser)?;
+        let target = Expr::parse_pratt_expr(parser, Precedence::Cmp, true)?;
         let block = BlockExpr::parse(parser)?;
 
         Ok(start.between(&block).wrap(Self {

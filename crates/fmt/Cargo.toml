@@ -1,0 +1,10 @@
+[package]
+name = "mollie-fmt"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+mollie-parser = { workspace = true }
+
+[lints]
+workspace = true

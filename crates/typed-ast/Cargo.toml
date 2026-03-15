@@ -1,0 +1,26 @@
+[package]
+name = "mollie-typed-ast"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = ["serde"]
+serde = ["dep:serde", "mollie-typing/serde"]
+
+[dependencies]
+serde = { workspace = true, optional = true }
+mollie-shared = { workspace = true }
+mollie-index = { workspace = true }
+mollie-lexer = { workspace = true }
+mollie-parser = { workspace = true }
+mollie-const = { workspace = true }
+mollie-typing = { workspace = true }
+indexmap = { workspace = true }
+derive-where = "1.6.0"
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+ariadne = "0.6.0"
+mollie-typing = { workspace = true, features = ["ariadne"] }

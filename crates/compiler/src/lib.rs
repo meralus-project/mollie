@@ -1,221 +1,287 @@
 #![allow(clippy::result_large_err)]
 
-use std::{fmt, num::TryFromIntError, sync::Arc};
+pub mod allocator;
+pub mod error;
+pub mod expr;
+pub mod func;
+
+use std::{
+    hash::{DefaultHasher, Hash, Hasher},
+    iter, mem,
+};
 
 pub use cranelift;
 use cranelift::{
-    codegen::{Context, ir},
-    jit::{JITBuilder, JITModule},
-    module::{DataDescription, DataId, FuncId, Linkage, Module, ModuleResult, default_libcall_names},
-    native,
-    prelude::{AbiParam, Configurable, FunctionBuilder, FunctionBuilderContext, InstBuilder, Signature, isa::TargetIsa, settings, types},
+    codegen::{Context, ir, print_errors::pretty_error},
+    jit::JITModule,
+    module::{DataId, FuncId, Linkage, Module, ModuleError, ModuleResult},
+    prelude::{AbiParam, Configurable, FunctionBuilder, FunctionBuilderContext, InstBuilder, Variable, isa::TargetIsa, settings, types},
 };
 pub use indexmap::IndexMap;
-use indexmap::IndexSet;
-use mollie_ir::{Array, FatPtr, VTablePtr};
-use mollie_lexer::{Lexer, Token};
-use mollie_parser::{Expr, Parser, Stmt, parse_statements_until};
-use mollie_shared::{Positioned, Span};
-use mollie_typing::{ArrayType, ComplexType, FunctionType, PrimitiveType, Trait, Type, TypeKind, TypeVariant};
+use mollie_index::{Idx, IndexBoxedSlice, IndexVec};
+use mollie_ir::{Array, CodeGenerator, Field, MollieType, Symbol, VTablePtr};
+use mollie_shared::pretty_fmt::FmtIteratorExt;
+use mollie_typed_ast::{BlockRef, FunctionBody, ModuleLoader, Stmt, StmtRef, TypedAST, TypedASTContext, UsedItem};
+use mollie_typing::{
+    AdtVariantRef, CoreTypes, FieldRef, FuncRef, IntType, ModuleId, PrimitiveType, TraitRef, Type, TypeContext, TypeRef, TypeStorage, UIntType, VFuncRef,
+    VTableFunc, VTableGenerator, VTableRef,
+};
 
-pub use self::error::{CompileError, CompileResult, TypeError, TypeResult};
-
-mod error;
-mod statement;
-mod ty;
+use crate::{
+    allocator::{TypeLayout, TypeLayoutField},
+    error::{CompileError, CompileResult},
+    func::{FuncKey, FunctionCompiler},
+};
 
 #[derive(Debug)]
-pub struct Variable {
-    pub id: usize,
-    pub ty: usize,
-}
-
-pub type VTable = IndexMap<Option<usize>, (DataId, IndexMap<String, (Type, (ir::SigRef, ir::FuncRef, FuncId))>)>;
-
-pub struct JitCompiler {
-    pub module: JITModule,
-    pub data_desc: DataDescription,
-}
-
-impl fmt::Debug for JitCompiler {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("JitCompiler").field("data_desc", &self.data_desc).finish_non_exhaustive()
-    }
-}
-
-impl JitCompiler {
-    fn jit_builder(symbols: Vec<(&'static str, *const u8)>, isa: Arc<dyn TargetIsa>) -> JITBuilder {
-        let mut builder = JITBuilder::with_isa(isa, default_libcall_names());
-
-        builder.symbol("println", do_println as *const u8);
-        builder.symbol("println_bool", do_println_bool as *const u8);
-        builder.symbol("println_addr", do_println_addr as *const u8);
-        builder.symbol("println_str", do_println_str as *const u8);
-        builder.symbol("println_float", do_println_f32 as *const u8);
-
-        for (name, ptr) in symbols {
-            builder.symbol(name, ptr);
-        }
-
-        builder
-    }
-
-    fn new(symbols: Vec<(&'static str, *const u8)>, flags: settings::Flags) -> Self {
-        let isa = native::builder().unwrap();
-        let isa = isa.finish(flags).unwrap();
-
-        let module = JITModule::new(Self::jit_builder(symbols, isa));
-
-        Self {
-            module,
-            data_desc: DataDescription::new(),
-        }
-    }
+pub struct CompiledAdtVariant {
+    pub fields: IndexBoxedSlice<FieldRef, (Field, TypeRef)>,
 }
 
 #[derive(Debug)]
-pub struct Compiler {
-    pub traits: IndexMap<String, Trait>,
-    pub name_to_type: IndexMap<String, usize>,
-    pub types: IndexSet<Type>,
-    pub impls: IndexMap<TypeVariant, Vec<usize>>,
-    pub vtables: IndexMap<TypeVariant, VTable>,
-    pub frames: Vec<IndexMap<String, Variable>>,
-
-    pub generics: Vec<Type>,
-    pub assign: Option<Positioned<Expr>>,
-    pub this_ty: Option<Type>,
-    pub this: Option<ValueOrFunc>,
-    pub infer: Option<Type>,
-    pub infer_val: Option<ValueOrFunc>,
-    pub values: IndexMap<String, ValueOrFunc>,
-    pub variables: IndexMap<String, cranelift::prelude::Variable>,
-    pub globals: IndexMap<String, FuncId>,
-    pub func_names: IndexMap<FuncId, String>,
-
-    pub jit: JitCompiler,
+pub struct CompiledAdt {
+    pub type_layout: &'static TypeLayout,
+    pub name: Option<String>,
+    pub applied_generics: usize,
+    pub variants: IndexBoxedSlice<AdtVariantRef, CompiledAdtVariant>,
 }
 
-impl Default for Compiler {
-    fn default() -> Self {
-        Self::with_symbols(Vec::new())
+impl CompiledAdt {
+    pub fn main_variant(&self) -> &CompiledAdtVariant {
+        &self.variants[AdtVariantRef::ZERO]
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Var {
+    Regular(Variable),
+    Fat(Variable, Variable),
+}
+
+type VTable = IndexVec<VFuncRef, FuncId>;
+
+#[derive(Debug)]
+pub struct Compiler<M: Module = JITModule> {
+    codegen: CodeGenerator<M>,
+    core_types: CoreTypes<&'static TypeLayout>,
+    adt_types: IndexMap<u64, CompiledAdt>,
+    trait_to_vtable: IndexMap<(u64, Option<TraitRef>), DataId>,
+    vtables: IndexMap<(u64, VTableRef), VTable>,
+
+    name_to_func_id: IndexMap<String, FuncId>,
+    func_id_to_name: IndexMap<FuncId, String>,
+    func_ref_to_func_id: IndexMap<FuncRef, FuncId>,
+}
+
+impl<M: Module> Compiler<M> {
+    fn isa(&self) -> &dyn TargetIsa {
+        self.codegen.module.isa()
+    }
+
+    pub fn ptr_type(&self) -> ir::Type {
+        self.isa().pointer_type()
+    }
+
+    pub fn find_adt<T: AsRef<str>>(&self, name: T) -> Option<&CompiledAdt> {
+        let name = name.as_ref();
+
+        self.adt_types
+            .values()
+            .find(|&adt| adt.applied_generics == 0 && adt.name.as_deref() == Some(name))
+    }
+
+    pub fn get_adt(&self, hash: u64) -> &CompiledAdt {
+        &self.adt_types[&hash]
+    }
+
+    pub fn get_adt_variant(&self, hash: u64, variant: AdtVariantRef) -> &CompiledAdtVariant {
+        &self.adt_types[&hash].variants[variant]
+    }
+
+    pub fn try_get_adt_variant(&self, hash: u64, variant: AdtVariantRef) -> Option<&CompiledAdtVariant> {
+        self.adt_types.get(&hash).and_then(|adt| adt.variants.get(variant))
+    }
+
+    fn import_fn<T: IntoIterator<Item = ir::Type>>(&mut self, name: &str, params: T) -> ModuleResult<FuncId> {
+        self.import_fn2(name, params, [])
+    }
+
+    fn import_fn2<T: IntoIterator<Item = ir::Type>, R: IntoIterator<Item = ir::Type>>(&mut self, name: &str, params: T, returns: R) -> ModuleResult<FuncId> {
+        let mut signature = self.codegen.module.make_signature();
+
+        signature.params.extend(params.into_iter().map(AbiParam::new));
+        signature.returns.extend(returns.into_iter().map(AbiParam::new));
+
+        let id = self.codegen.module.declare_function(name, Linkage::Import, &signature)?;
+
+        self.func_id_to_name.insert(id, name.to_owned());
+        self.name_to_func_id.insert(name.to_owned(), id);
+
+        Ok(id)
     }
 }
 
 impl Compiler {
-    fn get_property<T: AsRef<str>>(&self, mut ty: Type, property_name: T) -> TypeResult<Type> {
-        let property_name = property_name.as_ref();
+    pub fn with_symbols<I: IntoIterator<Item = Symbol>>(symbols: I) -> ModuleResult<Self> {
+        let mut flag_builder = settings::builder();
 
-        let mut result = match ty.variant {
-            TypeVariant::This | TypeVariant::Generic(_) => unreachable!(),
-            TypeVariant::Primitive(ty) => unimplemented!("{ty} doesn't have property called {property_name}"),
-            TypeVariant::Trait(t) => {
-                return self.traits[t]
-                    .functions
-                    .iter()
-                    .find(|func| func.name == property_name)
-                    .map(|func| Type {
-                        variant: TypeVariant::complex(ComplexType::Function(FunctionType {
-                            is_native: false,
-                            this: if func.this { Some(ty.clone()) } else { None },
-                            args: func.args.clone(),
-                            returns: Box::new(func.returns.clone()),
-                        })),
-                        applied_generics: ty.applied_generics,
-                        declared_at: self.traits[t].declared_at,
-                    })
-                    .ok_or_else(|| TypeError::PropertyNotFound {
-                        ty: Box::new(TypeKind::Struct),
-                        ty_name: None,
-                        property: property_name.to_string(),
-                    });
-            }
-            TypeVariant::Complex(ref complex_type) => match &**complex_type {
-                ComplexType::Component(component) => {
-                    if property_name == "children" {
-                        let element = component
-                            .children
-                            .as_ref()
-                            .ok_or_else(|| TypeError::PropertyNotFound {
-                                ty: Box::new(TypeKind::Component),
-                                ty_name: None,
-                                property: property_name.to_string(),
-                            })?
-                            .clone();
+        unsafe {
+            flag_builder.set("use_colocated_libcalls", "false").unwrap_unchecked();
+            flag_builder.set("opt_level", "speed").unwrap_unchecked();
+            flag_builder.set("is_pic", "false").unwrap_unchecked();
+            flag_builder.set("preserve_frame_pointers", "true").unwrap_unchecked();
+        }
 
-                        if let Some(array) = element.variant.as_array() {
-                            ty.applied_generics.push(array.element.clone());
-                        }
-
-                        return Ok(Type {
-                            variant: element.variant,
-                            applied_generics: ty.applied_generics,
-                            declared_at: None,
-                        });
-                    }
-
-                    component
-                        .properties
-                        .iter()
-                        .find(|(name, ..)| name == property_name)
-                        .map(|(.., v)| v.clone().resolve_type(&ty.applied_generics))
-                        .ok_or_else(|| TypeError::PropertyNotFound {
-                            ty: Box::new(TypeKind::Component),
-                            ty_name: None,
-                            property: property_name.to_string(),
-                        })
-                }
-                ComplexType::Struct(structure) => structure
-                    .properties
-                    .iter()
-                    .find(|(name, _)| name == property_name)
-                    .map(|(.., v)| v.clone().resolve_type(&ty.applied_generics))
-                    .ok_or_else(|| TypeError::PropertyNotFound {
-                        ty: Box::new(TypeKind::Struct),
-                        ty_name: None,
-                        property: property_name.to_string(),
-                    }),
-                ComplexType::TraitInstance(ty, trait_index) => self.traits[*trait_index]
-                    .functions
-                    .iter()
-                    .find(|f| f.name == property_name)
-                    .map(|f| {
-                        TypeVariant::complex(ComplexType::Function(FunctionType {
-                            is_native: false,
-                            this: if f.this { Some(ty.clone()) } else { None },
-                            args: f.args.clone(),
-                            returns: Box::new(f.returns.clone()),
-                        }))
-                        .into()
-                    })
-                    .ok_or_else(|| TypeError::PropertyNotFound {
-                        ty: Box::new(TypeKind::Struct),
-                        ty_name: None,
-                        property: property_name.to_string(),
-                    }),
-                _ => unimplemented!("{} cannot be indexed by {}", ty.clone().resolve_type(&ty.applied_generics), property_name),
+        let mut compiler = Self {
+            adt_types: IndexMap::new(),
+            vtables: IndexMap::new(),
+            core_types: CoreTypes {
+                void: TypeLayout::static_of::<bool>(),
+                any: TypeLayout::static_of::<bool>(),
+                bool: TypeLayout::static_of::<bool>(),
+                i8: TypeLayout::static_of::<i8>(),
+                i16: TypeLayout::static_of::<i16>(),
+                i32: TypeLayout::static_of::<i32>(),
+                i64: TypeLayout::static_of::<i64>(),
+                isize: TypeLayout::static_of::<isize>(),
+                u8: TypeLayout::static_of::<u8>(),
+                u16: TypeLayout::static_of::<u16>(),
+                u32: TypeLayout::static_of::<u32>(),
+                u64: TypeLayout::static_of::<u64>(),
+                usize: TypeLayout::static_of::<usize>(),
+                f32: TypeLayout::static_of::<f32>(),
+                string: TypeLayout::static_of::<&str>(),
             },
-            TypeVariant::Ref { ty, mutable } => self
-                .get_property(*ty, property_name)
-                .map(|ty| TypeVariant::Ref { ty: Box::new(ty), mutable }.into()),
-        }?;
+            codegen: CodeGenerator::new(
+                symbols.into_iter().chain([
+                    ("println", do_println as *const u8),
+                    ("println_fat", do_println_fat as *const u8),
+                    ("println_bool", do_println_bool as *const u8),
+                    ("println_addr", do_println_addr as *const u8),
+                    ("println_str", do_println_str as *const u8),
+                    ("println_f32", do_println_f32 as *const u8),
+                    ("molalloc", allocator::alloc as *const u8),
+                    ("molalloc_arr", allocator::alloc_array as *const u8),
+                    ("molrealloc_arr", allocator::realloc_array as *const u8),
+                    ("molmark_root", allocator::mark_root as *const u8),
+                    ("molunmark_root", allocator::unmark_root as *const u8),
+                ]),
+                settings::Flags::new(flag_builder),
+            ),
+            trait_to_vtable: IndexMap::new(),
+            name_to_func_id: IndexMap::new(),
+            func_id_to_name: IndexMap::new(),
+            func_ref_to_func_id: IndexMap::new(),
+        };
 
-        result.applied_generics.extend(ty.applied_generics);
+        let ptr_type = compiler.codegen.module.isa().pointer_type();
 
-        Ok(result)
-    }
+        let prinlnt_id = compiler.import_fn("println", [types::I64])?;
 
-    fn import_fn<T: IntoIterator<Item = ir::Type>>(&mut self, name: &str, params: T) -> ModuleResult<FuncId> {
-        let mut signature = self.jit.module.make_signature();
+        compiler.import_fn2("molalloc", [ptr_type], [ptr_type])?;
+        compiler.import_fn2("molalloc_arr", [ptr_type, ptr_type], [ptr_type])?;
+        compiler.import_fn2("molrealloc_arr", [ptr_type, ptr_type], [ptr_type])?;
+        compiler.import_fn2("molmark_root", [ptr_type], [])?;
+        compiler.import_fn2("molunmark_root", [ptr_type], [])?;
 
-        signature.params.extend(params.into_iter().map(AbiParam::new));
+        compiler.import_fn("println_fat", [ptr_type, ptr_type])?;
+        compiler.import_fn("println_str", [ptr_type, ptr_type])?;
+        compiler.import_fn("println_bool", [types::I8])?;
+        compiler.import_fn("println_addr", [types::I64])?;
+        compiler.import_fn("println_f32", [types::F32])?;
 
-        let id = self.jit.module.declare_function(name, Linkage::Import, &signature)?;
+        let println_frame_addr_id = {
+            let mut ctx = compiler.codegen.module.make_context();
 
-        self.func_names.insert(id, name.to_owned());
-        self.globals.insert(name.to_owned(), id);
+            let func = compiler
+                .codegen
+                .module
+                .declare_function("println_frame_addr", Linkage::Local, &ctx.func.signature)?;
 
-        Ok(id)
+            let mut fn_builder_ctx = FunctionBuilderContext::new();
+            let mut fn_builder = FunctionBuilder::new(&mut ctx.func, &mut fn_builder_ctx);
+
+            let entry_block = fn_builder.create_block();
+
+            fn_builder.append_block_params_for_function_params(entry_block);
+            fn_builder.switch_to_block(entry_block);
+            fn_builder.seal_block(entry_block);
+
+            let fp = fn_builder.ins().get_frame_pointer(types::I64);
+            let println_func = compiler.codegen.module.declare_func_in_func(prinlnt_id, fn_builder.func);
+
+            fn_builder.ins().call(println_func, &[fp]);
+            fn_builder.ins().return_(&[]);
+
+            compiler.codegen.module.define_function(func, &mut ctx)?;
+
+            func
+        };
+
+        let get_type_idx_id = {
+            let mut ctx = compiler.codegen.module.make_context();
+
+            ctx.func.signature.params.push(AbiParam::new(ptr_type));
+            ctx.func.signature.params.push(AbiParam::new(ptr_type));
+            ctx.func.signature.returns.push(AbiParam::new(ptr_type));
+
+            let func = compiler.codegen.module.declare_function("get_type_idx", Linkage::Local, &ctx.func.signature)?;
+
+            let mut fn_builder_ctx = FunctionBuilderContext::new();
+            let mut fn_builder = FunctionBuilder::new(&mut ctx.func, &mut fn_builder_ctx);
+
+            let entry_block = fn_builder.create_block();
+
+            fn_builder.append_block_params_for_function_params(entry_block);
+            fn_builder.switch_to_block(entry_block);
+            fn_builder.seal_block(entry_block);
+
+            let vtable_ptr = fn_builder.block_params(entry_block)[1];
+            let type_idx = VTablePtr::get_type_idx(compiler.codegen.module.isa(), &mut fn_builder, vtable_ptr);
+
+            fn_builder.ins().return_(&[type_idx]);
+
+            compiler.codegen.module.define_function(func, &mut ctx)?;
+
+            func
+        };
+
+        let get_size_id = {
+            let mut ctx = compiler.codegen.module.make_context();
+
+            ctx.func.signature.params.push(AbiParam::new(ptr_type));
+            ctx.func.signature.returns.push(AbiParam::new(ptr_type));
+
+            let func = compiler.codegen.module.declare_function("get_size", Linkage::Local, &ctx.func.signature)?;
+
+            let mut fn_builder_ctx = FunctionBuilderContext::new();
+            let mut fn_builder = FunctionBuilder::new(&mut ctx.func, &mut fn_builder_ctx);
+
+            let entry_block = fn_builder.create_block();
+
+            fn_builder.append_block_params_for_function_params(entry_block);
+            fn_builder.switch_to_block(entry_block);
+            fn_builder.seal_block(entry_block);
+
+            let ptr = fn_builder.block_params(entry_block)[0];
+            let size = fn_builder.ins().load(ptr_type, ir::MemFlags::trusted(), ptr, 0);
+
+            fn_builder.ins().return_(&[size]);
+
+            compiler.codegen.module.define_function(func, &mut ctx)?;
+
+            func
+        };
+
+        compiler.func_id_to_name.insert(println_frame_addr_id, "println_frame_addr".to_owned());
+        compiler.func_id_to_name.insert(get_type_idx_id, "get_type_idx".to_owned());
+        compiler.func_id_to_name.insert(get_size_id, "get_size".to_owned());
+
+        compiler.name_to_func_id.insert("println_frame_addr".to_owned(), println_frame_addr_id);
+        compiler.name_to_func_id.insert("get_type_idx".to_owned(), get_type_idx_id);
+        compiler.name_to_func_id.insert("get_size".to_owned(), get_size_id);
+
+        Ok(compiler)
     }
 
     /// Gets a pointer to the compiled function with the specified `name` and
@@ -226,669 +292,772 @@ impl Compiler {
     /// `T` must be a function type and be the same size as pointers, otherwise
     /// you will get undefined behavior.
     pub unsafe fn get_func<T>(&self, name: impl AsRef<str>) -> Option<T> {
-        debug_assert_eq!(std::mem::size_of::<T>(), std::mem::size_of::<*const u8>());
+        debug_assert_eq!(mem::size_of::<T>(), mem::size_of::<*const u8>());
 
-        self.globals.get(name.as_ref()).map(|&func_id| {
-            let code = self.jit.module.get_finalized_function(func_id);
+        self.name_to_func_id.get(name.as_ref()).map(|&func_id| {
+            let code = self.codegen.module.get_finalized_function(func_id);
 
-            unsafe { std::mem::transmute_copy::<std::mem::ManuallyDrop<*const u8>, T>(&std::mem::ManuallyDrop::new(code)) }
+            unsafe { mem::transmute_copy::<mem::ManuallyDrop<*const u8>, T>(&mem::ManuallyDrop::new(code)) }
         })
     }
+
+    pub unsafe fn get_vtable_ptr<T: Copy>(&self, hash: u64, trait_ref: Option<TraitRef>) -> Option<T> {
+        let vtable = *self.trait_to_vtable.get(&(hash, trait_ref))?;
+        let (vtable_ptr, vtable_size) = self.codegen.module.get_finalized_data(vtable);
+
+        debug_assert_eq!(size_of::<T>() + size_of::<usize>(), vtable_size);
+
+        Some(unsafe { *vtable_ptr.byte_add(size_of::<usize>()).cast() })
+    }
+}
+
+impl<M: Module> Compiler<M> {
+    pub fn start_compiling(&mut self) -> FuncCompiler<'_, M> {
+        let mut context = TypedASTContext::new(TypeContext::new());
+        let element = context.type_context.types.get_or_add(Type::Generic(0));
+        let this = context.type_context.types.get_or_add(Type::Array(element, None));
+
+        context.vtables.push(IndexVec::from_iter([FunctionBody::BuiltIn("push")]));
+
+        context.type_context.vtables.insert(VTableGenerator {
+            ty: this,
+            origin_trait: None,
+            generics: Box::new([element]),
+            functions: IndexVec::from_iter([VTableFunc {
+                trait_func: None,
+                name: String::from("push"),
+                arg_names: vec![String::from("item")],
+                ty: context
+                    .type_context
+                    .types
+                    .get_or_add(Type::Func(Box::new([this, element]), context.type_context.core_types.void)),
+            }]),
+        });
+
+        FuncCompiler {
+            ctx: self.codegen.module.make_context(),
+            fn_builder_ctx: FunctionBuilderContext::new(),
+            context,
+            compiler: self,
+        }
+    }
+}
+
+pub struct FuncCompiler<'a, M: Module> {
+    pub compiler: &'a mut Compiler<M>,
+    pub ctx: Context,
+    pub fn_builder_ctx: FunctionBuilderContext,
+    pub context: TypedASTContext,
 }
 
 #[derive(Debug)]
-pub enum VTableCreationError {
-    TooMuchFunctions,
-    ModuleError(cranelift::module::ModuleError),
+pub enum FuncCompilerError {
+    AllocNotFound,
+    Module(ModuleError),
 }
 
-impl From<TryFromIntError> for VTableCreationError {
-    fn from(_: TryFromIntError) -> Self {
-        Self::TooMuchFunctions
+impl From<ModuleError> for FuncCompilerError {
+    fn from(error: ModuleError) -> Self {
+        Self::Module(error)
     }
 }
 
-impl From<cranelift::module::ModuleError> for VTableCreationError {
-    fn from(value: cranelift::module::ModuleError) -> Self {
-        Self::ModuleError(value)
-    }
-}
-
-impl std::error::Error for VTableCreationError {}
-
-impl fmt::Display for VTableCreationError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::TooMuchFunctions => f.write_str("number of functions exceeds `(u32::MAX - 1) / size_of::<usize>()`"),
-            Self::ModuleError(error) => error.fmt(f),
-        }
-    }
-}
-
-impl FuncCompiler<'_, '_> {
-    /// Creates the main vtable for the type with the specified `type_idx`,
-    /// containing the functions specified in `functions`. Think of this vtable
-    /// as `impl T { ... }`.
-    ///
-    /// However, you cannot create multiple main vtables, as they will overwrite
-    /// each other.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`VTableCreationError::TooMuchFunctions`] if the number of
-    /// functions exceeds `(u32::MAX - 1) / size_of::<usize>()`, where `usize`
-    /// refers to the compilation target, not the host.
-    ///
-    /// Returns [`VTableCreationError::ModuleError`] if the vtable declaration
-    /// failed at any stage.
-    pub fn create_fallback_vtable<K: Into<String>, I: IntoIterator<Item = (K, (Type, (ir::SigRef, ir::FuncRef, FuncId)))>>(
+impl FuncCompiler<'_, JITModule> {
+    pub fn compile<T: AsRef<str>>(
         &mut self,
-        type_idx: usize,
-        functions: I,
-    ) -> Result<(), VTableCreationError> {
-        let ty = self.compiler.types[type_idx].variant.clone();
-        let functions: IndexMap<String, (Type, (ir::SigRef, ir::FuncRef, FuncId))> = functions.into_iter().map(|(name, func)| (name.into(), func)).collect();
-        let size_t = self.compiler.jit.module.isa().pointer_bytes();
-        let data_size = usize::from(size_t) * (functions.len() + 1);
-        let mut data = vec![0; data_size];
+        name: T,
+        params: Vec<(String, ir::Type, TypeRef)>,
+        returns: Option<(ir::Type, TypeRef)>,
+        module_loader: &mut dyn ModuleLoader,
+        text: T,
+    ) -> CompileResult<FuncId> {
+        let void = self.context.type_context.core_types.void;
+        let (ast, block) = self
+            .context
+            .take_ref()
+            .process(ModuleId::ZERO, module_loader, text, returns.map_or(void, |r| r.1));
 
-        data[0..usize::from(size_t)].copy_from_slice(&match self.compiler.jit.module.isa().endianness() {
-            ir::Endianness::Little => type_idx.to_le_bytes(),
-            ir::Endianness::Big => type_idx.to_be_bytes(),
-        });
-
-        self.compiler.jit.data_desc.define(data.into_boxed_slice());
-
-        for (i, (_, (_, _, func_id))) in functions.values().enumerate() {
-            let func_ref = self.compiler.jit.module.declare_func_in_data(*func_id, &mut self.compiler.jit.data_desc);
-
-            self.compiler
-                .jit
-                .data_desc
-                .write_function_addr(u32::from(size_t) * (u32::try_from(i)? + 1), func_ref);
+        if !self.context.type_context.errors.is_empty() {
+            return Err(CompileError::Type(mem::take(&mut self.context.type_context.errors).raw));
         }
 
-        let id = self.compiler.jit.module.declare_anonymous_data(false, false)?;
-
-        self.compiler.jit.module.define_data(id, &self.compiler.jit.data_desc)?;
-        self.compiler.jit.data_desc.clear();
-        self.compiler.jit.module.finalize_definitions()?;
-
-        let functions = (id, functions);
-
-        self.compiler.vtables.insert(ty, VTable::from_iter([(None, functions)]));
-
-        Ok(())
-    }
-
-    /// Declares a function pointing to `ext_name` with a possible `self`
-    /// argument, other arguments specified in `args`, and a return type
-    /// specified in `returns`.
-    ///
-    /// Returns the function type, a reference to the signature, a reference to
-    /// the function, and the function ID.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ModuleError::IncompatibleDeclaration`] if `ext_name` is not a
-    /// function, or [`ModuleError::IncompatibleSignature`] if the signature of
-    /// the external function does not match the specified one.
-    ///
-    /// [`ModuleError::IncompatibleDeclaration`]: cranelift::module::ModuleError::IncompatibleDeclaration
-    /// [`ModuleError::IncompatibleSignature`]: cranelift::module::ModuleError::IncompatibleSignature
-    pub fn add_native_fn<N: AsRef<str>, T: IntoIterator<Item = TypeVariant>, R: Into<Type>>(
-        &mut self,
-        ext_name: N,
-        this: Option<TypeVariant>,
-        args: T,
-        returns: R,
-    ) -> ModuleResult<(Type, (ir::SigRef, ir::FuncRef, FuncId))> {
-        let (func_ty, sig) = TypeVariant::function_ir(self.compiler.jit.module.isa(), this, args, returns);
-        let func_id = self.compiler.jit.module.declare_function(ext_name.as_ref(), Linkage::Import, &sig)?;
-        let sig = self.fn_builder.import_signature(sig);
-        let func = self.compiler.jit.module.declare_func_in_func(func_id, self.fn_builder.func);
-
-        Ok((func_ty.into(), (sig, func, func_id)))
-    }
-}
-
-pub struct FuncCompilerBuilder<'a> {
-    pub compiler: &'a mut Compiler,
-    pub ctx: Context,
-    pub fn_builder_ctx: FunctionBuilderContext,
-}
-
-impl FuncCompilerBuilder<'_> {
-    /// Creates a compiler for the main function, returning [`FuncCompiler`].
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ModuleError`] in case of an error during function declaration
-    /// or definition.
-    ///
-    /// [`ModuleError`]: cranelift::module::ModuleError
-    pub fn provide(&mut self) -> ModuleResult<FuncCompiler<'_, '_>> {
-        let signature = self.compiler.jit.module.make_signature();
-
-        Self::provide_with_signature(self, signature)
-    }
-
-    /// Creates a compiler for the main function with the signature specified in
-    /// `signature`, returning [`FuncCompiler`].
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ModuleError`] in case of an error during function declaration
-    /// or definition.
-    ///
-    /// [`ModuleError`]: cranelift::module::ModuleError
-    pub fn provide_with_signature(&mut self, signature: Signature) -> ModuleResult<FuncCompiler<'_, '_>> {
-        let ctx = &mut self.ctx;
-        let fn_builder_ctx = &mut self.fn_builder_ctx;
-
-        self.compiler.import_fn("println", [types::I64])?;
-        self.compiler.import_fn("println_str", [types::I64])?;
-        self.compiler.import_fn("println_bool", [types::I8])?;
-        self.compiler.import_fn("println_addr", [types::I64])?;
-        self.compiler.import_fn("println_float", [types::F32])?;
-
-        let get_type_idx_id = {
-            let mut get_type_idx_sig = self.compiler.jit.module.make_signature();
-
-            get_type_idx_sig.params.push(AbiParam::new(self.compiler.jit.module.isa().pointer_type()));
-            get_type_idx_sig.returns.push(AbiParam::new(self.compiler.jit.module.isa().pointer_type()));
-
-            let func = self.compiler.jit.module.declare_function("get_type_idx", Linkage::Local, &get_type_idx_sig)?;
-
-            ctx.func.signature = get_type_idx_sig;
-
-            let mut fn_builder_ctx = FunctionBuilderContext::new();
-            let mut fn_builder = FunctionBuilder::new(&mut ctx.func, &mut fn_builder_ctx);
-
-            let entry_block = fn_builder.create_block();
-
-            fn_builder.append_block_params_for_function_params(entry_block);
-            fn_builder.switch_to_block(entry_block);
-            fn_builder.seal_block(entry_block);
-
-            let fat_ptr = fn_builder.block_params(entry_block)[0];
-            let vtable_ptr = FatPtr::get_metadata(self.compiler.jit.module.isa(), &mut fn_builder, fat_ptr);
-            let type_idx = VTablePtr::get_type_idx(self.compiler.jit.module.isa(), &mut fn_builder, vtable_ptr);
-
-            fn_builder.ins().return_(&[type_idx]);
-
-            self.compiler.jit.module.define_function(func, ctx)?;
-            self.compiler.jit.module.clear_context(ctx);
-
-            func
-        };
-
-        let get_size_id = {
-            let mut get_size_sig = self.compiler.jit.module.make_signature();
-
-            get_size_sig.params.push(AbiParam::new(self.compiler.jit.module.isa().pointer_type()));
-            get_size_sig.returns.push(AbiParam::new(self.compiler.jit.module.isa().pointer_type()));
-
-            let func = self.compiler.jit.module.declare_function("get_size", Linkage::Local, &get_size_sig)?;
-
-            ctx.func.signature = get_size_sig;
-
-            let mut fn_builder_ctx = FunctionBuilderContext::new();
-            let mut fn_builder = FunctionBuilder::new(&mut ctx.func, &mut fn_builder_ctx);
-
-            let entry_block = fn_builder.create_block();
-
-            fn_builder.append_block_params_for_function_params(entry_block);
-            fn_builder.switch_to_block(entry_block);
-            fn_builder.seal_block(entry_block);
-
-            let fat_ptr = fn_builder.block_params(entry_block)[0];
-            let size = FatPtr::get_metadata(self.compiler.jit.module.isa(), &mut fn_builder, fat_ptr);
-
-            fn_builder.ins().return_(&[size]);
-
-            self.compiler.jit.module.define_function(func, ctx)?;
-            self.compiler.jit.module.clear_context(ctx);
-
-            func
-        };
-
-        self.compiler.func_names.insert(get_type_idx_id, "get_type_idx".to_owned());
-        self.compiler.func_names.insert(get_size_id, "get_size".to_owned());
-
-        self.compiler.globals.insert("get_type_idx".to_owned(), get_type_idx_id);
-        self.compiler.globals.insert("get_size".to_owned(), get_size_id);
-
-        let mut fn_builder = FunctionBuilder::new(&mut ctx.func, fn_builder_ctx);
-
-        fn_builder.func.signature = signature;
-
-        let entry_block = fn_builder.create_block();
-
-        fn_builder.append_block_params_for_function_params(entry_block);
-        fn_builder.switch_to_block(entry_block);
-        fn_builder.seal_block(entry_block);
-
-        Ok(FuncCompiler {
-            compiler: self.compiler,
-            fn_builder,
-        })
-    }
-}
-
-pub struct FuncCompiler<'a, 'b> {
-    pub compiler: &'a mut Compiler,
-    pub fn_builder: FunctionBuilder<'b>,
-}
-
-impl FuncCompiler<'_, '_> {
-    /// # Errors
-    ///
-    /// Returns `CompileError` if program parsing or compilation fails.
-    pub fn compile_program_text<T: AsRef<str>>(&mut self, text: T) -> CompileResult<FuncId> {
-        let mut parser = Parser::new(Lexer::lex(text.as_ref()));
-
-        let program = match parse_statements_until(&mut parser, &Token::EOF) {
-            Ok(statements) => statements,
-            Err(error) => return Err(CompileError::Parse(error)),
-        };
-
-        self.compile_program(program)
-    }
-
-    pub fn set_main_signature(&mut self, signature: Signature) {
-        self.fn_builder.func.signature = signature;
-    }
-
-    /// # Errors
-    ///
-    /// Returns `CompileError` if program compilation fails.
-    pub fn compile_program(&mut self, (statements, returned): (Vec<Positioned<Stmt>>, Option<Positioned<Stmt>>)) -> CompileResult<FuncId> {
-        for statement in statements {
-            self.compiler.compile(&mut self.fn_builder, statement)?;
-        }
-
-        if let Some(statement) = returned {
-            self.compiler.compile(&mut self.fn_builder, statement)?;
-        }
-
-        self.fn_builder.ins().return_(&[]);
-        self.compiler
-            .jit
-            .module
-            .declare_function("<main>", Linkage::Export, &self.fn_builder.func.signature)
-            .map_err(CompileError::Module)
-    }
-}
-
-impl Compiler {
-    pub fn with_symbols(symbols: Vec<(&'static str, *const u8)>) -> Self {
-        let mut flag_builder = settings::builder();
-
-        unsafe {
-            flag_builder.set("use_colocated_libcalls", "false").unwrap_unchecked();
-            flag_builder.set("opt_level", "speed").unwrap_unchecked();
-            flag_builder.set("is_pic", "false").unwrap_unchecked();
-        }
-
-        Self {
-            traits: IndexMap::new(),
-            types: IndexSet::new(),
-            name_to_type: IndexMap::new(),
-            impls: IndexMap::new(),
-            vtables: IndexMap::new(),
-            frames: vec![IndexMap::new()],
-            generics: Vec::new(),
-            assign: None,
-            this_ty: None,
-            this: None,
-            infer: None,
-            infer_val: None,
-            jit: JitCompiler::new(symbols, settings::Flags::new(flag_builder)),
-            values: IndexMap::new(),
-            globals: IndexMap::new(),
-            variables: IndexMap::new(),
-            func_names: IndexMap::new(),
-        }
-    }
-
-    pub fn get<T: AsRef<str>>(&self, name: T) -> Option<ValueOrFunc> {
-        self.values.get(name.as_ref()).cloned()
-    }
-
-    pub fn add_type<T: Into<String>>(&mut self, name: T, ty: TypeVariant) -> usize {
-        let type_idx = self.types.insert_full(ty.into()).0;
-
-        self.name_to_type.insert(name.into(), type_idx);
-
-        type_idx
-    }
-
-    pub fn add_declared_type<T: Into<String>>(&mut self, name: T, ty: Type) -> usize {
-        let type_idx = self.types.insert_full(ty).0;
-
-        self.name_to_type.insert(name.into(), type_idx);
-
-        type_idx
-    }
-
-    pub fn remove_type<T: AsRef<str>>(&mut self, name: T) {
-        if let Some(_idx) = self.name_to_type.shift_remove(name.as_ref()) {}
-    }
-
-    pub fn push_frame(&mut self) {
-        self.frames.push(IndexMap::new());
-    }
-
-    pub fn pop_frame(&mut self) {
-        self.frames.pop();
-    }
-
-    pub const fn current_frame_id(&self) -> usize {
-        self.frames.len() - 1
-    }
-
-    pub fn current_frame(&self) -> &IndexMap<String, Variable> {
-        let Some(frame) = self.frames.last() else { unreachable!() };
-
-        frame
-    }
-
-    pub fn current_frame_mut(&mut self) -> &mut IndexMap<String, Variable> {
-        let Some(frame) = self.frames.last_mut() else { unreachable!() };
-
-        frame
-    }
-
-    pub fn get_var<T: AsRef<str>>(&self, name: T) -> Option<&Variable> {
-        let name = name.as_ref();
-
-        for frame in self.frames.iter().rev() {
-            if let Some(var) = frame.get(name) {
-                return Some(var);
-            }
-        }
-
-        None
-    }
-
-    pub fn get_var_index<T: AsRef<str>>(&self, name: T) -> Option<(usize, usize)> {
-        let name = name.as_ref();
-
-        for (frame_id, frame) in self.frames.iter().enumerate().rev() {
-            if let Some(var) = frame.get(name) {
-                return Some((self.current_frame_id() - frame_id, var.id));
-            }
-        }
-
-        None
-    }
-
-    pub fn var_ty<T: Into<String>, V: Into<Type>>(&mut self, name: T, ty: V) -> usize {
-        let id = self.current_frame().len();
-        let name = name.into();
-        let ty = ty.into();
-        let ty_idx = if let Some(idx) = self.types.get_index_of(&ty) {
-            idx
-        } else {
-            self.types.insert_full(ty).0
-        };
-
-        self.current_frame_mut().insert(name, Variable { id, ty: ty_idx });
-
-        id
-    }
-
-    pub fn var<T: Into<String>>(&mut self, name: T, ty_idx: usize) -> usize {
-        let id = self.current_frame().len();
-        let name = name.into();
-
-        self.current_frame_mut().insert(name, Variable { id, ty: ty_idx });
-
-        id
-    }
-
-    pub fn remove_var<T: AsRef<str>>(&mut self, name: T) {
-        let name = name.as_ref();
-
-        self.current_frame_mut().shift_remove(name);
-    }
-
-    pub fn start_compiling(&mut self) -> FuncCompilerBuilder<'_> {
-        let ctx = self.jit.module.make_context();
-        let fn_builder_ctx = FunctionBuilderContext::new();
-
-        FuncCompilerBuilder {
-            compiler: self,
-            ctx,
-            fn_builder_ctx,
-        }
-    }
-
-    /// # Errors
-    ///
-    /// Returns `CompileError` if compilation fails. This can happen in two
-    /// cases: if the referenced variable is not found or if type inference
-    /// fails.
-    pub fn compile<O, T: Compile<O>>(&mut self, fn_builder: &mut FunctionBuilder, value: T) -> CompileResult<O> {
-        value.compile(self, fn_builder)
-    }
-
-    /// # Errors
-    ///
-    /// Returns `TypeError` if type inference fails. This can happen if, for
-    /// example, the required type is not declared.
-    pub fn get_positioned_type<T: GetType>(&mut self, value: &Positioned<T>) -> TypeResult {
-        value.get_type(self)
-    }
-
-    /// # Errors
-    ///
-    /// Returns `TypeError` if type inference fails. This can happen if, for
-    /// example, the required type is not declared.
-    pub fn get_value_type<T: GetType>(&mut self, value: &T, span: Span) -> TypeResult {
-        value.get_type(self, span)
-    }
-
-    /// # Errors
-    ///
-    /// Will throw `CompileError` if there's no type with that `name`.
-    pub fn try_get_type<T: AsRef<str>>(&self, name: T) -> CompileResult<Type> {
-        self.name_to_type
-            .get(name.as_ref())
-            .map(|&idx| self.types[idx].clone())
-            .ok_or_else(|| CompileError::VariableNotFound {
-                name: name.as_ref().to_string(),
-            })
-    }
-
-    /// # Errors
-    ///
-    /// Will throw `TypeError` if there's no local with that `name`.
-    pub fn get_local_type<T: AsRef<str>>(&self, name: T) -> TypeResult<Type> {
-        for frame in self.frames.iter().rev() {
-            if let Some(v) = frame.get(name.as_ref()) {
-                return Ok(self.types[v.ty].clone());
-            }
-        }
-
-        Err(TypeError::NotFound {
-            ty: None,
-            name: name.as_ref().to_string(),
-        })
-    }
-
-    pub fn idx_of_type(&self, ty: &Type) -> Option<usize> {
-        self.types.get_index_of(ty)
-    }
-
-    pub fn get_type_idx<T: AsRef<str>>(&self, name: T) -> Option<usize> {
-        self.name_to_type.get(name.as_ref()).copied()
-    }
-
-    pub fn get_type<T: AsRef<str>>(&self, name: T) -> Option<&Type> {
-        self.name_to_type.get(name.as_ref()).map(|&idx| &self.types[idx])
-    }
-
-    /// # Panics
-    ///
-    /// Will panic if there's no type with that `name`.
-    pub fn get_type_unchecked<T: AsRef<str>>(&self, name: T) -> Type {
-        let name = name.as_ref();
-
-        self.get_type(name).map_or_else(|| panic!("{name} not found"), Clone::clone)
-    }
-
-    fn find_vtable_function_index_<T: AsRef<str>>(&self, vtable_index: usize, function_name: T) -> Option<(usize, Option<usize>, usize)> {
-        let index = self.vtables[vtable_index]
-            .iter()
-            .find_map(|(i, vtable)| vtable.1.get_index_of(function_name.as_ref()).map(|index| (*i, index)));
-
-        index.map(|index| (vtable_index, index.0, index.1))
-    }
-
-    pub fn find_vtable_function<T: AsRef<str>>(&self, ty: &TypeVariant, contains: T) -> Option<&(Type, (ir::SigRef, ir::FuncRef, FuncId))> {
-        self.find_vtable_function_index(ty, contains).map(|v| &self.vtables[v.0][&v.1].1[v.2])
-    }
-
-    pub fn find_vtable_function_index<T: AsRef<str>>(&self, ty: &TypeVariant, function_name: T) -> Option<(usize, Option<usize>, usize)> {
-        let ty = if let TypeVariant::Ref { ty, .. } = ty { &ty.variant } else { ty };
-
-        self.vtables.get_index_of(ty).map_or_else(
-            || {
-                ty.as_array().map_or_else(
-                    || {
-                        ty.as_component()
-                            .map_or_else(
-                                || self.vtables.get_index_of(&TypeVariant::any()),
-                                |_| self.vtables.get_index_of(&TypeVariant::Primitive(PrimitiveType::Component)),
-                            )
-                            .and_then(|v| self.find_vtable_function_index_(v, function_name.as_ref()))
-                    },
-                    |ty| {
-                        self.vtables
-                            .get_index_of(&TypeVariant::complex(ComplexType::Array(ArrayType {
-                                element: ty.element.clone(),
-                                size: None,
-                                array: Array {
-                                    element: ty.element.variant.as_ir_type(self.jit.module.isa()),
-                                },
-                            })))
-                            .and_then(|v| self.find_vtable_function_index_(v, function_name.as_ref()))
-                            .or_else(|| {
-                                self.vtables
-                                    .get_index_of(&TypeVariant::complex(ComplexType::Array(ArrayType {
-                                        element: TypeVariant::Generic(0).into(),
-                                        size: None,
-                                        array: Array {
-                                            element: TypeVariant::Generic(0).as_ir_type(self.jit.module.isa()),
-                                        },
-                                    })))
-                                    .and_then(|v| self.find_vtable_function_index_(v, function_name.as_ref()))
-                            })
-                            .or_else(|| {
-                                self.vtables
-                                    .iter()
-                                    .position(|t| t.0.as_array().is_some_and(|arr| matches!(arr.element.variant, TypeVariant::Generic(_))))
-                                    .and_then(|v| self.find_vtable_function_index_(v, function_name.as_ref()))
-                            })
-                    },
-                )
-            },
-            |v| self.find_vtable_function_index_(v, function_name.as_ref()),
-        )
-    }
-
-    pub fn get_vtable_index(&self, ty: &TypeVariant) -> Option<usize> {
-        self.vtables.get_index_of(ty).map_or_else(
-            || {
-                ty.as_array().map_or_else(
-                    || {
-                        ty.as_component().map_or_else(
-                            || self.vtables.get_index_of(&TypeVariant::any()),
-                            |_| self.vtables.get_index_of(&TypeVariant::Primitive(PrimitiveType::Component)),
-                        )
-                    },
-                    |ty| {
-                        self.vtables
-                            .get_index_of(&TypeVariant::complex(ComplexType::Array(ArrayType {
-                                element: ty.element.clone(),
-                                size: None,
-                                array: Array {
-                                    element: ty.element.variant.as_ir_type(self.jit.module.isa()),
-                                },
-                            })))
-                            .or_else(|| {
-                                self.vtables.get_index_of(&TypeVariant::complex(ComplexType::Array(ArrayType {
-                                    element: TypeVariant::Generic(0).into(),
-                                    size: None,
-                                    array: Array {
-                                        element: ty.element.variant.as_ir_type(self.jit.module.isa()),
+        for item in &ast.used_items {
+            match item {
+                UsedItem::VTable(target_ty, vtable, args) => {
+                    let target_ty = *target_ty;
+                    let vtable = *vtable;
+                    let hash = self.context.type_context.types.hash_of(target_ty);
+
+                    if self.compiler.vtables.contains_key(&(hash, vtable)) {
+                        continue;
+                    }
+
+                    self.compiler.vtables.insert((hash, vtable), IndexVec::new());
+                    self.context.type_context.types.generics.clone_from(args);
+
+                    for (func_ref, func) in self.context.type_context.vtables[vtable].functions.iter() {
+                        let mut signature = self.compiler.codegen.module.make_signature();
+
+                        if let Type::Func(args, returns) = &self.context.type_context.types[func.ty] {
+                            for arg in args {
+                                if arg != &self.context.type_context.core_types.void {
+                                    arg.as_ir_type(&self.context.type_context.types, self.compiler.codegen.module.isa())
+                                        .add_to_params(&mut signature.params);
+                                }
+                            }
+
+                            if returns != &self.context.type_context.core_types.void {
+                                returns
+                                    .as_ir_type(&self.context.type_context.types, self.compiler.codegen.module.isa())
+                                    .add_to_params(&mut signature.returns);
+                            }
+                        }
+
+                        match &self.context.vtables[vtable][func_ref] {
+                            FunctionBody::Local { ast, entry } => {
+                                let name = format!(
+                                    "{vtable:?}_{}_{}",
+                                    args.iter().map(|arg| self.context.type_context.display_of(*arg)).join(""),
+                                    func.name
+                                );
+
+                                let mut compiler =
+                                    FunctionCompiler::new(name, signature, self.compiler, &self.context, &mut self.ctx, &mut self.fn_builder_ctx).unwrap();
+                                let mut index = 0;
+
+                                for (arg, name) in func.arg_names.iter().enumerate() {
+                                    let value = compiler.fn_builder.block_params(compiler.entry_block)[index];
+                                    let ty = compiler.fn_builder.func.signature.params[index].value_type;
+
+                                    if let Type::Func(args, _) = &compiler.type_context.type_context.types[func.ty] {
+                                        let var = compiler.fn_builder.declare_var(ty);
+
+                                        compiler.fn_builder.def_var(var, value);
+
+                                        if args[arg]
+                                            .as_ir_type(&compiler.type_context.type_context.types, compiler.compiler.isa())
+                                            .is_fat()
+                                        {
+                                            let value = compiler.fn_builder.block_params(compiler.entry_block)[index + 1];
+                                            let ty = compiler.fn_builder.func.signature.params[index + 1].value_type;
+
+                                            let metadata_var = compiler.fn_builder.declare_var(ty);
+
+                                            compiler.fn_builder.def_var(metadata_var, value);
+                                            compiler
+                                                .current_frame_mut()
+                                                .insert(name.clone(), func::Variable::new(Var::Fat(var, metadata_var), args[arg]));
+
+                                            index += 2;
+                                        } else {
+                                            compiler
+                                                .current_frame_mut()
+                                                .insert(name.clone(), func::Variable::new(Var::Regular(var), args[arg]));
+
+                                            if let &Type::Adt(adt_ref, ..) = &compiler.type_context.type_context.types[args[arg]]
+                                                && compiler.type_context.type_context.adt_types[adt_ref].collectable
+                                            {
+                                                compiler.fn_builder.ins().call(compiler.context.mark_root, &[value]);
+                                            }
+
+                                            index += 1;
+                                        }
+                                    }
+                                }
+
+                                let returned = entry.compile(ast, &mut compiler).unwrap();
+
+                                compiler.unmark_variables();
+                                compiler.return_(returned);
+                                compiler.fn_builder.finalize();
+
+                                let func_id = compiler.id;
+
+                                if let Err(e) = self.compiler.codegen.module.define_function(func_id, &mut self.ctx) {
+                                    match e {
+                                        ModuleError::Compilation(error) => {
+                                            panic!("function definition failed: {}", pretty_error(&self.ctx.func, error));
+                                        }
+                                        e => panic!("{}\nfunction definition failed: {e}", self.ctx.func),
+                                    }
+                                }
+
+                                self.compiler.vtables[&(hash, vtable)].insert(func_id);
+                            }
+                            FunctionBody::Import(name) => {
+                                self.compiler.vtables[&(hash, vtable)]
+                                    .insert(self.compiler.codegen.module.declare_function(name, Linkage::Import, &signature).unwrap());
+                            }
+                            FunctionBody::BuiltIn(generator) => {
+                                let name = format!(
+                                    "{vtable:?}_{}_{}",
+                                    args.iter().map(|arg| self.context.type_context.display_of(*arg)).join(""),
+                                    func.name
+                                );
+
+                                let mut compiler =
+                                    FunctionCompiler::new(name, signature, self.compiler, &self.context, &mut self.ctx, &mut self.fn_builder_ctx).unwrap();
+                                let mut index = 0;
+                                let mut special_args = Vec::new();
+
+                                for (arg, name) in func.arg_names.iter().enumerate() {
+                                    let value = compiler.fn_builder.block_params(compiler.entry_block)[index];
+                                    let ty = compiler.fn_builder.func.signature.params[index].value_type;
+
+                                    if let Type::Func(args, _) = &compiler.type_context.type_context.types[func.ty] {
+                                        let var = compiler.fn_builder.declare_var(ty);
+
+                                        compiler.fn_builder.def_var(var, value);
+
+                                        let special_type = args[arg].as_ir_type(&compiler.type_context.type_context.types, compiler.compiler.isa());
+
+                                        special_args.push(special_type);
+
+                                        if special_type.is_fat() {
+                                            let value = compiler.fn_builder.block_params(compiler.entry_block)[index + 1];
+                                            let ty = compiler.fn_builder.func.signature.params[index + 1].value_type;
+
+                                            let metadata_var = compiler.fn_builder.declare_var(ty);
+
+                                            compiler.fn_builder.def_var(metadata_var, value);
+                                            compiler
+                                                .current_frame_mut()
+                                                .insert(name.clone(), func::Variable::new(Var::Fat(var, metadata_var), args[arg]));
+
+                                            index += 2;
+                                        } else {
+                                            compiler
+                                                .current_frame_mut()
+                                                .insert(name.clone(), func::Variable::new(Var::Regular(var), args[arg]));
+
+                                            if let &Type::Adt(adt_ref, ..) = &compiler.type_context.type_context.types[args[arg]]
+                                                && compiler.type_context.type_context.adt_types[adt_ref].collectable
+                                            {
+                                                compiler.fn_builder.ins().call(compiler.context.mark_root, &[value]);
+                                            }
+
+                                            index += 1;
+                                        }
+                                    }
+                                }
+
+                                let returned = match generator {
+                                    &"push" => {
+                                        let ptr_type = compiler.compiler.ptr_type();
+                                        let array_ptr = compiler.fn_builder.block_params(compiler.entry_block)[0];
+                                        let array_size = compiler.fn_builder.ins().load(ptr_type, ir::MemFlags::trusted(), array_ptr, 0);
+                                        let new_array_size = compiler.fn_builder.ins().iadd_imm(array_size, 1);
+
+                                        compiler.fn_builder.ins().call(compiler.context.realloc_array, &[array_ptr, new_array_size]);
+
+                                        let array_ptr = compiler.fn_builder.ins().load(
+                                            ptr_type,
+                                            ir::MemFlags::trusted(),
+                                            array_ptr,
+                                            size_of::<usize>().cast_signed() as i32 * 2,
+                                        );
+
+                                        let offset = compiler.fn_builder.ins().imul_imm(array_size, i64::from(special_args[0].bytes().cast_signed()));
+                                        let ptr = compiler.fn_builder.ins().iadd(array_ptr, offset);
+                                        let params = &compiler.fn_builder.block_params(compiler.entry_block)[1..];
+                                        let value = params[0];
+                                        let metadata = params.get(1).copied();
+
+                                        compiler.fn_builder.ins().store(ir::MemFlags::trusted(), value, ptr, 0);
+
+                                        if let Some(metadata) = metadata {
+                                            compiler
+                                                .fn_builder
+                                                .ins()
+                                                .store(ir::MemFlags::trusted(), metadata, ptr, ptr_type.bytes().cast_signed());
+                                        }
+
+                                        MolValue::Nothing
+                                    }
+                                    _ => MolValue::Nothing,
+                                };
+
+                                compiler.unmark_variables();
+                                compiler.return_(returned);
+                                compiler.fn_builder.finalize();
+
+                                let func_id = compiler.id;
+
+                                if let Err(e) = self.compiler.codegen.module.define_function(func_id, &mut self.ctx) {
+                                    match e {
+                                        ModuleError::Compilation(error) => {
+                                            panic!("function definition failed: {}", pretty_error(&self.ctx.func, error));
+                                        }
+                                        e => panic!("{}\nfunction definition failed: {e}", self.ctx.func),
+                                    }
+                                }
+
+                                self.compiler.vtables[&(hash, vtable)].insert(func_id);
+                            }
+                        }
+                    }
+
+                    self.context.type_context.types.generics = Box::new([]);
+
+                    tracing::info!(
+                        target: "mollie-compiler/virtual_tables",
+                        "Compiled `{} for `{}`",
+                        self.context.type_context.vtables[vtable]
+                            .origin_trait
+                            .map_or("<impl>", |trait_ref| self.context.type_context.traits[trait_ref].name.as_str()),
+                        self.context.type_context.display_of(target_ty),
+                    );
+
+                    // for (g, g_val) in args {
+                    //     self.context.solver.type_infos[g] = g_val;
+                    // }
+                }
+                UsedItem::Adt(adt_ref, args) => {
+                    if args.len() < self.context.type_context.adt_types[*adt_ref].generics {
+                        continue;
+                    }
+
+                    let kind = self.context.type_context.adt_types[*adt_ref].kind;
+                    let hash = {
+                        let mut state = DefaultHasher::new();
+
+                        "adt".hash(&mut state);
+
+                        adt_ref.hash(&mut state);
+
+                        for &type_arg in args {
+                            self.context.type_context.types.hash_into(&mut state, type_arg);
+                        }
+
+                        state.finish()
+                    };
+
+                    if self.compiler.adt_types.contains_key(&hash) {
+                        continue;
+                    }
+
+                    let mut size = 0;
+                    let mut align = 0;
+
+                    let variants: IndexBoxedSlice<AdtVariantRef, CompiledAdtVariant> = self.context.type_context.adt_types[*adt_ref]
+                        .variants
+                        .values()
+                        .map(|variant| {
+                            let mut fields = <IndexVec<FieldRef, (Field, TypeRef)>>::with_capacity(variant.fields.len());
+                            let mut offset = 0;
+                            let mut variant_size = 0;
+                            let mut self_align = 0;
+
+                            for field in variant.fields.values() {
+                                let type_info = self.context.type_context.types.apply_type_args(field.ty, args);
+                                let ty = type_info.as_ir_type(&self.context.type_context.types, self.compiler.codegen.module.isa());
+                                let ty_size = ty.bytes();
+
+                                variant_size += ty_size;
+
+                                let align = ty_size;
+                                let padding = (align - variant_size % align) % align;
+
+                                variant_size += padding;
+
+                                fields.push((
+                                    Field {
+                                        ty,
+                                        offset,
+                                        default_value: field.default_value.clone(),
                                     },
-                                })))
-                            })
-                            .or_else(|| {
-                                self.vtables
-                                    .iter()
-                                    .position(|t| t.0.as_array().is_some_and(|arr| matches!(arr.element.variant, TypeVariant::Generic(_))))
-                            })
-                    },
-                )
-            },
-            Some,
-        )
-    }
+                                    type_info,
+                                ));
 
-    pub fn get_local_index<T: AsRef<str>>(&self, name: T) -> Option<usize> {
-        for frame in self.frames.iter().rev() {
-            if let Some(index) = frame.get_index_of(name.as_ref()) {
-                return Some(index);
+                                offset += ty_size.cast_signed();
+
+                                let align = ty_size.cast_signed();
+                                let padding = (align - offset % align) % align;
+
+                                offset += padding;
+                                self_align = self_align.max(ty_size);
+                            }
+
+                            if !variant.fields.is_empty() {
+                                size = size.max(variant_size + (self_align - variant_size % self_align) % self_align);
+                                align = align.max(self_align);
+                            }
+
+                            CompiledAdtVariant {
+                                fields: fields.into_boxed_slice(),
+                            }
+                        })
+                        .collect();
+
+                    let fields = variants
+                        .iter()
+                        .flat_map(|(variant_ref, variant)| {
+                            iter::repeat(variant_ref).zip(variant.fields.values()).map(|(variant_ref, field)| {
+                                let ty = &self.context.type_context.types[field.1];
+                                let offset = field.0.offset.cast_unsigned();
+                                let ir_type = field.1.as_ir_type(&self.context.type_context.types, self.compiler.isa());
+
+                                if matches!(ty, Type::Adt(..)) {
+                                    (variant_ref, offset, ir_type, TypeLayoutField::Collectable)
+                                } else if let &Type::Array(element, _) = ty {
+                                    let info = &self.context.type_context.types[element];
+
+                                    if matches!(info, Type::Adt(..)) {
+                                        (variant_ref, offset, ir_type, TypeLayoutField::ArrayOfRegular)
+                                    } else if matches!(info, Type::Trait(..)) {
+                                        (variant_ref, offset, ir_type, TypeLayoutField::ArrayOfFat)
+                                    } else {
+                                        (variant_ref, offset, ir_type, TypeLayoutField::Regular)
+                                    }
+                                } else {
+                                    (variant_ref, offset, ir_type, TypeLayoutField::Regular)
+                                }
+                            })
+                        })
+                        .collect::<Vec<_>>();
+
+                    let fields = Vec::leak::<'static>(fields) as &[_];
+
+                    self.compiler.adt_types.insert(hash, CompiledAdt {
+                        variants,
+                        name: self.context.type_context.adt_types[*adt_ref].name.clone(),
+                        applied_generics: args.len(),
+                        type_layout: Box::leak(Box::new(TypeLayout {
+                            size: size as usize,
+                            align: align as usize,
+                            kind: Some(kind),
+                            adt_ty: Some(hash),
+                            fields,
+                        })),
+                    });
+
+                    tracing::info!(
+                        target: "mollie-compiler/adt_types     ",
+                        size = size,
+                        align = align,
+                        "Compiled `{}{}`",
+                        self.context.type_context.adt_types[*adt_ref].name.as_deref().unwrap_or_default(),
+                        if args.is_empty() {
+                            String::new()
+                        } else {
+                            format!("<{}>", args.iter().map(|arg| self.context.type_context.display_of(*arg)).join(", "))
+                        }
+                    );
+                }
+                &UsedItem::Func(func_ref) => {
+                    let func = &self.context.type_context.functions[func_ref];
+
+                    if self.compiler.func_ref_to_func_id.contains_key(&func_ref) {
+                        continue;
+                    }
+
+                    let mut signature = self.compiler.codegen.module.make_signature();
+
+                    let args = if let Type::Func(args, returns) = &self.context.type_context.types[func.ty] {
+                        for arg in args {
+                            if arg != &self.context.type_context.core_types.void {
+                                arg.as_ir_type(&self.context.type_context.types, self.compiler.codegen.module.isa())
+                                    .add_to_params(&mut signature.params);
+                            }
+                        }
+
+                        if returns != &self.context.type_context.core_types.void {
+                            returns
+                                .as_ir_type(&self.context.type_context.types, self.compiler.codegen.module.isa())
+                                .add_to_params(&mut signature.returns);
+                        }
+
+                        args.as_ref()
+                    } else {
+                        &[]
+                    };
+
+                    match &self.context.functions[func_ref] {
+                        FunctionBody::Local { ast, entry } => {
+                            let name = format!("{}_{}", func.name, args.iter().map(|arg| self.context.type_context.display_of(*arg)).join(""));
+
+                            let mut compiler =
+                                FunctionCompiler::new(name, signature, self.compiler, &self.context, &mut self.ctx, &mut self.fn_builder_ctx).unwrap();
+                            let mut index = 0;
+
+                            for (arg, name) in func.arg_names.iter().enumerate() {
+                                let value = compiler.fn_builder.block_params(compiler.entry_block)[index];
+                                let ty = compiler.fn_builder.func.signature.params[index].value_type;
+
+                                if let Type::Func(args, _) = &compiler.type_context.type_context.types[func.ty] {
+                                    let var = compiler.fn_builder.declare_var(ty);
+
+                                    compiler.fn_builder.def_var(var, value);
+
+                                    if args[arg]
+                                        .as_ir_type(&compiler.type_context.type_context.types, compiler.compiler.isa())
+                                        .is_fat()
+                                    {
+                                        let value = compiler.fn_builder.block_params(compiler.entry_block)[index + 1];
+                                        let ty = compiler.fn_builder.func.signature.params[index + 1].value_type;
+
+                                        let metadata_var = compiler.fn_builder.declare_var(ty);
+
+                                        compiler.fn_builder.def_var(metadata_var, value);
+                                        compiler
+                                            .current_frame_mut()
+                                            .insert(name.clone(), func::Variable::new(Var::Fat(var, metadata_var), args[arg]));
+
+                                        index += 2;
+                                    } else {
+                                        compiler
+                                            .current_frame_mut()
+                                            .insert(name.clone(), func::Variable::new(Var::Regular(var), args[arg]));
+
+                                        if let &Type::Adt(adt_ref, ..) = &compiler.type_context.type_context.types[args[arg]]
+                                            && compiler.type_context.type_context.adt_types[adt_ref].collectable
+                                        {
+                                            compiler.fn_builder.ins().call(compiler.context.mark_root, &[value]);
+                                        }
+
+                                        index += 1;
+                                    }
+                                }
+                            }
+
+                            let returned = entry.compile(ast, &mut compiler).unwrap();
+
+                            compiler.unmark_variables();
+                            compiler.return_(returned);
+                            compiler.fn_builder.finalize();
+
+                            let func_id = compiler.id;
+
+                            if let Err(e) = self.compiler.codegen.module.define_function(func_id, &mut self.ctx) {
+                                match e {
+                                    ModuleError::Compilation(error) => {
+                                        panic!("function definition failed: {}", pretty_error(&self.ctx.func, error));
+                                    }
+                                    e => panic!("{}\nfunction definition failed: {e}", self.ctx.func),
+                                }
+                            }
+
+                            self.compiler.func_ref_to_func_id.insert(func_ref, func_id);
+                        }
+                        FunctionBody::Import(name) => {
+                            let func_id = self.compiler.codegen.module.declare_function(name, Linkage::Import, &signature).unwrap();
+
+                            self.compiler.func_ref_to_func_id.insert(func_ref, func_id);
+                        }
+                        FunctionBody::BuiltIn(_) => todo!(),
+                    }
+
+                    if let Type::Func(args, returns) = &self.context.type_context.types[func.ty] {
+                        tracing::info!(
+                            target: "mollie-compiler/functions     ",
+                            is_postfix = func.postfix,
+                            "Compiled `{}({}) -> {}`",
+                            func.name,
+                            args.iter().map(|arg| self.context.type_context.display_of(*arg)).join(", "),
+                            self.context.type_context.display_of(*returns)
+                        );
+                    }
+                }
             }
         }
 
-        None
+        let mut signature = self.compiler.codegen.module.make_signature();
+
+        for &(_, ty, _) in &params {
+            signature.params.push(ir::AbiParam::new(ty));
+        }
+
+        if let Some((ty, _)) = returns {
+            signature.returns.push(ir::AbiParam::new(ty));
+        }
+
+        let name = name.as_ref();
+        let mut compiler = FunctionCompiler::new(name, signature, self.compiler, &self.context, &mut self.ctx, &mut self.fn_builder_ctx).unwrap();
+
+        for (i, (name, ty, type_info)) in params.into_iter().enumerate() {
+            let value = compiler.fn_builder.block_params(compiler.entry_block)[i];
+
+            compiler.var(name, ty, type_info, value);
+        }
+
+        for used_item in &ast.used_items {
+            if let &UsedItem::VTable(target_ty, vtable, _) = used_item {
+                let hash = compiler.type_context.type_context.types.hash_of(target_ty);
+                let trait_ref = compiler.type_context.type_context.vtables[vtable].origin_trait;
+
+                if compiler.compiler.trait_to_vtable.contains_key(&(hash, trait_ref)) {
+                    continue;
+                }
+
+                let size = Array {
+                    element: MollieType::Regular(compiler.compiler.ptr_type()),
+                }
+                .get_size(compiler.compiler.vtables[&(hash, vtable)].len() + 1);
+
+                compiler.compiler.codegen.data_desc.define_zeroinit(size as usize);
+
+                let id = compiler.compiler.codegen.module.declare_anonymous_data(true, false).unwrap();
+
+                compiler.compiler.codegen.module.define_data(id, &compiler.compiler.codegen.data_desc).unwrap();
+                compiler.compiler.codegen.data_desc.clear();
+
+                let ptr_type = compiler.compiler.ptr_type();
+
+                let data_id = compiler.compiler.codegen.module.declare_data_in_func(id, compiler.fn_builder.func);
+                let vtable_ptr = compiler.fn_builder.ins().global_value(ptr_type, data_id);
+                let type_id = compiler.fn_builder.ins().iconst(ptr_type, hash.cast_signed());
+
+                compiler.fn_builder.ins().store(ir::MemFlags::trusted(), type_id, vtable_ptr, 0);
+
+                let mut offset = ptr_type.bytes();
+
+                for &func in compiler.compiler.vtables[&(hash, vtable)].values() {
+                    let func_ref = compiler.compiler.codegen.module.declare_func_in_func(func, compiler.fn_builder.func);
+
+                    compiler.funcs.insert(FuncKey::Id(func), func_ref);
+
+                    let func_ptr = compiler.fn_builder.ins().func_addr(ptr_type, func_ref);
+
+                    compiler
+                        .fn_builder
+                        .ins()
+                        .store(ir::MemFlags::trusted(), func_ptr, vtable_ptr, offset.cast_signed());
+
+                    offset += ptr_type.bytes();
+                }
+
+                compiler.compiler.trait_to_vtable.insert((hash, trait_ref), id);
+            }
+        }
+
+        let returned = block.compile(&ast, &mut compiler).unwrap();
+
+        compiler.return_(returned);
+        compiler.fn_builder.finalize();
+
+        let func = compiler.id;
+
+        if let Err(e) = self.compiler.codegen.module.define_function(func, &mut self.ctx) {
+            match e {
+                ModuleError::Compilation(error) => {
+                    panic!("function definition failed: {}", pretty_error(&self.ctx.func, error));
+                }
+                e => panic!("{}\nfunction definition failed: {e}", self.ctx.func),
+            }
+        }
+
+        self.compiler.codegen.module.finalize_definitions().unwrap();
+        self.compiler.name_to_func_id.insert(name.into(), func);
+
+        Ok(func)
     }
 }
 
 #[derive(Debug, Clone)]
-pub enum ValueOrFunc {
+pub enum MolValue {
     Value(ir::Value),
     Values(Vec<ir::Value>),
-    ExtFunc(ir::SigRef, ir::Value),
     FuncRef(ir::FuncRef),
-    Func(FuncId),
+    CaptureFuncRef(ir::FuncRef, ir::Value),
+    FatPtr(ir::Value, ir::Value),
     Nothing,
 }
 
-pub trait Compile<T = ()> {
-    /// # Errors
-    ///
-    /// Returns `CompileError` if compilation fails. This can happen in two
-    /// cases: if the referenced variable is not found or if type inference
-    /// fails.
-    fn compile(self, compiler: &mut Compiler, fn_builder: &mut FunctionBuilder) -> CompileResult<T>;
-}
-
-pub trait GetType {
-    /// # Errors
-    ///
-    /// Returns `TypeError` if type inference fails. This can happen if, for
-    /// example, the required type is not declared.
-    fn get_type(&self, compiler: &mut Compiler, span: Span) -> TypeResult;
-}
-
-pub trait GetPositionedType {
-    /// # Errors
-    ///
-    /// Returns `TypeError` if type inference fails. This can happen if, for
-    /// example, the required type is not declared.
-    fn get_type(&self, compiler: &mut Compiler) -> TypeResult;
-}
-
-impl<T: GetType> GetPositionedType for Positioned<T> {
-    fn get_type(&self, compiler: &mut Compiler) -> TypeResult {
-        self.value.get_type(compiler, self.span)
+impl MolValue {
+    pub fn expect_value(self) -> ir::Value {
+        match self {
+            Self::Value(value) => value,
+            value => panic!("MolValue::Value was expected, found {value:?}"),
+        }
     }
+}
+
+pub trait CompileTypedAST<M: Module, T> {
+    fn compile(self, ast: &TypedAST, compiler: &mut FunctionCompiler<'_, M>) -> CompileResult<T>;
+}
+
+pub trait AsIrType {
+    fn as_ir_type(&self, context: &TypeStorage, isa: &dyn TargetIsa) -> MollieType;
+}
+
+impl AsIrType for TypeRef {
+    fn as_ir_type(&self, context: &TypeStorage, isa: &dyn TargetIsa) -> MollieType {
+        match &context[*self] {
+            Type::Primitive(primitive_type) => match primitive_type {
+                PrimitiveType::Any => unimplemented!(),
+                PrimitiveType::Int(IntType::ISize) | PrimitiveType::UInt(UIntType::USize) => MollieType::Regular(isa.pointer_type()),
+                PrimitiveType::String => MollieType::Fat(isa.pointer_type(), isa.pointer_type()),
+                PrimitiveType::Int(IntType::I64) | PrimitiveType::UInt(UIntType::U64) => MollieType::Regular(ir::types::I64),
+                PrimitiveType::Int(IntType::I32) | PrimitiveType::UInt(UIntType::U32) => MollieType::Regular(ir::types::I32),
+                PrimitiveType::Int(IntType::I16) | PrimitiveType::UInt(UIntType::U16) => MollieType::Regular(ir::types::I16),
+                PrimitiveType::Int(IntType::I8) | PrimitiveType::UInt(UIntType::U8) | PrimitiveType::Bool => MollieType::Regular(ir::types::I8),
+                PrimitiveType::F32 => MollieType::Regular(ir::types::F32),
+                PrimitiveType::Void => unimplemented!(),
+            },
+            Type::Array(..) | Type::Adt(..) | Type::Func(..) => MollieType::Regular(isa.pointer_type()),
+            Type::Trait(..) => MollieType::Fat(isa.pointer_type(), isa.pointer_type()),
+            &Type::Generic(i) => context.generics.get(i).map_or_else(|| unimplemented!(), |ty| ty.as_ir_type(context, isa)),
+            Type::Error => unreachable!(),
+        }
+    }
+}
+
+impl<M: Module> CompileTypedAST<M, MolValue> for StmtRef {
+    fn compile(self, ast: &TypedAST, compiler: &mut FunctionCompiler<'_, M>) -> CompileResult<MolValue> {
+        match &ast[self] {
+            Stmt::Expr(expr_ref) => expr_ref.compile(ast, compiler),
+            Stmt::NewVar { name, value, .. } => {
+                let type_info = ast[*value].ty;
+                let ty = type_info.as_ir_type(&compiler.type_context.type_context.types, compiler.compiler.isa());
+                let value = value.compile(ast, compiler)?;
+
+                match (ty, value) {
+                    (MollieType::Regular(ty), MolValue::Value(value)) => {
+                        compiler.var(name, ty, type_info, value);
+
+                        if matches!(compiler.type_context.type_context.types[type_info], Type::Adt(..)) {
+                            compiler.fn_builder.ins().call(compiler.context.mark_root, &[value]);
+                        }
+                    }
+                    (MollieType::Regular(ty), MolValue::FuncRef(value)) => {
+                        let value = compiler.fn_builder.ins().func_addr(ty, value);
+
+                        compiler.var(name, ty, type_info, value);
+                    }
+                    (MollieType::Regular(ty), MolValue::CaptureFuncRef(value, metadata)) => {
+                        let value = compiler.fn_builder.ins().func_addr(ty, value);
+
+                        compiler.fat_var(name, ty, ty, type_info, value, metadata);
+                    }
+                    (MollieType::Fat(ty, fat_ty), MolValue::FatPtr(value, metadata)) => compiler.fat_var(name, ty, fat_ty, type_info, value, metadata),
+                    (ty, val) => panic!("can't create variable called {name} with type {ty:?} and value = {val:?}"),
+                }
+
+                Ok(MolValue::Nothing)
+            }
+        }
+    }
+}
+
+impl<M: Module> CompileTypedAST<M, MolValue> for BlockRef {
+    fn compile(self, ast: &TypedAST, compiler: &mut FunctionCompiler<'_, M>) -> CompileResult<MolValue> {
+        compiler.push_frame();
+
+        for statement in &ast[self].value.stmts {
+            statement.compile(ast, compiler)?;
+        }
+
+        let returned = ast[self].value.expr.map_or(Ok(MolValue::Nothing), |expr| expr.compile(ast, compiler))?;
+
+        compiler.unmark_variables();
+        compiler.pop_frame();
+
+        Ok(returned)
+    }
+}
+
+fn do_println_fat(value: (usize, usize)) {
+    println!("{value:?}");
 }
 
 fn do_println(value: i64) {
@@ -907,6 +1076,6 @@ fn do_println_addr(value: *mut ()) {
     println!("{}", value.addr());
 }
 
-fn do_println_str(value: &&str) {
+fn do_println_str(value: &str) {
     println!("{value}");
 }

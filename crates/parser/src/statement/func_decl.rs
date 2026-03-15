@@ -3,20 +3,22 @@ use mollie_shared::Positioned;
 
 use crate::{BlockExpr, Ident, Parse, ParseResult, Parser, ty::Type};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
-pub enum FuncVis {
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
+pub enum FuncModifier {
     Public,
+    Postfix,
 }
 
-impl Parse for FuncVis {
+impl Parse for FuncModifier {
     fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
-        let vis = parser.consume(&Token::Public)?;
-
-        Ok(vis.wrap(Self::Public))
+        parser
+            .consume(&Token::Public)
+            .map(|t| t.wrap(Self::Public))
+            .or_else(|_| parser.consume(&Token::Postfix).map(|t| t.wrap(Self::Postfix)))
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub struct Argument {
     pub name: Positioned<Ident>,
     pub ty: Positioned<Type>,
@@ -37,24 +39,22 @@ impl Parse for Argument {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct FuncDecl {
-    pub func_vis: Option<Positioned<FuncVis>>,
+    pub modifiers: Vec<Positioned<FuncModifier>>,
     pub name: Positioned<Ident>,
-    pub args: Vec<Positioned<Argument>>,
+    pub args: Positioned<Vec<Positioned<Argument>>>,
     pub returns: Option<Positioned<Type>>,
     pub body: Positioned<BlockExpr>,
 }
 
 impl Parse for FuncDecl {
     fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>> {
-        let start = parser.consume(&Token::Fn)?;
-
-        let func_vis = FuncVis::parse(parser).ok();
-
+        let modifiers = parser.consume_while(|parser| parser.check_one_of(&[Token::Public, Token::Postfix]))?;
+        let start = parser.consume(&Token::Func)?;
         let name = Ident::parse(parser)?;
 
-        parser.consume(&Token::ParenOpen)?;
+        let args_start = parser.consume(&Token::ParenOpen)?;
 
         let mut args = Vec::new();
 
@@ -70,7 +70,7 @@ impl Parse for FuncDecl {
             args.push(Argument::parse(parser)?);
         }
 
-        parser.consume(&Token::ParenClose)?;
+        let args_end = parser.consume(&Token::ParenClose)?;
 
         let returns = if parser.try_consume(&Token::Arrow) {
             Some(Type::parse(parser)?)
@@ -81,9 +81,9 @@ impl Parse for FuncDecl {
         let body = BlockExpr::parse(parser)?;
 
         Ok(start.between(&body).wrap(Self {
-            func_vis,
+            modifiers,
             name,
-            args,
+            args: args_start.between(&args_end).wrap(args),
             returns,
             body,
         }))

@@ -2,7 +2,7 @@ mod error;
 mod statement;
 mod ty;
 
-use std::vec::IntoIter;
+use std::{fmt, vec::IntoIter};
 
 use mollie_lexer::{Lexer, Token};
 use mollie_shared::Positioned;
@@ -65,6 +65,15 @@ impl Parser {
         self.tokens.next_if(|token| &token.value == value).is_some()
     }
 
+    /// Consumes the current token only if it exists and is equal to `value`.
+    pub fn try_consume_then<T, F: FnOnce(&mut Self) -> ParseResult<T>>(&mut self, value: &Token, func: F) -> ParseResult<Option<T>> {
+        if self.tokens.next_if(|token| &token.value == value).is_some() {
+            func(self).map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+
     fn verify_nth(&mut self, index: usize, token: &Token) -> ParseResult<()> {
         if self.tokens.peek_nth(index).is_some_and(|value| &value.value == token) {
             Ok(())
@@ -79,6 +88,14 @@ impl Parser {
         } else {
             Err(ParseError::unexpected_token(self.tokens.peek_nth(index)))
         }
+    }
+
+    pub fn len(&self) -> usize {
+        self.tokens.len()
+    }
+
+    pub fn is_empty(&mut self) -> bool {
+        self.tokens.peek().is_none()
     }
 
     /// # Errors
@@ -123,6 +140,21 @@ impl Parser {
     /// Will return an error if "func" return false.
     pub fn verify3_if<F: Fn(&Token) -> bool>(&mut self, func: F) -> ParseResult<()> {
         self.verify_nth_if(2, func)
+    }
+
+    /// Checks if the next token exists and it is equal to `value`.
+    pub fn check_one_of(&mut self, values: &[Token]) -> bool {
+        self.check_if(|v| values.contains(v))
+    }
+
+    /// Checks if the next token exists and it is equal to `value`.
+    pub fn check2_one_of(&mut self, values: &[Token]) -> bool {
+        self.check2_if(|v| values.contains(v))
+    }
+
+    /// Checks if the next token exists and it is equal to `value`.
+    pub fn check3_one_of(&mut self, values: &[Token]) -> bool {
+        self.check3_if(|v| values.contains(v))
     }
 
     /// Checks if the next token exists and it is equal to `value`.
@@ -240,6 +272,19 @@ impl Parser {
         Ok(values)
     }
 
+    /// # Errors
+    ///
+    /// Returns error if parsing failed
+    pub fn consume_while<T: Parse, F: Fn(&mut Self) -> bool>(&mut self, func: F) -> ParseResult<Vec<Positioned<T>>> {
+        let mut values = Vec::new();
+
+        while func(self) {
+            values.push(T::parse(self)?);
+        }
+
+        Ok(values)
+    }
+
     /// Consumes the current token if it exists and is equal to `value`,
     /// otherwise returning `ParseError`.
     ///
@@ -313,7 +358,7 @@ impl Parser {
         self.tokens.collect()
     }
 
-    pub fn expected_token<T: std::fmt::Display>(&mut self, expected: T) -> ParseError {
+    pub fn expected_token<T: fmt::Display>(&mut self, expected: T) -> ParseError {
         self.peek().map_or_else(
             || ParseError(format!("Expected {expected}, found nothing"), None),
             |found| ParseError(format!("Expected {expected}, found {}", found.value), Some(found.span)),
@@ -339,4 +384,20 @@ pub trait Parse: Sized {
     ///
     /// Returns error if parsing failed
     fn parse(parser: &mut Parser) -> ParseResult<Positioned<Self>>;
+}
+
+#[cfg(test)]
+mod tests {
+    use mollie_lexer::Lexer;
+
+    use crate::{Expr, Parse, Parser};
+
+    #[test]
+    fn test_node_parsing() {
+        let tokens = Lexer::lex("Option::Some(value)");
+        let mut parser = Parser::new(tokens);
+        let expr = Expr::parse(&mut parser);
+
+        println!("{expr:#?}");
+    }
 }

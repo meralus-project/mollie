@@ -1,4 +1,17 @@
 use derive_more::derive::{Display, IsVariant, Unwrap};
+use mollie_shared::Positioned;
+
+#[derive(Debug, Display, IsVariant, Unwrap, PartialEq, Clone, PartialOrd)]
+pub enum NumberToken {
+    #[display("{_0}")]
+    #[is_variant]
+    #[unwrap]
+    F32(f32),
+    #[display("{_0}")]
+    #[is_variant]
+    #[unwrap]
+    I64(i64),
+}
 
 #[derive(Debug, Display, IsVariant, Unwrap, PartialEq, Clone, PartialOrd)]
 pub enum Token {
@@ -16,21 +29,23 @@ pub enum Token {
     #[display("{_0}")]
     #[is_variant]
     #[unwrap]
-    Float(f32, Option<String>),
-    #[display("{}", if *_2 { format!("0x{_0:06X}{}", _1.as_deref().unwrap_or_default()) } else { format!("{_0}{}", _1.as_deref().unwrap_or_default()) })]
-    #[is_variant]
-    #[unwrap]
-    Integer(i64, Option<String>, bool),
+    Number(Positioned<NumberToken>, Option<Positioned<String>>),
     #[display("{_0}")]
     #[is_variant]
     #[unwrap]
-    Boolean(bool),
+    Bool(bool),
+    #[display("import")]
+    Import,
+    #[display("module")]
+    Module,
     #[display("public")]
     Public,
+    #[display("super")]
+    Super,
     #[display("self")]
     This,
-    #[display("declare")]
-    Declare,
+    #[display("view")]
+    View,
     #[display("inherits")]
     Inherits,
     #[display("as")]
@@ -61,16 +76,14 @@ pub enum Token {
     Else,
     #[display("loop")]
     Loop,
-    #[display("null")]
-    Null,
-    // #[display("infix")]
-    // Infix,
+    #[display("postfix")]
+    Postfix,
     #[display("fn")]
-    Fn,
-    // #[display("match")]
-    // Match,
-    // #[display("is")]
-    // Is,
+    Func,
+    #[display("@")]
+    Attr,
+    #[display("switch")]
+    Switch,
     #[display("[")]
     BracketOpen,
     #[display("]")]
@@ -91,14 +104,22 @@ pub enum Token {
     Semi,
     #[display("-")]
     Minus,
+    #[display("-=")]
+    MinusEq,
     #[display("+")]
     Plus,
+    #[display("+=")]
+    PlusEq,
     #[display("/")]
     Slash,
+    #[display("/=")]
+    SlashEq,
     #[display("*")]
     Star,
-    // #[display("=>")]
-    // FatArrow,
+    #[display("*=")]
+    StarEq,
+    #[display("=>")]
+    FatArrow,
     #[display("->")]
     Arrow,
     #[display("=")]
@@ -111,14 +132,16 @@ pub enum Token {
     Not,
     #[display("|")]
     Or,
+    #[display("|=")]
+    OrEq,
     #[display("||")]
     OrOr,
     #[display("&")]
     And,
+    #[display("&=")]
+    AndEq,
     #[display("&&")]
     AndAnd,
-    // #[display("#")]
-    // Pound,
     #[display("?")]
     Question,
     #[display("%")]
@@ -129,10 +152,12 @@ pub enum Token {
     Less,
     #[display(">")]
     Greater,
+    #[display("<=")]
+    LessEq,
+    #[display(">=")]
+    GreaterEq,
     #[display(".")]
     Dot,
-    // #[display("new")]
-    // New,
     #[display("impl")]
     Impl,
     #[display("trait")]
@@ -152,6 +177,20 @@ impl Token {
     #[must_use]
     pub fn is_ident_and(&self, func: impl FnOnce(&String) -> bool) -> bool {
         if let Self::Ident(value) = self { func(value) } else { false }
+    }
+
+    pub const fn is_i64(&self) -> bool {
+        if let Self::Number(value, _) = self { value.value.is_i_64() } else { false }
+    }
+
+    pub const fn is_f32(&self) -> bool {
+        if let Self::Number(value, _) = self { value.value.is_f_32() } else { false }
+    }
+
+    pub fn unwrap_integer(self) -> (Positioned<i64>, Option<Positioned<String>>) {
+        let (number, postfix) = self.unwrap_number();
+
+        (number.span.wrap(number.value.unwrap_i_64()), postfix)
     }
 
     // #[must_use]
