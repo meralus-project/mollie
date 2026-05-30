@@ -23,5 +23,5 @@ If you'd like, you can support me on [Boosty](https://boosty.to/aiving) or [Patr
 Some of people that did it:
 
 - [Y4r0sl4v](https://github.com/yaroslav957)
-- [Aern-d](https://github.com/Aern-do)
+- [Aern-do](https://github.com/Aern-do)
 - [Timofey Arkhipov](https://github.com/timar07)
